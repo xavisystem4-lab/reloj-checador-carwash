@@ -26,7 +26,7 @@ namespace RelojChecador.WPF.ViewModels;
 /// dispositivo real de prueba; revisar esto antes de soportar varios relojes conectados
 /// simultáneamente.
 /// </summary>
-public sealed partial class DevicesViewModel : ObservableObject
+public sealed partial class DevicesViewModel : ObservableObject, IDisposable
 {
     private readonly IDeviceRepository _deviceRepository;
     private readonly IBranchRepository _branchRepository;
@@ -47,6 +47,11 @@ public sealed partial class DevicesViewModel : ObservableObject
     [ObservableProperty] private string _protocolResult = "No verificado";
     [ObservableProperty] private string _authResult = "No verificado";
     [ObservableProperty] private bool _isConnected;
+
+    /// <summary>¿Hay marcaciones llegando en vivo ahora mismo? Se activa solo al conectar
+    /// (ver ConnectAsync) — nunca hay que presionar un botón aparte para que la asistencia
+    /// aparezca al instante.</summary>
+    [ObservableProperty] private bool _isMonitoringRealTime;
 
     // --- Información reportada por el dispositivo (solo tras "Consultar información") ---
     [ObservableProperty] private string? _infoSerialNumber;
@@ -70,6 +75,26 @@ public sealed partial class DevicesViewModel : ObservableObject
         _branchRepository = branchRepository;
         _unitOfWork = unitOfWork;
         _deviceAdapter = deviceAdapter;
+
+        // El adaptador es Singleton (una sola instancia para toda la app — ver comentario de
+        // clase) pero este ViewModel es Scoped (una instancia por ventana); por eso hay que
+        // desuscribirse explícitamente en Dispose(), o cada ventana nueva dejaría un
+        // manejador colgado apuntando a un ViewModel ya descartado.
+        _deviceAdapter.AttendancePunchReceived += OnAttendancePunchReceived;
+    }
+
+    public void Dispose() => _deviceAdapter.AttendancePunchReceived -= OnAttendancePunchReceived;
+
+    /// <summary>Se invoca desde el hilo del adaptador (background), nunca desde el de UI —
+    /// por eso todo lo que toca las ObservableCollection/propiedades se reenvía al
+    /// Dispatcher de WPF antes de tocarlas.</summary>
+    private void OnAttendancePunchReceived(object? sender, RawAttendanceRecord record)
+    {
+        System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+        {
+            AttendanceRecords.Insert(0, record);
+            AppendLog($"🟢 Marcación en vivo — PIN {record.DeviceUserPin} · {record.TimestampUtc:HH:mm:ss} · {record.VerifyMethod}");
+        });
     }
 
     public async Task InitializeAsync()
@@ -129,13 +154,23 @@ public sealed partial class DevicesViewModel : ObservableObject
     partial void OnSelectedDeviceChanged(Device? value)
     {
         // Cambiar de dispositivo reinicia el diagnóstico — nunca se hereda el resultado
-        // de un dispositivo distinto.
+        // de un dispositivo distinto. También corta la conexión/monitoreo real si estaban
+        // activos: como el adaptador es una sola instancia compartida (ver comentario de
+        // clase), sin esto quedaría "conectado" de fondo al reloj anterior aunque la
+        // pantalla ya no lo muestre así.
+        if (IsConnected)
+        {
+            _ = _deviceAdapter.StopRealTimeMonitoringAsync();
+            _ = _deviceAdapter.DisconnectAsync();
+        }
+
         IpValidResult = "No verificado";
         PingResult = "No verificado";
         PortResult = "No verificado";
         ProtocolResult = "No verificado";
         AuthResult = "No verificado";
         IsConnected = false;
+        IsMonitoringRealTime = false;
         InfoSerialNumber = null;
         InfoFirmwareVersion = null;
         InfoPlatform = null;
@@ -206,11 +241,21 @@ public sealed partial class DevicesViewModel : ObservableObject
         AuthResult = "✅ Autenticación correcta";
         IsConnected = true;
         AppendLog("Comunicación completa establecida con el dispositivo.");
+
+        // Al conectar, arranca solo el monitoreo en vivo — no hay que presionar nada
+        // aparte para que una marcación aparezca en la lista casi al instante.
+        var monitorResult = await _deviceAdapter.StartRealTimeMonitoringAsync();
+        IsMonitoringRealTime = monitorResult.IsSuccess;
+        AppendLog(monitorResult.IsSuccess
+            ? "Monitoreo en tiempo real activo: las marcaciones nuevas aparecerán solas."
+            : $"No se pudo activar el monitoreo en tiempo real: {monitorResult.Error.Message}");
     }
 
     [RelayCommand]
     private async Task DisconnectAsync()
     {
+        await _deviceAdapter.StopRealTimeMonitoringAsync();
+        IsMonitoringRealTime = false;
         await _deviceAdapter.DisconnectAsync();
         IsConnected = false;
         AppendLog("Desconectado del dispositivo.");

@@ -35,4 +35,9 @@ public static class DeviceErrors
 
     public static Error UserNotFound(string deviceUserPin) =>
         new("Device.UserNotFound", $"No existe el usuario con PIN '{deviceUserPin}' en el dispositivo.");
+
+    public static Error SdkNotAvailable(string detail) =>
+        new("Device.SdkNotAvailable",
+            $"No se pudo inicializar el SDK del fabricante en este equipo: {detail}. " +
+            "¿Está instalado y registrado (zkemkeeper.dll vía regsvr32) y corriendo la app en 32 bits?");
 }

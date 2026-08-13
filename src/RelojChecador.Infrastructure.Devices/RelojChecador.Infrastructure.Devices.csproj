@@ -11,4 +11,15 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <!-- SDK de ZKTeco (ver third-party/zkteco-sdk/README.md): se copian junto al .exe final
+       de quien referencie este proyecto (RelojChecador.WPF) para que ZKTecoDeviceAdapter
+       los encuentre en tiempo de ejecución. zkemkeeper.dll además se registra como
+       servidor COM al instalar — ver installer/RelojChecador.iss, Flags: regserver. -->
+  <ItemGroup>
+    <None Include="..\..\third-party\zkteco-sdk\*.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>%(Filename)%(Extension)</Link>
+    </None>
+  </ItemGroup>
+
 </Project>

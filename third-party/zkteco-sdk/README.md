@@ -26,16 +26,30 @@ y habrá que actualizar cuando se conecte este adaptador.
   (comunicación TCP/USB/RS232 de bajo nivel). Deben quedar junto al `.dll`
   principal y junto al `.exe` final para que el registro COM las encuentre.
 
-## Pendiente antes de poder usarlo
+## Cómo se resolvió (sin generar el interop assembly)
 
-1. Cambiar `RelojChecador.WPF` (y el publish/instalador) de `win-x64` a `win-x86`.
-2. Registrar `zkemkeeper.dll` en el equipo de desarrollo/CI (`regsvr32 zkemkeeper.dll`)
-   para poder generar el COM interop assembly, o referenciarlo con
-   `Embed Interop Types` desde una referencia COM directa en el `.csproj`.
-3. Escribir `ZKTecoDeviceAdapter : IAttendanceDeviceAdapter` en
-   `RelojChecador.Infrastructure.Devices` (hoy solo existe `SimulatorDeviceAdapter`),
-   probado contra el reloj F22/ID real (192.168.1.66:4370) ya registrado en la base
-   local.
-4. Verificar `RegEvent`/eventos en tiempo real del SDK para la sincronización
-   instantánea pedida (no solo descarga on-demand) — capacidad ya contemplada como
-   `DeviceCapabilities.RealTimeEvents`.
+En vez de registrar `zkemkeeper.dll` en cada máquina que compila (imposible desde
+macOS/Linux, frágil en CI) y generar un `Interop.zkemkeeper.dll` con `tlbimp`,
+`ZKTecoDeviceAdapter` (en `RelojChecador.Infrastructure.Devices/ZKTeco/`) usa **enlace
+tardío**: `Type.GetTypeFromProgID("zkemkeeper.CZKEM")` + `dynamic`. Eso compila igual en
+cualquier sistema operativo — el SDK real solo hace falta en tiempo de EJECUCIÓN, en la
+máquina Windows de la sucursal, donde `installer/RelojChecador.iss` ya lo registra
+(`Flags: regserver` sobre `zkemkeeper.dll`).
+
+Por la misma razón (evitar depender del ensamblado de interop generado, que es lo único
+que da eventos COM fuertemente tipados con `+=`), el "tiempo real" pedido por el usuario
+se implementa por **sondeo** (`ReadGeneralLogData` cada pocos segundos comparando contra
+la última marcación vista) en vez del evento nativo `OnAttTransactionEx` — ver el
+comentario de clase en `ZKTecoDeviceAdapter.cs` para el detalle completo.
+
+## Pendiente
+
+- **Confirmar contra el F22/ID real en Windows.** El adaptador compila y las 58 pruebas
+  automatizadas siguen en verde, pero el enlace tardío + los nombres de método/códigos del
+  SDK (p. ej. el mapeo de `dwVerifyMode` a `VerifyMethod`, o el "backup number" 12 de
+  `SSR_DeleteEnrollData`) siguen la convención más citada en la documentación/comunidad del
+  SDK — no verificada todavía contra hardware real, porque el desarrollo se hizo desde
+  macOS sin acceso directo a la VM de Windows del usuario.
+- `FingerprintTemplateTransfer` y `UserPhotoSync` (ver `DeviceCapabilities`): el SDK las
+  soporta, pero `ZKTecoDeviceAdapter` no las implementa todavía — a propósito no las
+  anuncia en `GetSupportedCapabilitiesAsync`.

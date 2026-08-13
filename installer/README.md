@@ -13,7 +13,8 @@ aplicación WPF como ejecutable autocontenido (no requiere que el equipo destino
 ## Pasos
 
 ```powershell
-# 1) Publicar el ejecutable autocontenido (win-x64, un solo archivo)
+# 1) Publicar el ejecutable autocontenido (win-x86 — 32 bits, requerido por
+#    zkemkeeper.dll, ver third-party/zkteco-sdk/README.md — un solo archivo)
 .\installer\publish.ps1
 
 # 2) Compilar el instalador con Inno Setup

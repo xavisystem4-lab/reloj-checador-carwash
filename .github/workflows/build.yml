@@ -43,17 +43,20 @@ jobs:
           name: test-results
           path: "**/*.trx"
 
-      - name: Publicar RelojChecador.WPF (self-contained win-x64)
+      - name: Publicar RelojChecador.WPF (self-contained win-x86)
+        # win-x86, no win-x64: zkemkeeper.dll (SDK real de ZKTeco, ver
+        # third-party/zkteco-sdk/README.md) es un COM server de 32 bits — un proceso de
+        # 64 bits no puede activarlo por interop.
         run: >
           dotnet publish src/RelojChecador.WPF/RelojChecador.WPF.csproj
-          -c Release -r win-x64 --self-contained true
+          -c Release -r win-x86 --self-contained true
           -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
           -o installer/publish
 
       - name: Subir ejecutable publicado
         uses: actions/upload-artifact@v4
         with:
-          name: RelojChecador-win-x64
+          name: RelojChecador-win-x86
           path: installer/publish/
 
       - name: Instalar Inno Setup

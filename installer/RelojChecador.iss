@@ -32,8 +32,12 @@ DisableProgramGroupPage=yes
 ; de sucursal). Alternativa si se prefiere instalación sin admin: cambiar
 ; PrivilegesRequired a "lowest" y DefaultDirName a "{localappdata}\Programs\{#MyAppName}".
 PrivilegesRequired=admin
-ArchitecturesAllowed=x64compatible
-ArchitecturesInstallIn64BitMode=x64compatible
+; Sin ArchitecturesAllowed/ArchitecturesInstallIn64BitMode a propósito: la app se publica
+; como win-x86 (32 bits) porque zkemkeeper.dll (SDK real de ZKTeco, ver
+; third-party/zkteco-sdk/README.md) es un COM server de 32 bits. Un app de 32 bits corre
+; bien en Windows de 32 y de 64 bits vía WOW64 — no hace falta restringir arquitectura, y
+; {autopf} sin ArchitecturesInstallIn64BitMode ya resuelve a "Archivos de programa (x86)"
+; en Windows de 64 bits, que es donde debe vivir un ejecutable de 32 bits.
 OutputDir=output
 OutputBaseFilename=RelojChecador-Setup-{#MyAppVersion}
 Compression=lzma2/ultra
@@ -48,8 +52,16 @@ Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
 Name: "desktopicon"; Description: "Crear un acceso directo en el escritorio"; GroupDescription: "Accesos directos adicionales:"; Flags: unchecked
 
 [Files]
-; Todo el contenido publicado (el .exe autocontenido + dependencias nativas, si las hay).
-Source: "{#MyPublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Todo el contenido publicado (el .exe autocontenido + dependencias nativas, incluido el
+; SDK de ZKTeco — ver third-party/zkteco-sdk/README.md), EXCEPTO zkemkeeper.dll: ese va
+; aparte abajo porque necesita "regserver" para quedar registrado como servidor COM.
+Source: "{#MyPublishDir}\*"; DestDir: "{app}"; Excludes: "zkemkeeper.dll"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+; zkemkeeper.dll es un COM server de 32 bits (ver comentario de [Setup]) — "regserver" hace
+; que Inno Setup lo registre (equivalente a regsvr32) al instalar y lo desregistre al
+; desinstalar, para que ZKTecoDeviceAdapter pueda activarlo por
+; Type.GetTypeFromProgID("zkemkeeper.CZKEM") en tiempo de ejecución.
+Source: "{#MyPublishDir}\zkemkeeper.dll"; DestDir: "{app}"; Flags: ignoreversion regserver
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

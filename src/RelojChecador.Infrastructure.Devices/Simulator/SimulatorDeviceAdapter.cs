@@ -15,14 +15,18 @@ namespace RelojChecador.Infrastructure.Devices.Simulator;
 /// del equipo ZKTeco F22/ID que se usará en campo, para que el diagnóstico y las
 /// pantallas se vean realistas incluso sin conexión al hardware.
 /// </summary>
-public sealed class SimulatorDeviceAdapter : IAttendanceDeviceAdapter
+public sealed class SimulatorDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
 {
     private readonly Dictionary<string, DeviceUserRecord> _users;
     private readonly List<RawAttendanceRecord> _attendanceLogs;
     private bool _isConnected;
     private bool _isEnabled = true;
+    private Timer? _realTimeTimer;
+    private int _realTimeTick;
 
     public string Brand => "Simulador";
+
+    public event EventHandler<RawAttendanceRecord>? AttendancePunchReceived;
 
     /// <summary>Permite forzar fallas de red/puerto en pruebas (p. ej. simular el reloj apagado).</summary>
     public bool SimulateNetworkUnreachable { get; set; }
@@ -71,6 +75,8 @@ public sealed class SimulatorDeviceAdapter : IAttendanceDeviceAdapter
     public Task<Result> DisconnectAsync(CancellationToken cancellationToken = default)
     {
         _isConnected = false;
+        _realTimeTimer?.Dispose();
+        _realTimeTimer = null;
         return Task.FromResult(Result.Success());
     }
 
@@ -269,6 +275,41 @@ public sealed class SimulatorDeviceAdapter : IAttendanceDeviceAdapter
 
         return Task.FromResult(all);
     }
+
+    public Task<Result> StartRealTimeMonitoringAsync(CancellationToken cancellationToken = default)
+    {
+        if (!_isConnected)
+        {
+            return Task.FromResult(Result.Failure(DeviceErrors.NotConnected()));
+        }
+
+        // Emite una marcación simulada cada 4s (alternando los mismos empleados de
+        // _attendanceLogs), suficiente para verificar en pantalla que la UI reacciona en
+        // vivo sin depender de tocar el reloj físico. No persiste nada — igual que
+        // DownloadAttendanceLogsAsync, quien escuche decide qué hacer con el registro.
+        _realTimeTimer ??= new Timer(_ => EmitSimulatedPunch(), null, TimeSpan.FromSeconds(4), TimeSpan.FromSeconds(4));
+        return Task.FromResult(Result.Success());
+    }
+
+    public Task<Result> StopRealTimeMonitoringAsync(CancellationToken cancellationToken = default)
+    {
+        _realTimeTimer?.Dispose();
+        _realTimeTimer = null;
+        return Task.FromResult(Result.Success());
+    }
+
+    private void EmitSimulatedPunch()
+    {
+        var pin = (_realTimeTick % 2 == 0) ? "1" : "2";
+        var punchType = (_realTimeTick % 4 < 2) ? 0 : 1; // IN, IN, OUT, OUT, IN, ...
+        _realTimeTick++;
+
+        var record = new RawAttendanceRecord(
+            pin, DateTime.UtcNow, VerifyMethod.Fingerprint, punchType, RawPayload: $"SIM-RT|{pin}|{punchType}");
+        AttendancePunchReceived?.Invoke(this, record);
+    }
+
+    public void Dispose() => _realTimeTimer?.Dispose();
 
     /// <summary>¿El dispositivo simulado está actualmente habilitado? Expuesto para pruebas.</summary>
     public bool IsEnabled => _isEnabled;

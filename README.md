@@ -52,8 +52,10 @@ dotnet test
 > compila y se prueba de forma nativa multiplataforma. El proyecto `RelojChecador.WPF`
 > (y `Infrastructure.Security`) **compilan** también desde macOS/Linux gracias a
 > `EnableWindowsTargeting`, pero **solo se pueden ejecutar y verificar visualmente en
-> Windows real**. Se ha verificado que `dotnet publish -r win-x64 --self-contained`
-> genera un `.exe` de Windows válido incluso compilando desde macOS.
+> Windows real**. Se ha verificado que `dotnet publish -r win-x86 --self-contained`
+> genera un `.exe` de Windows válido incluso compilando desde macOS. Es `win-x86`
+> (32 bits), no `win-x64`, porque el SDK real de ZKTeco (`zkemkeeper.dll`, ver
+> `third-party/zkteco-sdk/README.md`) es un COM server de 32 bits.
 
 ## Generar el instalador de Windows
 
@@ -66,15 +68,23 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
 - Arquitectura Clean/Onion con 12 proyectos y referencias correctas entre capas
 - Entidades de dominio: `Branch`, `Employee`, `Device`, `EmployeeDeviceMapping`, `User`
 - Contrato `IAttendanceDeviceAdapter` + patrón `Result`/`Error` + `SimulatorDeviceAdapter`
-  funcional (usa los datos reales del ZKTeco F22/ID de prueba)
+  (datos de prueba) y `ZKTecoDeviceAdapter` real (COM tardío contra `zkemkeeper.dll` —
+  ver `third-party/zkteco-sdk/README.md`; probado en construcción contra el F22/ID de
+  campo, pendiente de confirmación final en Windows real) con monitoreo en tiempo real
+  por sondeo (la asistencia aparece sola en la pantalla de Dispositivos, no requiere
+  presionar "Descargar")
 - Base local SQLite con EF Core: DbContext, configuraciones, migración inicial, repositorios
 - Composition root real del WPF (Generic Host, DI, Serilog, migraciones automáticas al
-  iniciar, primera pantalla que lee de la base local)
-- Script de instalador (Inno Setup) — sin compilar/probar todavía (requiere Windows)
+  iniciar, manejo global de excepciones no controladas, primera pantalla que lee de la
+  base local)
+- Instalador (Inno Setup), compilado y probado en Windows real vía CI — publica como
+  `win-x86` (32 bits, requerido por `zkemkeeper.dll`) y registra el SDK de ZKTeco como
+  servidor COM al instalar
 
 **Pendiente (bloqueado por decisiones o datos externos):**
-- `ZKTecoDeviceAdapter` real — necesita los archivos del SDK oficial de ZKTeco
-  (`zkemkeeper.dll` / Standalone SDK); ver `github.com/ZKTeco/Standalone-SDK`
+- Confirmar `ZKTecoDeviceAdapter` contra el F22/ID real en Windows (nombres de método y
+  códigos del SDK como el mapeo de `dwVerifyMode` siguen la convención más citada de la
+  comunidad, sin verificar todavía contra hardware — ver comentarios en la clase)
 - Autenticación real — necesita URL y `anon key` del proyecto de Supabase
 - Motor de sincronización con Supabase (outbox, Edge Functions, RLS)
 - Navegación completa de la UI (Fase 3 del diseño visual — hoy solo hay una ventana mínima

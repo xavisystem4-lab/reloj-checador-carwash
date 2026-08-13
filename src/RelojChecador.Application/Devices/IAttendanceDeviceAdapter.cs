@@ -21,6 +21,17 @@ public interface IAttendanceDeviceAdapter
     /// <summary>Nombre de la marca que implementa este adaptador (p. ej. "ZKTeco", "Simulador").</summary>
     string Brand { get; }
 
+    /// <summary>
+    /// Se dispara con cada marcación nueva mientras el monitoreo en tiempo real está
+    /// activo (<see cref="StartRealTimeMonitoringAsync"/>) — es la vía para que la
+    /// asistencia aparezca "al instante" en vez de esperar a que alguien presione
+    /// "Descargar asistencias". Nunca se dispara fuera de ese modo.
+    ///
+    /// Quien se suscribe es responsable de volver al hilo de UI si va a tocar la UI —
+    /// el adaptador no garantiza en qué hilo se invoca.
+    /// </summary>
+    event EventHandler<RawAttendanceRecord>? AttendancePunchReceived;
+
     Task<Result> ConnectAsync(DeviceConnectionInfo connection, CancellationToken cancellationToken = default);
 
     Task<Result> DisconnectAsync(CancellationToken cancellationToken = default);
@@ -58,4 +69,14 @@ public interface IAttendanceDeviceAdapter
     Task<Result> ClearAttendanceLogsAsync(CancellationToken cancellationToken = default);
 
     Task<DeviceCapabilities> GetSupportedCapabilitiesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Empieza a vigilar el dispositivo para reportar cada marcación nueva casi
+    /// al instante vía <see cref="AttendancePunchReceived"/>. Requiere conexión activa
+    /// (<see cref="DeviceErrors.NotConnected"/> si no la hay). Seguro de llamar dos veces
+    /// seguidas — la segunda no hace nada si ya está monitoreando.</summary>
+    Task<Result> StartRealTimeMonitoringAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Detiene el monitoreo iniciado por <see cref="StartRealTimeMonitoringAsync"/>.
+    /// Seguro de llamar aunque no esté activo (no-op en ese caso).</summary>
+    Task<Result> StopRealTimeMonitoringAsync(CancellationToken cancellationToken = default);
 }

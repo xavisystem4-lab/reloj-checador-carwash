@@ -6,7 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using RelojChecador.Application.Devices;
 using RelojChecador.Infrastructure.Data;
-using RelojChecador.Infrastructure.Devices.Simulator;
+using RelojChecador.Infrastructure.Devices.ZKTeco;
 using RelojChecador.Infrastructure.Logging;
 using RelojChecador.WPF.ViewModels;
 using Serilog;
@@ -66,10 +66,11 @@ public partial class App : System.Windows.Application
                 {
                     services.AddRelojChecadorData($"Data Source={databasePath}");
 
-                    // Mientras no exista el adaptador real de ZKTeco (pendiente del SDK oficial —
-                    // ver memoria del proyecto), toda la app usa el simulador. Sustituir esta línea
-                    // por ZKTecoDeviceAdapter es el único cambio necesario cuando esté listo.
-                    services.AddSingleton<IAttendanceDeviceAdapter, SimulatorDeviceAdapter>();
+                    // ZKTecoDeviceAdapter (COM de 32 bits, ver third-party/zkteco-sdk/README.md)
+                    // reemplaza a SimulatorDeviceAdapter ahora que hay un reloj F22/ID real en
+                    // campo. Si algún día hace falta volver al simulador (desarrollo sin
+                    // hardware a la mano), esta es la única línea que hay que cambiar.
+                    services.AddSingleton<IAttendanceDeviceAdapter, ZKTecoDeviceAdapter>();
 
                     // Scoped, no Singleton: cada ventana principal recibe su propio DbContext con
                     // vida acotada a esa ventana (ver el scope creado más abajo), en vez de
