@@ -1,0 +1,16 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\RelojChecador.Domain\RelojChecador.Domain.csproj" />
+    <ProjectReference Include="..\..\src\RelojChecador.Application\RelojChecador.Application.csproj" />
+    <ProjectReference Include="..\..\src\RelojChecador.Infrastructure.Data\RelojChecador.Infrastructure.Data.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>
