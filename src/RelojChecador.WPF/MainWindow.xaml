@@ -9,17 +9,37 @@
         Title="Reloj Checador" Height="650" Width="1000">
     <Window.Resources>
         <converters:InverseBoolConverter x:Key="InverseBoolConverter" />
+
+        <!-- Punto de estado de la nube — color según CloudSyncStatusKind ("Connected" =
+             verde, "Error" = rojo, "Disabled"/"Syncing"/cualquier otro = gris neutro). Usa
+             DynamicResource (no un color fijo) para que el punto respete el tema
+             claro/oscuro activo. -->
+        <Style x:Key="CloudStatusDotStyle" TargetType="Ellipse">
+            <Setter Property="Width" Value="9" />
+            <Setter Property="Height" Value="9" />
+            <Setter Property="Fill" Value="{DynamicResource BrushTextSecondary}" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding CloudSyncStatusKind}" Value="Connected">
+                    <Setter Property="Fill" Value="{DynamicResource BrushSuccess}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding CloudSyncStatusKind}" Value="Error">
+                    <Setter Property="Fill" Value="{DynamicResource BrushDanger}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
     </Window.Resources>
-    <!-- DataContext de la ventana = UpdateViewModel (para la barra inferior). Los
-         controles hijo (BranchesViewControl/DevicesViewControl) tienen su PROPIO
+    <!-- DataContext de la ventana = UpdateViewModel (para las barras superior e inferior).
+         Los controles hijo (BranchesViewControl/DevicesViewControl) tienen su PROPIO
          DataContext asignado explícitamente en el code-behind — eso anula la herencia
          normal de WPF para esos controles específicos, así que fijar el DataContext aquí
          no les afecta. -->
     <DockPanel>
-        <!-- Barra superior — solo el interruptor de modo claro/oscuro (a pedido explícito:
-             "me gustaría que la opción del modo oscuro estuviese arriba"). Separada de la
-             barra inferior de versión/actualización a propósito: cambiar de tema es una
-             preferencia de toda la sesión, distinta de "hay una actualización pendiente". -->
+        <!-- Barra superior — modo claro/oscuro Y estado de la nube (ambos a pedido
+             explícito: "me gustaría que la opción del modo oscuro estuviese arriba" /
+             "coloca en la parte de arriba la conexión con la nube y que esté un indicador
+             verde"). Separada de la barra inferior de versión/actualización a propósito:
+             esto es estado "en vivo" de la sesión, distinto de "hay una actualización
+             pendiente". -->
         <Border DockPanel.Dock="Top" Padding="14,8" Background="{DynamicResource BrushSurface}"
                 BorderBrush="{DynamicResource BrushBorder}" BorderThickness="0,0,0,1">
             <DockPanel>
@@ -28,34 +48,35 @@
                 <Button DockPanel.Dock="Right" x:Name="DarkModeToggleButton" Style="{StaticResource GhostButton}"
                         Click="OnToggleDarkModeClick" ToolTip="Cambiar entre modo claro y oscuro"
                         FontSize="16" HorizontalAlignment="Right" />
+                <Button DockPanel.Dock="Right" Content="Conectar con nube" Command="{Binding SyncCloudNowCommand}"
+                        IsEnabled="{Binding IsCloudSyncBusy, Converter={StaticResource InverseBoolConverter}}"
+                        ToolTip="Fuerza un ciclo de sincronización con Supabase ahora mismo, sin esperar el ciclo automático"
+                        Margin="0,0,14,0" />
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="0,0,14,0"
+                            ToolTip="{Binding CloudSyncStatusMessage}">
+                    <Ellipse Style="{StaticResource CloudStatusDotStyle}" VerticalAlignment="Center" Margin="0,0,7,0" />
+                    <TextBlock Text="{Binding CloudSyncShortStatus}" VerticalAlignment="Center"
+                               Foreground="{DynamicResource BrushTextSecondary}" />
+                </StackPanel>
             </DockPanel>
         </Border>
 
-        <!-- Barra de versión / actualización / estado de la nube — visible siempre, sin
-             importar la pestaña activa: ninguna de estas tres cosas es una operación de una
-             pantalla en particular. -->
+        <!-- Barra de versión / actualización — visible siempre, sin importar la pestaña
+             activa: buscar actualizaciones no es una operación de ninguna pantalla en
+             particular. -->
         <Border DockPanel.Dock="Bottom" Padding="14,8" Background="{DynamicResource BrushSurface}"
                 BorderBrush="{DynamicResource BrushBorder}" BorderThickness="0,1,0,0">
             <Grid>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="0" Text="{Binding CurrentVersionLabel}" VerticalAlignment="Center"
                            FontWeight="SemiBold" Foreground="{DynamicResource BrushTextSecondary}" Margin="0,0,18,0" />
-                <TextBlock Grid.Column="1" Text="{Binding CloudSyncStatusMessage}" VerticalAlignment="Center"
-                           Foreground="{DynamicResource BrushTextSecondary}" TextTrimming="CharacterEllipsis"
-                           MaxWidth="360" Margin="0,0,10,0" ToolTip="{Binding CloudSyncStatusMessage}" />
-                <Button Grid.Column="2" Content="Conectar con nube" Command="{Binding SyncCloudNowCommand}"
-                        IsEnabled="{Binding IsCloudSyncBusy, Converter={StaticResource InverseBoolConverter}}"
-                        ToolTip="Fuerza un ciclo de sincronización con Supabase ahora mismo, sin esperar el ciclo automático"
-                        Margin="0,0,18,0" />
-                <TextBlock Grid.Column="3" Text="{Binding UpdateStatusMessage}" VerticalAlignment="Center"
+                <TextBlock Grid.Column="1" Text="{Binding UpdateStatusMessage}" VerticalAlignment="Center"
                            Foreground="{DynamicResource BrushTextSecondary}" TextTrimming="CharacterEllipsis" />
-                <Button Grid.Column="4" Content="Actualizar versión" Style="{StaticResource PrimaryButton}"
+                <Button Grid.Column="2" Content="Actualizar versión" Style="{StaticResource PrimaryButton}"
                         Command="{Binding CheckForUpdateCommand}" />
             </Grid>
         </Border>

@@ -40,6 +40,19 @@ public sealed partial class UpdateViewModel : ObservableObject
     [ObservableProperty]
     private string _cloudSyncStatusMessage = "☁️ Nube: verificando…";
 
+    /// <summary>Texto corto para el indicador de la barra superior — el mensaje completo
+    /// (incluyendo el error exacto si lo hay) sigue disponible en
+    /// <see cref="CloudSyncStatusMessage"/> vía el ToolTip del indicador.</summary>
+    [ObservableProperty]
+    private string _cloudSyncShortStatus = "Verificando…";
+
+    /// <summary>"Disabled" | "Syncing" | "Connected" | "Error" — MainWindow.xaml usa
+    /// DataTrigger sobre este valor para pintar el punto de estado (verde/rojo/gris) con
+    /// los mismos tokens de color del tema actual, en vez de un color fijo que no
+    /// respondería al cambio de modo claro/oscuro.</summary>
+    [ObservableProperty]
+    private string _cloudSyncStatusKind = "Unknown";
+
     [ObservableProperty]
     private bool _isCloudSyncBusy;
 
@@ -73,12 +86,16 @@ public sealed partial class UpdateViewModel : ObservableObject
         if (!_syncStatus.IsConfigured)
         {
             CloudSyncStatusMessage = "☁️ Nube: sin configurar (la app funciona 100% local)";
+            CloudSyncShortStatus = "Sin configurar";
+            CloudSyncStatusKind = "Disabled";
             return;
         }
 
         if (_syncStatus.LastError is not null)
         {
             CloudSyncStatusMessage = $"☁️ Nube: error — {_syncStatus.LastError}";
+            CloudSyncShortStatus = "Error";
+            CloudSyncStatusKind = "Error";
             return;
         }
 
@@ -86,10 +103,14 @@ public sealed partial class UpdateViewModel : ObservableObject
         {
             var secondsAgo = Math.Max(0, (int)(DateTime.UtcNow - lastSuccessUtc).TotalSeconds);
             CloudSyncStatusMessage = $"☁️ Nube: conectado (hace {secondsAgo}s)";
+            CloudSyncShortStatus = $"Conectado (hace {secondsAgo}s)";
+            CloudSyncStatusKind = "Connected";
             return;
         }
 
         CloudSyncStatusMessage = "☁️ Nube: sincronizando…";
+        CloudSyncShortStatus = "Sincronizando…";
+        CloudSyncStatusKind = "Syncing";
     }
 
     /// <summary>Botón "Conectar con nube" — dispara un ciclo de sincronización de

@@ -15,7 +15,7 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-const REFRESH_INTERVAL_MS = 10_000;
+const REFRESH_INTERVAL_MS = 5_000;
 const MAX_ROWS = 2000;
 
 // La app de escritorio solo actualiza LastCommunicationAtUtc cuando alguien le da
@@ -122,11 +122,29 @@ function applySessionState(session) {
 }
 
 /// El nombre visible viene de user_metadata.full_name (lo edita la propia persona con el
-/// botón de su nombre, o se lo pone un admin al invitarla) — si todavía no tiene uno
-/// definido, se cae al correo, nunca se deja el botón vacío.
+/// botón de su nombre, o se lo pone un admin al invitarla). Si todavía no tiene uno
+/// definido (p. ej. la primera cuenta, creada directo en Supabase sin pasar por el panel
+/// de invitación), en vez de mostrar el correo completo (se ve a "plomería interna", no a
+/// un nombre) se deriva algo más parecido a un nombre de usuario a partir de la parte
+/// antes de la "@" — sigue siendo un botón clickeable para poner el nombre real cuando
+/// quieran.
 function displayNameFor(user) {
   const fullName = user?.user_metadata?.full_name;
-  return (fullName && fullName.trim()) || user?.email || '';
+  if (fullName && fullName.trim()) {
+    return fullName.trim();
+  }
+
+  const email = user?.email ?? '';
+  const localPart = email.split('@')[0] ?? '';
+  if (!localPart) {
+    return email;
+  }
+
+  return localPart
+    .split(/[._-]+/)
+    .filter(Boolean)
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
 }
 
 // ---- Inicio de sesión ----
@@ -612,9 +630,9 @@ function csvEscape(value) {
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
-// ---- Auto-actualización: la app de escritorio sube cada ~10s (ver
+// ---- Auto-actualización: la app de escritorio sube cada ~5s (ver
 // SupabaseSyncOptions.IntervalSeconds en el repo principal), así que refrescar aquí
-// cada 10s también mantiene el Dashboard prácticamente al día. ----
+// cada 5s también mantiene el Dashboard prácticamente al día. ----
 function startAutoRefresh() {
   stopAutoRefresh();
   autoRefreshTimer = setInterval(() => {

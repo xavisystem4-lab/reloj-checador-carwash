@@ -14,10 +14,11 @@ public sealed class SupabaseSyncOptions
     public string? AnonKey { get; set; }
     public string? ServiceRoleKey { get; set; }
 
-    // 10s a pedido explícito del usuario (antes 60s). A este tamaño de negocio (una sola
-    // sucursal-tipo, tablas chicas) no representa una carga real para Supabase — si algún
-    // día hay muchas sucursales a la vez, revisar este valor antes de bajarlo más todavía.
-    public int IntervalSeconds { get; set; } = 10;
+    // 5s a pedido explícito del usuario (antes 60s, luego 10s). A este tamaño de negocio
+    // (una sola sucursal-tipo, tablas chicas) no representa una carga real para Supabase —
+    // si algún día hay muchas sucursales a la vez, revisar este valor antes de bajarlo más
+    // todavía.
+    public int IntervalSeconds { get; set; } = 5;
 
     /// <summary>Sin URL o sin la clave de escritura no hay nada que sincronizar — la app
     /// sigue funcionando 100% local (ver README, "operación offline-first"), simplemente
