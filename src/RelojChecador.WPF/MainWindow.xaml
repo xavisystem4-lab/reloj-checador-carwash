@@ -3,35 +3,18 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:local="clr-namespace:RelojChecador.WPF"
+        xmlns:views="clr-namespace:RelojChecador.WPF.Views"
         mc:Ignorable="d"
-        Title="Reloj Checador" Height="550" Width="900">
-    <!-- Primera pantalla funcional real: sucursales. La navegación completa con el resto
-         de secciones (Empleados, Dispositivos, Asistencia...) es un paso posterior. -->
-    <Grid Margin="24">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-        </Grid.RowDefinitions>
-
-        <TextBlock Grid.Row="0" Text="Sucursales" FontSize="24" FontWeight="Bold" Margin="0,0,0,4" />
-
-        <TextBlock Grid.Row="1" Text="{Binding StatusMessage}" FontSize="13" Foreground="#666666" Margin="0,0,0,12" />
-
-        <Button Grid.Row="2" Content="+ Nueva sucursal" HorizontalAlignment="Left" Padding="14,6" Margin="0,0,0,12"
-                Click="OnAddBranchClick" />
-
-        <DataGrid Grid.Row="3" ItemsSource="{Binding Branches}" AutoGenerateColumns="False" IsReadOnly="True"
-                  CanUserAddRows="False" GridLinesVisibility="Horizontal" HeadersVisibility="Column">
-            <DataGrid.Columns>
-                <DataGridTextColumn Header="Código" Binding="{Binding Code}" Width="100" />
-                <DataGridTextColumn Header="Nombre" Binding="{Binding Name}" Width="*" />
-                <DataGridTextColumn Header="Zona horaria" Binding="{Binding TimeZoneId}" Width="180" />
-                <DataGridTextColumn Header="Razón social" Binding="{Binding LegalEntityName}" Width="200" />
-                <DataGridCheckBoxColumn Header="Activa" Binding="{Binding IsActive}" Width="70" />
-            </DataGrid.Columns>
-        </DataGrid>
-    </Grid>
+        Title="Reloj Checador" Height="650" Width="1000">
+    <!-- Navegación mínima por pestañas: solo Sucursales y Dispositivos existen por ahora.
+         El resto de secciones (Empleados, Asistencia, Reportes...) del menú lateral
+         definido en la Fase 3 todavía no están construidas. -->
+    <TabControl Padding="4">
+        <TabItem Header="Sucursales">
+            <views:BranchesView x:Name="BranchesViewControl" />
+        </TabItem>
+        <TabItem Header="Dispositivos">
+            <views:DevicesView x:Name="DevicesViewControl" />
+        </TabItem>
+    </TabControl>
 </Window>

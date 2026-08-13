@@ -1,0 +1,180 @@
+<UserControl x:Class="RelojChecador.WPF.Views.DevicesView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:converters="clr-namespace:RelojChecador.WPF.Converters"
+             mc:Ignorable="d" d:DesignHeight="650" d:DesignWidth="950">
+    <UserControl.Resources>
+        <converters:NullToVisibilityConverter x:Key="NullToCollapsedConverter" />
+        <Style TargetType="GroupBox">
+            <Setter Property="Margin" Value="0,0,0,12" />
+            <Setter Property="Padding" Value="10" />
+            <Setter Property="FontWeight" Value="Normal" />
+        </Style>
+        <Style TargetType="Button" x:Key="ActionButton">
+            <Setter Property="Padding" Value="10,6" />
+            <Setter Property="Margin" Value="0,0,8,0" />
+        </Style>
+    </UserControl.Resources>
+
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="Dispositivos" FontSize="24" FontWeight="Bold" Margin="0,0,0,4" />
+        <TextBlock Grid.Row="1" Text="{Binding StatusMessage}" FontSize="13" Foreground="#666666" Margin="0,0,0,12" />
+
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="260" />
+                <ColumnDefinition Width="16" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Columna izquierda: lista de dispositivos -->
+            <DockPanel Grid.Column="0">
+                <Button DockPanel.Dock="Top" Content="+ Nuevo dispositivo" Padding="10,6" Margin="0,0,0,10"
+                        HorizontalAlignment="Stretch" Click="OnAddDeviceClick" />
+                <ListBox ItemsSource="{Binding Devices}" SelectedItem="{Binding SelectedDevice, Mode=TwoWay}"
+                         BorderThickness="1" BorderBrush="#DDDDDD">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Margin="4">
+                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
+                                <TextBlock FontSize="11" Foreground="#666666">
+                                    <Run Text="{Binding IpAddress, Mode=OneWay}" />
+                                    <Run Text=":" />
+                                    <Run Text="{Binding TcpPort, Mode=OneWay}" />
+                                </TextBlock>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
+
+            <!-- Columna derecha: diagnóstico del dispositivo seleccionado -->
+            <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto">
+                <StackPanel Visibility="{Binding SelectedDevice, Converter={StaticResource NullToCollapsedConverter}}">
+
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                        <TextBlock Text="{Binding SelectedDevice.Name}" FontSize="18" FontWeight="Bold" />
+                        <TextBlock Text="{Binding SelectedDevice.Brand}" Foreground="#666666" Margin="10,0,0,0" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding SelectedDevice.Model}" Foreground="#666666" Margin="6,0,0,0" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <TextBlock Margin="0,0,0,12" Foreground="#666666">
+                        <Run Text="{Binding SelectedDevice.IpAddress, Mode=OneWay}" />
+                        <Run Text=":" />
+                        <Run Text="{Binding SelectedDevice.TcpPort, Mode=OneWay}" />
+                    </TextBlock>
+
+                    <WrapPanel Margin="0,0,0,12">
+                        <Button Style="{StaticResource ActionButton}" Content="Hacer ping" Command="{Binding PingCommand}" />
+                        <Button Style="{StaticResource ActionButton}" Content="Probar puerto TCP" Command="{Binding TestPortCommand}" />
+                        <Button Style="{StaticResource ActionButton}" Content="Conectar" Command="{Binding ConnectCommand}" />
+                        <Button Style="{StaticResource ActionButton}" Content="Desconectar" Command="{Binding DisconnectCommand}" />
+                        <Button Style="{StaticResource ActionButton}" Content="Consultar información" Command="{Binding GetDeviceInfoCommand}" />
+                        <Button Style="{StaticResource ActionButton}" Content="Descargar asistencias" Command="{Binding DownloadAttendanceCommand}" />
+                    </WrapPanel>
+
+                    <GroupBox Header="Diagnóstico de conexión (5 niveles — nunca se asume éxito sin probar)">
+                        <StackPanel>
+                            <Grid Margin="0,2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="160" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="1. IP válida" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="1" Text="{Binding IpValidResult}" />
+                            </Grid>
+                            <Grid Margin="0,2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="160" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="2. Ping (ICMP)" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="1" Text="{Binding PingResult}" />
+                            </Grid>
+                            <Grid Margin="0,2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="160" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="3. Puerto TCP" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="1" Text="{Binding PortResult}" />
+                            </Grid>
+                            <Grid Margin="0,2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="160" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="4. Protocolo reconocido" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="1" Text="{Binding ProtocolResult}" />
+                            </Grid>
+                            <Grid Margin="0,2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="160" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="5. Autenticación" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="1" Text="{Binding AuthResult}" />
+                            </Grid>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <GroupBox Header="Información del dispositivo (tras 'Consultar información')">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="160" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="160" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Número de serie" FontWeight="SemiBold" Margin="0,2" />
+                            <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding InfoSerialNumber}" Margin="0,2" />
+                            <TextBlock Grid.Row="0" Grid.Column="2" Text="Firmware" FontWeight="SemiBold" Margin="0,2" />
+                            <TextBlock Grid.Row="0" Grid.Column="3" Text="{Binding InfoFirmwareVersion}" Margin="0,2" />
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Plataforma" FontWeight="SemiBold" Margin="0,2" />
+                            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding InfoPlatform}" Margin="0,2" />
+                            <TextBlock Grid.Row="1" Grid.Column="2" Text="Algoritmo de huella" FontWeight="SemiBold" Margin="0,2" />
+                            <TextBlock Grid.Row="1" Grid.Column="3" Text="{Binding InfoFingerprintAlgorithm}" Margin="0,2" />
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Usuarios registrados" FontWeight="SemiBold" Margin="0,2" />
+                            <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding InfoUserCount}" Margin="0,2" />
+                            <TextBlock Grid.Row="2" Grid.Column="2" Text="Registros en el reloj" FontWeight="SemiBold" Margin="0,2" />
+                            <TextBlock Grid.Row="2" Grid.Column="3" Text="{Binding InfoAttendanceLogCount}" Margin="0,2" />
+                        </Grid>
+                    </GroupBox>
+
+                    <GroupBox Header="Asistencias descargadas (esta sesión, aún sin conciliar/persistir)">
+                        <DataGrid ItemsSource="{Binding AttendanceRecords}" AutoGenerateColumns="False" IsReadOnly="True"
+                                  CanUserAddRows="False" MaxHeight="180" HeadersVisibility="Column"
+                                  GridLinesVisibility="Horizontal">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="PIN empleado" Binding="{Binding DeviceUserPin}" Width="100" />
+                                <DataGridTextColumn Header="Fecha y hora" Binding="{Binding TimestampUtc}" Width="160" />
+                                <DataGridTextColumn Header="Método" Binding="{Binding VerifyMethod}" Width="100" />
+                                <DataGridTextColumn Header="Tipo" Binding="{Binding PunchType}" Width="60" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </GroupBox>
+
+                    <GroupBox Header="Bitácora">
+                        <ListBox ItemsSource="{Binding LogEntries}" MaxHeight="140" BorderThickness="0" />
+                    </GroupBox>
+
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+    </Grid>
+</UserControl>
