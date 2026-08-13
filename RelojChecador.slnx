@@ -7,6 +7,7 @@
     <Project Path="src/RelojChecador.Infrastructure.Devices/RelojChecador.Infrastructure.Devices.csproj" />
     <Project Path="src/RelojChecador.Infrastructure.Logging/RelojChecador.Infrastructure.Logging.csproj" />
     <Project Path="src/RelojChecador.Infrastructure.Security/RelojChecador.Infrastructure.Security.csproj" />
+    <Project Path="src/RelojChecador.Infrastructure.Updates/RelojChecador.Infrastructure.Updates.csproj" />
     <Project Path="src/RelojChecador.WPF/RelojChecador.WPF.csproj" />
   </Folder>
   <Folder Name="/tests/">

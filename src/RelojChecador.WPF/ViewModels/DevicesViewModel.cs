@@ -310,6 +310,12 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
             AuthResult = "❌ " + result.Error.Message;
             IsConnected = false;
             AppendLog($"Conexión fallida: {result.Error.Message}");
+
+            // Se registra el intento fallido igual que el éxito de abajo — así el estado
+            // "Conectado"/"Desconectado" que ve el Dashboard (basado en LastCommunicationAtUtc
+            // y Status, sincronizados a Supabase en cada ciclo) refleja la realidad en vez de
+            // quedarse pegado en el último éxito para siempre.
+            await TryPersistCommunicationResultAsync(succeeded: false);
             return;
         }
 
@@ -317,6 +323,7 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         AuthResult = "✅ Autenticación correcta";
         IsConnected = true;
         AppendLog("Comunicación completa establecida con el dispositivo.");
+        await TryPersistCommunicationResultAsync(succeeded: true);
 
         // Al conectar, arranca solo el monitoreo en vivo — no hay que presionar nada
         // aparte para que una marcación aparezca en la lista casi al instante.
@@ -325,6 +332,40 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         AppendLog(monitorResult.IsSuccess
             ? "Monitoreo en tiempo real activo: las marcaciones nuevas aparecerán solas."
             : $"No se pudo activar el monitoreo en tiempo real: {monitorResult.Error.Message}");
+    }
+
+    /// <summary>Deja constancia en el dispositivo local (Device.RecordSuccessfulCommunication/
+    /// RecordFailedCommunication, ya existían en el dominio pero nada los llamaba todavía)
+    /// de si la conexión real funcionó. Se guarda con IUnitOfWork.SaveChangesAsync —
+    /// SelectedDevice ya está bajo seguimiento de EF Core (viene de _deviceRepository.ListAsync(),
+    /// sin AsNoTracking), así que no hace falta un método "UpdateAsync" aparte. Nunca deja
+    /// que un fallo al guardar tumbe la pantalla — es un detalle de estado, no algo que
+    /// deba interrumpir al usuario si falla.</summary>
+    private async Task TryPersistCommunicationResultAsync(bool succeeded)
+    {
+        var device = SelectedDevice;
+        if (device is null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (succeeded)
+            {
+                device.RecordSuccessfulCommunication(DateTime.UtcNow);
+            }
+            else
+            {
+                device.RecordFailedCommunication();
+            }
+
+            await _unitOfWork.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "No se pudo guardar el estado de comunicación del dispositivo {DeviceId}", device.Id);
+        }
     }
 
     [RelayCommand]

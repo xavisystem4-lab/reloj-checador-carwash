@@ -10,6 +10,7 @@ using RelojChecador.Infrastructure.Cloud;
 using RelojChecador.Infrastructure.Data;
 using RelojChecador.Infrastructure.Devices.ZKTeco;
 using RelojChecador.Infrastructure.Logging;
+using RelojChecador.Infrastructure.Updates;
 using RelojChecador.WPF.ViewModels;
 using Serilog;
 
@@ -89,6 +90,7 @@ public partial class App : System.Windows.Application
                     var supabaseOptions = context.Configuration.GetSection("Supabase").Get<SupabaseSyncOptions>()
                         ?? new SupabaseSyncOptions();
                     services.AddRelojChecadorCloudSync(supabaseOptions);
+                    services.AddRelojChecadorUpdates();
 
                     // Scoped, no Singleton: cada ventana principal recibe su propio DbContext con
                     // vida acotada a esa ventana (ver el scope creado más abajo), en vez de
@@ -96,6 +98,7 @@ public partial class App : System.Windows.Application
                     services.AddScoped<MainWindow>();
                     services.AddScoped<MainViewModel>();
                     services.AddScoped<DevicesViewModel>();
+                    services.AddScoped<UpdateViewModel>();
                 })
                 .Build();
 

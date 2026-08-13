@@ -6,6 +6,7 @@
     <ProjectReference Include="..\RelojChecador.Infrastructure.Data\RelojChecador.Infrastructure.Data.csproj" />
     <ProjectReference Include="..\RelojChecador.Infrastructure.Devices\RelojChecador.Infrastructure.Devices.csproj" />
     <ProjectReference Include="..\RelojChecador.Infrastructure.Cloud\RelojChecador.Infrastructure.Cloud.csproj" />
+    <ProjectReference Include="..\RelojChecador.Infrastructure.Updates\RelojChecador.Infrastructure.Updates.csproj" />
     <ProjectReference Include="..\RelojChecador.Infrastructure.Security\RelojChecador.Infrastructure.Security.csproj" />
     <ProjectReference Include="..\RelojChecador.Infrastructure.Logging\RelojChecador.Infrastructure.Logging.csproj" />
   </ItemGroup>

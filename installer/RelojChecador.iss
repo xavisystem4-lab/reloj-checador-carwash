@@ -14,7 +14,12 @@
 ; requiere un certificado de firma de código, que no está incluido aquí.
 
 #define MyAppName "Reloj Checador"
-#define MyAppVersion "1.0.0"
+; Mantener sincronizado a mano con <Version> en Directory.Build.props (Inno Setup no
+; puede leer un .props de MSBuild) — el botón "Actualizar versión" de la app compara su
+; propio Assembly.GetEntryAssembly().Version contra la última versión en GitHub Releases,
+; así que si estos dos números se desincronizan, el auto-actualizador queda mostrando
+; una versión incorrecta aunque el instalador esté bien.
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "Carwash Mexicali"
 #define MyAppExeName "RelojChecador.WPF.exe"
 #define MyPublishDir "publish"

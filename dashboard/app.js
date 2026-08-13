@@ -18,6 +18,13 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const REFRESH_INTERVAL_MS = 10_000;
 const MAX_ROWS = 2000;
 
+// La app de escritorio solo actualiza LastCommunicationAtUtc cuando alguien le da
+// "Conectar" con éxito en la pantalla de Dispositivos — no en cada ciclo de
+// sincronización (ese ciclo solo reenvía el valor ya guardado). Por eso "Conectado" aquí
+// se basa en qué tan RECIENTE es esa marca, no en un simple booleano — evita que un
+// dispositivo quede "Conectado" para siempre solo porque una vez funcionó.
+const DEVICE_ONLINE_THRESHOLD_MINUTES = 5;
+
 // ---- Referencias al DOM ----
 const loginScreen = document.getElementById('login-screen');
 const dashboardScreen = document.getElementById('dashboard-screen');
@@ -43,6 +50,7 @@ const kpiUnlinked = document.getElementById('kpi-unlinked');
 
 const tableStatus = document.getElementById('table-status');
 const tableBody = document.getElementById('attendance-tbody');
+const devicesStatusRow = document.getElementById('devices-status-row');
 
 let autoRefreshTimer = null;
 let lastLoadedRows = []; // guarda la última carga ya enriquecida, para exportar sin repetir el fetch
@@ -66,7 +74,7 @@ async function init() {
 
   loginForm.addEventListener('submit', onLoginSubmit);
   logoutButton.addEventListener('click', onLogoutClick);
-  refreshButton.addEventListener('click', () => loadReport());
+  refreshButton.addEventListener('click', () => { loadReport(); loadDevicesStatus(); });
   exportButton.addEventListener('click', onExportClick);
   branchSelect.addEventListener('change', () => loadReport());
   fromInput.addEventListener('change', () => loadReport());
@@ -81,6 +89,7 @@ function applySessionState(session) {
     userEmailLabel.textContent = session.user.email ?? '';
     startAutoRefresh();
     loadBranches().then(() => loadReport());
+    loadDevicesStatus();
   } else {
     loginScreen.hidden = false;
     dashboardScreen.hidden = true;
@@ -144,6 +153,52 @@ async function loadBranches() {
     branchSelect.appendChild(option);
   }
   branchSelect.value = currentValue;
+}
+
+// ---- Estado de conexión de cada reloj checador ----
+async function loadDevicesStatus() {
+  const { data, error } = await supabase
+    .from('devices')
+    .select('id, name, last_communication_at_utc')
+    .order('name');
+
+  if (error) {
+    console.error('No se pudo cargar el estado de los dispositivos:', error);
+    return;
+  }
+
+  if (!data || data.length === 0) {
+    devicesStatusRow.innerHTML = '<div class="devices-status-empty">Sin relojes checadores registrados.</div>';
+    return;
+  }
+
+  const now = Date.now();
+  devicesStatusRow.innerHTML = '';
+  for (const device of data) {
+    const lastCommMs = device.last_communication_at_utc ? new Date(device.last_communication_at_utc).getTime() : null;
+    const minutesAgo = lastCommMs ? (now - lastCommMs) / 60_000 : null;
+    const isOnline = minutesAgo !== null && minutesAgo <= DEVICE_ONLINE_THRESHOLD_MINUTES;
+
+    const pill = document.createElement('div');
+    pill.className = 'device-status-pill';
+    pill.innerHTML = `
+      <div class="device-status-dot ${isOnline ? 'online' : 'offline'}"></div>
+      <div class="device-status-name">${escapeHtml(device.name)}</div>
+      <div class="device-status-label">${isOnline ? 'Conectado' : describeOffline(minutesAgo)}</div>
+    `;
+    devicesStatusRow.appendChild(pill);
+  }
+}
+
+function describeOffline(minutesAgo) {
+  if (minutesAgo === null) {
+    return 'Sin comunicación registrada';
+  }
+  if (minutesAgo < 60) {
+    return `Desconectado (hace ${Math.round(minutesAgo)} min)`;
+  }
+  const hoursAgo = Math.round(minutesAgo / 60);
+  return `Desconectado (hace ${hoursAgo} h)`;
 }
 
 // ---- Carga del reporte principal ----
@@ -379,6 +434,7 @@ function startAutoRefresh() {
   autoRefreshTimer = setInterval(() => {
     if (!dashboardScreen.hidden) {
       loadReport();
+      loadDevicesStatus();
     }
   }, REFRESH_INTERVAL_MS);
 }

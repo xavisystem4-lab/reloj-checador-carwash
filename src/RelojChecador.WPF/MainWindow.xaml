@@ -6,15 +6,41 @@
         xmlns:views="clr-namespace:RelojChecador.WPF.Views"
         mc:Ignorable="d"
         Title="Reloj Checador" Height="650" Width="1000">
-    <!-- Navegación mínima por pestañas: solo Sucursales y Dispositivos existen por ahora.
-         El resto de secciones (Empleados, Asistencia, Reportes...) del menú lateral
-         definido en la Fase 3 todavía no están construidas. -->
-    <TabControl Padding="4">
-        <TabItem Header="Sucursales">
-            <views:BranchesView x:Name="BranchesViewControl" />
-        </TabItem>
-        <TabItem Header="Dispositivos">
-            <views:DevicesView x:Name="DevicesViewControl" />
-        </TabItem>
-    </TabControl>
+    <!-- DataContext de la ventana = UpdateViewModel (para la barra inferior). Los
+         controles hijo (BranchesViewControl/DevicesViewControl) tienen su PROPIO
+         DataContext asignado explícitamente en el code-behind — eso anula la herencia
+         normal de WPF para esos controles específicos, así que fijar el DataContext aquí
+         no les afecta. -->
+    <DockPanel>
+        <!-- Barra de versión / actualización — visible siempre, sin importar la pestaña
+             activa: buscar/instalar actualizaciones no es una operación de ninguna
+             pantalla en particular. -->
+        <Border DockPanel.Dock="Bottom" Padding="14,8" Background="#F3F3F3" BorderBrush="#DDDDDD" BorderThickness="0,1,0,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="{Binding CurrentVersionLabel}" VerticalAlignment="Center"
+                           FontWeight="SemiBold" Foreground="#444444" Margin="0,0,18,0" />
+                <TextBlock Grid.Column="1" Text="{Binding UpdateStatusMessage}" VerticalAlignment="Center"
+                           Foreground="#777777" TextTrimming="CharacterEllipsis" />
+                <Button Grid.Column="2" Content="Actualizar versión" Command="{Binding CheckForUpdateCommand}"
+                        Padding="12,6" />
+            </Grid>
+        </Border>
+
+        <!-- Navegación mínima por pestañas: solo Sucursales y Dispositivos existen por ahora.
+             El resto de secciones (Empleados, Asistencia, Reportes...) del menú lateral
+             definido en la Fase 3 todavía no están construidas. -->
+        <TabControl Padding="4">
+            <TabItem Header="Sucursales">
+                <views:BranchesView x:Name="BranchesViewControl" />
+            </TabItem>
+            <TabItem Header="Dispositivos">
+                <views:DevicesView x:Name="DevicesViewControl" />
+            </TabItem>
+        </TabControl>
+    </DockPanel>
 </Window>

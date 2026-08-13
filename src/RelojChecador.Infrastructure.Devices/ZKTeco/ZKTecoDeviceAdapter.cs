@@ -278,14 +278,20 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
         {
             try
             {
-                int year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0;
+                // object, no int — mismo motivo que ReadAllGeneralLogEntries (ver ese
+                // comentario): confirmado en Windows real que "ref int" falla con
+                // GetGeneralLogData; se aplica el mismo tratamiento aquí preventivamente,
+                // aunque GetDeviceTime en sí todavía no se ha probado contra hardware real.
+                object year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0;
                 bool ok = _zk!.GetDeviceTime(MachineNumber, ref year, ref month, ref day, ref hour, ref minute, ref second);
                 if (!ok)
                 {
                     return Result.Failure<DateTime>(Error.Unexpected("GetDeviceTime devolvió falso."));
                 }
 
-                return Result.Success(new DateTime(year, month, day, hour, minute, second, DateTimeKind.Unspecified));
+                return Result.Success(new DateTime(
+                    Convert.ToInt32(year), Convert.ToInt32(month), Convert.ToInt32(day),
+                    Convert.ToInt32(hour), Convert.ToInt32(minute), Convert.ToInt32(second), DateTimeKind.Unspecified));
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
@@ -361,17 +367,32 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
             return records;
         }
 
-        string enrollNumber = "";
-        int verifyMode = 0, inOutMode = 0, year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0, workCode = 0;
+        // "object", NO "int"/"string" tipados, a propósito para los parámetros "ref":
+        // confirmado en Windows real que con "ref int" el enlace tardío (dynamic) fallaba
+        // con "Could not convert argument 9 for call to GetGeneralLogData" — el binder de
+        // .NET exige que el tipo CLR del local coincida exacto con el VARIANT real que usa
+        // la interfaz COM, y sin el ensamblado de interop generado no hay forma de saber
+        // ese tipo de antemano. "object" deja que el binder marshalee el VARIANT tal cual
+        // venga, sin imponer un tipo CLR por adelantado — workaround estándar para este
+        // error con Automation COM heredado. Los valores se convierten después, ya con el
+        // dato en mano (Convert.ToInt32 acepta cualquier VARIANT numérico que haya
+        // regresado, sea Int16, Int32, etc.).
+        object enrollNumber = "";
+        object verifyMode = 0, inOutMode = 0, year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0, workCode = 0;
 
         while (_zk!.GetGeneralLogData(
                    MachineNumber, ref enrollNumber, ref verifyMode, ref inOutMode,
                    ref year, ref month, ref day, ref hour, ref minute, ref second, ref workCode))
         {
-            var timestamp = new DateTime(year, month, day, hour, minute, second, DateTimeKind.Unspecified);
+            var pin = Convert.ToString(enrollNumber) ?? "";
+            var verifyModeInt = Convert.ToInt32(verifyMode);
+            var inOutModeInt = Convert.ToInt32(inOutMode);
+            var timestamp = new DateTime(
+                Convert.ToInt32(year), Convert.ToInt32(month), Convert.ToInt32(day),
+                Convert.ToInt32(hour), Convert.ToInt32(minute), Convert.ToInt32(second), DateTimeKind.Unspecified);
             records.Add(new RawAttendanceRecord(
-                enrollNumber, timestamp, MapVerifyMode(verifyMode), inOutMode,
-                RawPayload: $"ZK|{enrollNumber}|{verifyMode}|{inOutMode}|{timestamp:o}"));
+                pin, timestamp, MapVerifyMode(verifyModeInt), inOutModeInt,
+                RawPayload: $"ZK|{pin}|{verifyModeInt}|{inOutModeInt}|{timestamp:o}"));
         }
 
         return records;

@@ -12,6 +12,14 @@
     <NoWarn>$(NoWarn);CS1591</NoWarn>
     <Company>Reloj Checador Carwash</Company>
     <Product>Reloj Checador</Product>
+
+    <!-- Fuente única de la versión de la app — RelojChecador.WPF la lee en tiempo de
+         ejecución (Assembly.GetEntryAssembly().GetName().Version) para mostrarla en la UI
+         y compararla contra la última versión publicada en GitHub Releases (ver
+         RelojChecador.Infrastructure.Updates). installer/RelojChecador.iss tiene su
+         propio "MyAppVersion" (Inno Setup no puede leer un .props de MSBuild) — hay que
+         mantenerlos sincronizados a mano en cada release; ver installer/README.md. -->
+    <Version>1.1.0</Version>
   </PropertyGroup>
 
 </Project>

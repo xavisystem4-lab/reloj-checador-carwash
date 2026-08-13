@@ -8,10 +8,11 @@ namespace RelojChecador.WPF;
 /// </summary>
 public partial class MainWindow : Window
 {
-    public MainWindow(MainViewModel branchesViewModel, DevicesViewModel devicesViewModel)
+    public MainWindow(MainViewModel branchesViewModel, DevicesViewModel devicesViewModel, UpdateViewModel updateViewModel)
     {
         InitializeComponent();
 
+        DataContext = updateViewModel;
         BranchesViewControl.DataContext = branchesViewModel;
         DevicesViewControl.DataContext = devicesViewModel;
 
