@@ -55,6 +55,16 @@ body {
   background: radial-gradient(circle at 50% 0%, var(--accent-soft) 0%, var(--bg) 60%);
 }
 
+/* El atributo HTML "hidden" solo pone display:none vía la hoja de estilos del navegador
+   (prioridad muy baja) — cualquier "display" propio (como el flex de arriba, o el que
+   tenga #dashboard-screen) le gana en la cascada y deja el elemento visible aunque
+   hidden=true. Bug real encontrado probando el login en producción: el login nunca se
+   ocultaba después de iniciar sesión aunque el estado interno ya había cambiado
+   correctamente. Estas reglas fuerzan que "hidden" sí gane siempre. */
+#login-screen[hidden], #dashboard-screen[hidden] {
+  display: none;
+}
+
 .login-card {
   width: 100%;
   max-width: 380px;
