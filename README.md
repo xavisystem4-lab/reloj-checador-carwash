@@ -19,8 +19,10 @@ navegación completa del diseño visual es la Fase 3, todavía pendiente.
 - **.NET 10 LTS** / C#
 - **WPF + MVVM** (CommunityToolkit.Mvvm), Generic Host para inyección de dependencias
 - **EF Core + SQLite** como base local de cada instalación
-- **Supabase** (PostgreSQL + Auth + Edge Functions) como plataforma central — pendiente de
-  conectar (ver "Pendiente" abajo)
+- **Supabase** (PostgreSQL + Auth) como plataforma central — proyecto dedicado
+  `reloj-checador-carwash`, esquema y sincronización push-only ya conectados (ver
+  `src/RelojChecador.Infrastructure.Cloud/README.md`); el Dashboard web de reportes
+  todavía no existe (ver "Pendiente" abajo)
 - **Serilog** para logging estructurado
 - **xUnit** para pruebas unitarias/integración
 
@@ -31,14 +33,14 @@ src/RelojChecador.Domain/               Entidades y reglas de negocio, sin depen
 src/RelojChecador.Application/          Casos de uso, contratos (IAttendanceDeviceAdapter, repositorios), Result/Error
 src/RelojChecador.Infrastructure.Data/  EF Core + SQLite, repositorios, migraciones
 src/RelojChecador.Infrastructure.Devices/ Adaptadores de dispositivos (Simulator listo; ZKTeco pendiente del SDK)
-src/RelojChecador.Infrastructure.Cloud/ Cliente Supabase y motor de sincronización (pendiente)
+src/RelojChecador.Infrastructure.Cloud/ Motor de sincronización push-only con Supabase (ver su propio README)
 src/RelojChecador.Infrastructure.Security/ Windows Credential Manager (solo compila en Windows)
 src/RelojChecador.Infrastructure.Logging/ Configuración de Serilog
 src/RelojChecador.WPF/                  Aplicación de escritorio (composition root, ViewModels, Views)
 tests/                                  Pruebas unitarias/integración por capa
 tools/RelojChecador.DeviceSimulator/    Simulador standalone del protocolo del reloj (pendiente de contenido)
 installer/                              Script de Inno Setup + guía para generar el instalador de Windows
-supabase/                               Migraciones SQL y Edge Functions (pendiente)
+supabase/                               Migraciones SQL versionadas (ya aplicadas al proyecto real); Edge Functions pendiente
 ```
 
 ## Compilar y probar
@@ -80,13 +82,26 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
 - Instalador (Inno Setup), compilado y probado en Windows real vía CI — publica como
   `win-x86` (32 bits, requerido por `zkemkeeper.dll`) y registra el SDK de ZKTeco como
   servidor COM al instalar
+- Entidad `Attendance` (persistencia local real de las marcaciones, con deduplicación
+  respaldada por un índice único — antes se perdían al cerrar la app) + repositorio
+  `IEmployeeDeviceMappingRepository`
+- Motor de sincronización push-only con Supabase (proyecto dedicado
+  `reloj-checador-carwash`): esquema con RLS aplicado y verificado (lectura solo para
+  usuarios autenticados, escritura solo desde la app de escritorio vía `service_role`),
+  sincronización incremental de asistencias por cursor, tablas chicas completas en cada
+  ciclo, offline-first (nunca tumba la app sin internet) — ver
+  `src/RelojChecador.Infrastructure.Cloud/README.md` para cómo activarla en una instalación
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Confirmar `ZKTecoDeviceAdapter` contra el F22/ID real en Windows (nombres de método y
   códigos del SDK como el mapeo de `dwVerifyMode` siguen la convención más citada de la
   comunidad, sin verificar todavía contra hardware — ver comentarios en la clase)
-- Autenticación real — necesita URL y `anon key` del proyecto de Supabase
-- Motor de sincronización con Supabase (outbox, Edge Functions, RLS)
+- Confirmar la sincronización con Supabase con la `service_role` key real corriendo en
+  Windows (el esquema/RLS ya se verificó con la `anon` key; falta el flujo completo con
+  datos reales — no se pudo probar en esta sesión, hecha desde macOS)
+- Dashboard web de reportes (Supabase Auth + lectura de las tablas ya sincronizadas)
+- Módulo de auto-actualización de la app (verificar versión disponible y actualizar sin
+  reinstalar a mano)
 - Navegación completa de la UI (Fase 3 del diseño visual — hoy solo hay una ventana mínima
   de prueba, no las pantallas finales)
 - Reportes, auditoría, incidencias, nómina (Fases 5-6)

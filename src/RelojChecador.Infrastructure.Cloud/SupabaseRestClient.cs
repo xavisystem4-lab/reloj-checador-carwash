@@ -1,0 +1,61 @@
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Text.Json;
+
+namespace RelojChecador.Infrastructure.Cloud;
+
+/// <summary>
+/// Cliente mínimo contra la API REST autogenerada de Supabase (PostgREST) — no se usa el
+/// paquete oficial supabase-csharp a propósito: para lo que necesita este motor de
+/// sincronización (upserts por lote, autenticado con la service_role key) un HttpClient
+/// delgado es más fácil de auditar y no agrega una dependencia más al .exe self-contained.
+/// </summary>
+public sealed class SupabaseRestClient
+{
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+    };
+
+    private readonly HttpClient _httpClient;
+
+    public SupabaseRestClient(HttpClient httpClient, SupabaseSyncOptions options)
+    {
+        if (!options.IsConfigured)
+        {
+            throw new InvalidOperationException(
+                "SupabaseRestClient no debe construirse sin Url/ServiceRoleKey configurados — " +
+                "quien lo registra en DI es responsable de verificar SupabaseSyncOptions.IsConfigured antes.");
+        }
+
+        _httpClient = httpClient;
+        _httpClient.BaseAddress = new Uri(options.Url!.TrimEnd('/') + "/rest/v1/");
+        _httpClient.DefaultRequestHeaders.Add("apikey", options.ServiceRoleKey);
+        _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", options.ServiceRoleKey);
+    }
+
+    /// <summary>Inserta o actualiza por lote, resolviendo conflictos por la llave primaria
+    /// "id" — así la sincronización es idempotente: reenviar la misma fila (p. ej. tras un
+    /// reintento de red) nunca duplica, solo sobreescribe con el mismo valor.</summary>
+    public async Task UpsertBatchAsync<T>(string table, IReadOnlyCollection<T> rows, CancellationToken cancellationToken)
+    {
+        if (rows.Count == 0)
+        {
+            return;
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"{table}?on_conflict=id")
+        {
+            Content = JsonContent.Create(rows, options: JsonOptions),
+        };
+        request.Headers.Add("Prefer", "resolution=merge-duplicates,return=minimal");
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            throw new HttpRequestException(
+                $"Supabase rechazó el upsert a '{table}' ({(int)response.StatusCode} {response.StatusCode}): {body}");
+        }
+    }
+}

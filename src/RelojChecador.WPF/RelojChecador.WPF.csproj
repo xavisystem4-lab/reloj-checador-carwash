@@ -15,6 +15,24 @@
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.11" />
   </ItemGroup>
 
+  <!-- appsettings.json: solo Url + AnonKey de Supabase (seguros de commitear — están
+       pensados para ser públicos, protegidos por RLS). La clave de escritura real
+       (ServiceRoleKey) NUNCA vive aquí — ver App.xaml.cs, se lee de
+       %LocalAppData%\RelojChecador\appsettings.Local.json, fuera del repo y de la carpeta
+       de instalación.
+
+       ExcludeFromSingleFile=true por la misma razón que zkemkeeper.dll (ver
+       RelojChecador.Infrastructure.Devices.csproj): PublishSingleFile empaqueta por
+       defecto los archivos de contenido DENTRO del único .exe, pero un archivo pensado
+       para poder editarse/reemplazarse sin recompilar necesita existir como archivo
+       físico real junto al .exe. -->
+  <ItemGroup>
+    <None Include="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+    </None>
+  </ItemGroup>
+
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>

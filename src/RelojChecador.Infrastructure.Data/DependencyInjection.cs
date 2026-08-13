@@ -4,9 +4,12 @@ using RelojChecador.Application.Attendances;
 using RelojChecador.Application.Branches;
 using RelojChecador.Application.Common;
 using RelojChecador.Application.Devices;
+using RelojChecador.Application.EmployeeDeviceMappings;
 using RelojChecador.Application.Employees;
 using RelojChecador.Application.Identity;
+using RelojChecador.Application.Sync;
 using RelojChecador.Infrastructure.Data.Repositories;
+using RelojChecador.Infrastructure.Data.Sync;
 
 namespace RelojChecador.Infrastructure.Data;
 
@@ -27,6 +30,8 @@ public static class DependencyInjection
         services.AddScoped<IDeviceRepository, EfDeviceRepository>();
         services.AddScoped<IUserRepository, EfUserRepository>();
         services.AddScoped<IAttendanceRepository, EfAttendanceRepository>();
+        services.AddScoped<ISyncCursorStore, EfSyncCursorStore>();
+        services.AddScoped<IEmployeeDeviceMappingRepository, EfEmployeeDeviceMappingRepository>();
 
         return services;
     }

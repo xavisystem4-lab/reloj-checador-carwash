@@ -2,9 +2,11 @@ using System.IO;
 using System.Windows;
 using System.Windows.Threading;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using RelojChecador.Application.Devices;
+using RelojChecador.Infrastructure.Cloud;
 using RelojChecador.Infrastructure.Data;
 using RelojChecador.Infrastructure.Devices.ZKTeco;
 using RelojChecador.Infrastructure.Logging;
@@ -59,10 +61,22 @@ public partial class App : System.Windows.Application
             Directory.CreateDirectory(_appDataDirectory);
             var databasePath = Path.Combine(_appDataDirectory, "relojchecador.db");
             var logDirectory = Path.Combine(_appDataDirectory, "logs");
+            var localSettingsPath = Path.Combine(_appDataDirectory, "appsettings.Local.json");
 
             _host = Host.CreateDefaultBuilder()
                 .UseRelojChecadorLogging(logDirectory)
-                .ConfigureServices((_, services) =>
+                .ConfigureAppConfiguration(config =>
+                {
+                    // appsettings.json (junto al .exe, commiteado): Url + AnonKey de Supabase,
+                    // seguros de ser públicos. appsettings.Local.json (en %LocalAppData%, NUNCA
+                    // en el repo ni en la carpeta de instalación): ServiceRoleKey real de esta
+                    // instalación — cada sucursal la configura una sola vez a mano. Ambos son
+                    // "optional: true": sin ninguno de los dos, la app arranca igual, 100% local
+                    // (ver SupabaseSyncOptions.IsConfigured).
+                    config.AddJsonFile(Path.Combine(AppContext.BaseDirectory, "appsettings.json"), optional: true, reloadOnChange: false);
+                    config.AddJsonFile(localSettingsPath, optional: true, reloadOnChange: false);
+                })
+                .ConfigureServices((context, services) =>
                 {
                     services.AddRelojChecadorData($"Data Source={databasePath}");
 
@@ -71,6 +85,10 @@ public partial class App : System.Windows.Application
                     // campo. Si algún día hace falta volver al simulador (desarrollo sin
                     // hardware a la mano), esta es la única línea que hay que cambiar.
                     services.AddSingleton<IAttendanceDeviceAdapter, ZKTecoDeviceAdapter>();
+
+                    var supabaseOptions = context.Configuration.GetSection("Supabase").Get<SupabaseSyncOptions>()
+                        ?? new SupabaseSyncOptions();
+                    services.AddRelojChecadorCloudSync(supabaseOptions);
 
                     // Scoped, no Singleton: cada ventana principal recibe su propio DbContext con
                     // vida acotada a esa ventana (ver el scope creado más abajo), en vez de
