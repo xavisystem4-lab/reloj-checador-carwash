@@ -367,16 +367,61 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
             return records;
         }
 
-        // "object", NO "int"/"string" tipados, a propósito para los parámetros "ref":
-        // confirmado en Windows real que con "ref int" el enlace tardío (dynamic) fallaba
-        // con "Could not convert argument 9 for call to GetGeneralLogData" — el binder de
-        // .NET exige que el tipo CLR del local coincida exacto con el VARIANT real que usa
-        // la interfaz COM, y sin el ensamblado de interop generado no hay forma de saber
-        // ese tipo de antemano. "object" deja que el binder marshalee el VARIANT tal cual
-        // venga, sin imponer un tipo CLR por adelantado — workaround estándar para este
-        // error con Automation COM heredado. Los valores se convierten después, ya con el
-        // dato en mano (Convert.ToInt32 acepta cualquier VARIANT numérico que haya
-        // regresado, sea Int16, Int32, etc.).
+        // Primer intento probado en Windows real (release v1.1.0): declarar todos los
+        // "ref" de GetGeneralLogData como "object" en vez de "int"/"string". Seguía
+        // fallando EXACTO igual ("Could not convert argument 9 for call to
+        // GetGeneralLogData") con el binario ya reconstruido — descartado que fuera el
+        // tipo CLR del local. Se cambia de método: GetGeneralLogDataStr es la variante del
+        // SDK de ZKTeco que devuelve TODOS los valores como string (BSTR) en vez de VARIANT
+        // numérico. BSTR marshalea de forma mucho más predecible a través del enlace tardío
+        // (dynamic/DLR) contra Automation COM heredado sin ensamblado de interop generado,
+        // así que es el workaround recomendado para este problema específico. Si el SDK
+        // instalado en esta máquina no expone GetGeneralLogDataStr (versión más vieja),
+        // cae de vuelta a la variante numérica original en vez de tumbar la descarga.
+        try
+        {
+            return ReadAllGeneralLogEntriesUsingStrVariant();
+        }
+        catch (Microsoft.CSharp.RuntimeBinder.RuntimeBinderException)
+        {
+            return ReadAllGeneralLogEntriesUsingNumericVariant();
+        }
+    }
+
+    private List<RawAttendanceRecord> ReadAllGeneralLogEntriesUsingStrVariant()
+    {
+        var records = new List<RawAttendanceRecord>();
+
+        object enrollNumber = "", verifyMode = "", inOutMode = "";
+        object year = "", month = "", day = "", hour = "", minute = "", second = "", workCode = "";
+
+        while (_zk!.GetGeneralLogDataStr(
+                   MachineNumber, ref enrollNumber, ref verifyMode, ref inOutMode,
+                   ref year, ref month, ref day, ref hour, ref minute, ref second, ref workCode))
+        {
+            var pin = Convert.ToString(enrollNumber) ?? "";
+            var verifyModeInt = ParseIntOrDefault(verifyMode);
+            var inOutModeInt = ParseIntOrDefault(inOutMode);
+            var timestamp = new DateTime(
+                ParseIntOrDefault(year), ParseIntOrDefault(month), ParseIntOrDefault(day),
+                ParseIntOrDefault(hour), ParseIntOrDefault(minute), ParseIntOrDefault(second), DateTimeKind.Unspecified);
+            records.Add(new RawAttendanceRecord(
+                pin, timestamp, MapVerifyMode(verifyModeInt), inOutModeInt,
+                RawPayload: $"ZK|{pin}|{verifyModeInt}|{inOutModeInt}|{timestamp:o}"));
+        }
+
+        return records;
+    }
+
+    /// <summary>Respaldo si GetGeneralLogDataStr no existe en el SDK instalado — la
+    /// variante numérica original (ver historial: probada en Windows real y falló con
+    /// "Could not convert argument 9", pero se conserva como segundo intento porque ese
+    /// fallo podría deberse a la máquina/versión específica del SDK, no a esta forma de
+    /// llamarlo en general).</summary>
+    private List<RawAttendanceRecord> ReadAllGeneralLogEntriesUsingNumericVariant()
+    {
+        var records = new List<RawAttendanceRecord>();
+
         object enrollNumber = "";
         object verifyMode = 0, inOutMode = 0, year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0, workCode = 0;
 
@@ -397,6 +442,12 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
 
         return records;
     }
+
+    /// <summary>GetGeneralLogDataStr devuelve todo como texto — Convert.ToInt32 no acepta
+    /// un string vacío ni texto no numérico, así que se usa int.TryParse con 0 de
+    /// respaldo en vez de dejar que una fila rara tumbe toda la descarga.</summary>
+    private static int ParseIntOrDefault(object value) =>
+        int.TryParse(Convert.ToString(value), out var parsed) ? parsed : 0;
 
     /// <summary>Mapeo best-effort — la convención más citada del SDK (1=huella,
     /// 3=contraseña, 4=tarjeta), sin confirmar todavía contra el F22/ID real. Cualquier
