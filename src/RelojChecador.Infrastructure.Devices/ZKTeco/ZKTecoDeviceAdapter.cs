@@ -415,7 +415,10 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
     /// versión cambia a <see cref="Type.InvokeMember"/> con <see cref="ParameterModifier"/>
     /// explícito, la forma clásica (pre-C#4 dynamic) de invocar Automation COM por enlace
     /// tardío, con control total sobre qué argumentos son "ref" en vez de depender del
-    /// binder implícito de "dynamic".</para>
+    /// binder implícito de "dynamic". (4) v1.3.0, Type.InvokeMember con los campos
+    /// numéricos boxeados como "int" → <c>DISP_E_TYPEMISMATCH</c> (0x80020005) — ver
+    /// comentario junto al array "args" más abajo sobre la corrección aplicada en esta
+    /// versión (short en vez de int).</para>
     /// </summary>
     private List<RawAttendanceRecord> ReadAllGeneralLogEntries()
     {
@@ -430,7 +433,15 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
         object comObject = _zk!;
         var comType = comObject.GetType();
 
-        object?[] args = { MachineNumber, "", 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+        // (4) v1.3.0, Type.InvokeMember con los 9 campos numéricos boxeados como "int"
+        // (Int32/VT_I4) → por fin un error de COM real y específico: DISP_E_TYPEMISMATCH
+        // (0x80020005, "Los tipos no coinciden"), ya NO una falla del mecanismo de enlace
+        // tardío en sí (eso quedó descartado: Type.InvokeMember sí logra invocar el método
+        // real del dispositivo). Los campos numéricos de GetGeneralLogData en varias
+        // implementaciones documentadas del SDK de ZKTeco (zkemkeeper.dll) son en realidad
+        // SHORT (Int16/VT_I2), no LONG (Int32/VT_I4) — un desajuste muy citado en foros de
+        // integración con este mismo SDK. Se boxean como "short" en vez de "int".
+        object?[] args = { MachineNumber, "", (short)0, (short)0, (short)0, (short)0, (short)0, (short)0, (short)0, (short)0, (short)0 };
 
         while ((bool)comType.InvokeMember(
                    "GetGeneralLogData", BindingFlags.InvokeMethod, binder: null, target: comObject,
