@@ -53,15 +53,10 @@ Name: "desktopicon"; Description: "Crear un acceso directo en el escritorio"; Gr
 
 [Files]
 ; Todo el contenido publicado (el .exe autocontenido + dependencias nativas, incluido el
-; SDK de ZKTeco — ver third-party/zkteco-sdk/README.md), EXCEPTO zkemkeeper.dll: ese va
-; aparte abajo porque necesita "regserver" para quedar registrado como servidor COM.
-Source: "{#MyPublishDir}\*"; DestDir: "{app}"; Excludes: "zkemkeeper.dll"; Flags: ignoreversion recursesubdirs createallsubdirs
-
-; zkemkeeper.dll es un COM server de 32 bits (ver comentario de [Setup]) — "regserver" hace
-; que Inno Setup lo registre (equivalente a regsvr32) al instalar y lo desregistre al
-; desinstalar, para que ZKTecoDeviceAdapter pueda activarlo por
-; Type.GetTypeFromProgID("zkemkeeper.CZKEM") en tiempo de ejecución.
-Source: "{#MyPublishDir}\zkemkeeper.dll"; DestDir: "{app}"; Flags: ignoreversion regserver
+; SDK de ZKTeco — ver third-party/zkteco-sdk/README.md). zkemkeeper.dll se copia aquí
+; igual que el resto — el registro COM ya NO se hace con "Flags: regserver" (ver
+; comentario en [Run] de por qué se cambió) sino con un paso explícito de regsvr32.
+Source: "{#MyPublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
@@ -69,7 +64,32 @@ Name: "{group}\Desinstalar {#MyAppName}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
+; Registra zkemkeeper.dll (COM de 32 bits del SDK de ZKTeco, ver
+; third-party/zkteco-sdk/README.md) para que ZKTecoDeviceAdapter pueda activarlo por
+; Type.GetTypeFromProgID("zkemkeeper.CZKEM") en tiempo de ejecución.
+;
+; Antes esto se hacía con "Flags: regserver" directo en [Files] — se cambió a este paso
+; explícito porque, en la primera instalación real (ver reporte del usuario: "5.
+; Autenticación -> No se pudo inicializar el SDK del fabricante... no se encontró el
+; ProgID"), el registro claramente NO quedó hecho aunque la instalación terminó sin
+; avisar nada. "regserver" puede fallar en silencio; un paso [Run] explícito con
+; regsvr32.exe SIN "/s" (sin modo silencioso) muestra el resultado real —éxito o el
+; error concreto de Windows— en un cuadro de diálogo durante la instalación, así que la
+; próxima vez que falle se va a notar de inmediato en vez de descubrirse hasta abrir la
+; pantalla de Dispositivos.
+;
+; "{sys}" resuelve automáticamente a SysWOW64 (no System32) porque este instalador corre
+; como proceso de 32 bits (no se fuerza ArchitecturesInstallIn64BitMode, ver [Setup]) —
+; ese detalle importa: regsvr32.exe de 64 bits no puede registrar un DLL de 32 bits.
+Filename: "{sys}\regsvr32.exe"; Parameters: """{app}\zkemkeeper.dll"""; StatusMsg: "Registrando el SDK del reloj checador…"; Flags: waituntilterminated
+
 Filename: "{app}\{#MyAppExeName}"; Description: "Iniciar {#MyAppName}"; Flags: nowait postinstall skipifsilent
+
+[UninstallRun]
+; Contraparte del registro de arriba — antes la desregistración quedaba a cargo del
+; "Flags: regserver" que ya no se usa, así que ahora hace falta este paso explícito para
+; no dejar basura en el registro de Windows tras desinstalar.
+Filename: "{sys}\regsvr32.exe"; Parameters: "/s /u ""{app}\zkemkeeper.dll"""; Flags: waituntilterminated
 
 [UninstallDelete]
 ; Deliberadamente NO se borra %LocalAppData%\RelojChecador (base SQLite local, logs,

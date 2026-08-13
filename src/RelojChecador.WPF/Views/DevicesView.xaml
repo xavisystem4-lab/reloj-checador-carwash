@@ -94,7 +94,7 @@
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Grid.Column="0" Text="1. IP válida" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="1" Text="{Binding IpValidResult}" />
+                                <TextBlock Grid.Column="1" Text="{Binding IpValidResult}" TextWrapping="Wrap" />
                             </Grid>
                             <Grid Margin="0,2">
                                 <Grid.ColumnDefinitions>
@@ -102,7 +102,7 @@
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Grid.Column="0" Text="2. Ping (ICMP)" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="1" Text="{Binding PingResult}" />
+                                <TextBlock Grid.Column="1" Text="{Binding PingResult}" TextWrapping="Wrap" />
                             </Grid>
                             <Grid Margin="0,2">
                                 <Grid.ColumnDefinitions>
@@ -110,7 +110,7 @@
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Grid.Column="0" Text="3. Puerto TCP" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="1" Text="{Binding PortResult}" />
+                                <TextBlock Grid.Column="1" Text="{Binding PortResult}" TextWrapping="Wrap" />
                             </Grid>
                             <Grid Margin="0,2">
                                 <Grid.ColumnDefinitions>
@@ -118,7 +118,7 @@
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Grid.Column="0" Text="4. Protocolo reconocido" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="1" Text="{Binding ProtocolResult}" />
+                                <TextBlock Grid.Column="1" Text="{Binding ProtocolResult}" TextWrapping="Wrap" />
                             </Grid>
                             <Grid Margin="0,2">
                                 <Grid.ColumnDefinitions>
@@ -126,7 +126,7 @@
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Grid.Column="0" Text="5. Autenticación" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="1" Text="{Binding AuthResult}" />
+                                <TextBlock Grid.Column="1" Text="{Binding AuthResult}" TextWrapping="Wrap" />
                             </Grid>
                         </StackPanel>
                     </GroupBox>
