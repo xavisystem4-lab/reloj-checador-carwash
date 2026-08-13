@@ -1,13 +1,5 @@
-﻿using System.Text;
 using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Data;
-using System.Windows.Documents;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
-using System.Windows.Shapes;
+using RelojChecador.WPF.ViewModels;
 
 namespace RelojChecador.WPF;
 
@@ -16,8 +8,13 @@ namespace RelojChecador.WPF;
 /// </summary>
 public partial class MainWindow : Window
 {
-    public MainWindow()
+    public MainViewModel ViewModel { get; }
+
+    public MainWindow(MainViewModel viewModel)
     {
         InitializeComponent();
+        ViewModel = viewModel;
+        DataContext = ViewModel;
+        Loaded += async (_, _) => await ViewModel.InitializeAsync();
     }
 }
