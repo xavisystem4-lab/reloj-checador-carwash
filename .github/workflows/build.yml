@@ -1,0 +1,83 @@
+name: Build y pruebas
+
+# Corre en un runner Windows real (no macOS): es la primera verificación de verdad de
+# que RelojChecador.WPF compila, pasa sus pruebas y arranca en Windows, sin depender de
+# tener una VM local siempre encendida.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    name: Compilar y probar (Windows)
+    runs-on: windows-latest
+    steps:
+      - name: Descargar código
+        uses: actions/checkout@v4
+
+      - name: Instalar .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restaurar dependencias
+        run: dotnet restore
+
+      - name: Compilar (Release)
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Ejecutar pruebas
+        run: dotnet test --configuration Release --no-build --logger "trx;LogFileName=test-results.trx"
+
+      - name: Publicar resultados de pruebas
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: "**/*.trx"
+
+      - name: Publicar RelojChecador.WPF (self-contained win-x64)
+        run: >
+          dotnet publish src/RelojChecador.WPF/RelojChecador.WPF.csproj
+          -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+          -o installer/publish
+
+      - name: Subir ejecutable publicado
+        uses: actions/upload-artifact@v4
+        with:
+          name: RelojChecador-win-x64
+          path: installer/publish/
+
+      - name: Capturar pantalla de la app (evidencia visual, best-effort)
+        if: always()
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $exe = "installer/publish/RelojChecador.WPF.exe"
+          if (Test-Path $exe) {
+            Start-Process $exe
+            Start-Sleep -Seconds 6
+            Add-Type -AssemblyName System.Windows.Forms
+            Add-Type -AssemblyName System.Drawing
+            $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+            $bitmap = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
+            $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+            $graphics.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+            $bitmap.Save("screenshot.png")
+            Get-Process -Name "RelojChecador.WPF" -ErrorAction SilentlyContinue | Stop-Process -Force
+          } else {
+            Write-Warning "No se encontró el ejecutable publicado; se omite la captura."
+          }
+
+      - name: Subir captura de pantalla
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshot
+          path: screenshot.png
+          if-no-files-found: ignore
