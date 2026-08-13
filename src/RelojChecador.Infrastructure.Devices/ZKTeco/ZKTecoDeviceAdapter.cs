@@ -1,5 +1,6 @@
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using RelojChecador.Application.Common;
 using RelojChecador.Application.Devices;
@@ -343,7 +344,7 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
                 catch (Exception ex) when (ex is not OutOfMemoryException)
                 {
                     return Result.Failure<IReadOnlyList<RawAttendanceRecord>>(
-                        Error.Unexpected($"No se pudo descargar la bitácora de asistencias: {ex.Message}"));
+                        Error.Unexpected($"No se pudo descargar la bitácora de asistencias: {DescribeException(ex)}"));
                 }
             }, cancellationToken);
         }
@@ -353,10 +354,69 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
         }
     }
 
+    /// <summary>Formatea una excepción con todo el detalle disponible (tipo, HRESULT si es
+    /// COMException, y la cadena completa de InnerException) — el mensaje corto por
+    /// defecto de "Error while invoking X" ya demostró no bastar para diagnosticar un
+    /// fallo real de COM sin acceso directo a la máquina Windows donde ocurre.</summary>
+    private static string DescribeException(Exception ex)
+    {
+        var parts = new List<string>();
+        var current = ex;
+        while (current is not null)
+        {
+            var hresult = current is COMException or ExternalException
+                ? $" (HRESULT 0x{current.HResult:X8})"
+                : "";
+            parts.Add($"{current.GetType().Name}{hresult}: {current.Message}");
+            current = current.InnerException;
+        }
+
+        return string.Join(" → ", parts);
+    }
+
     /// <summary>Recorre el buffer de bitácora del dispositivo. Debe llamarse ya con
     /// <see cref="_logAccessLock"/> tomado — el SDK no es seguro para lecturas
     /// concurrentes del mismo buffer (por eso el sondeo en tiempo real y la descarga
     /// manual comparten el mismo candado).</summary>
+    // 11 parámetros de GetGeneralLogData: MachineNumber (entrada) + 10 "ref" de salida.
+    // Se marcan como ParameterModifier(isByRef) explícitos para Type.InvokeMember — ver
+    // comentario de ReadAllGeneralLogEntries sobre por qué se abandonó "dynamic" para esta
+    // llamada en particular.
+    private static readonly ParameterModifier[] GeneralLogDataParameterModifiers = CreateGeneralLogDataParameterModifiers();
+
+    private static ParameterModifier[] CreateGeneralLogDataParameterModifiers()
+    {
+        var modifier = new ParameterModifier(11);
+        for (var i = 1; i < 11; i++)
+        {
+            modifier[i] = true;
+        }
+
+        return new[] { modifier };
+    }
+
+    /// <summary>Recorre el buffer de bitácora del dispositivo. Debe llamarse ya con
+    /// <see cref="_logAccessLock"/> tomado — el SDK no es seguro para lecturas
+    /// concurrentes del mismo buffer (por eso el sondeo en tiempo real y la descarga
+    /// manual comparten el mismo candado).
+    ///
+    /// <para><b>Historial de intentos contra hardware real</b> (F22/ID, SDK zkemkeeper,
+    /// plataforma ZLM60_TFT): (1) v1.1.0, "ref" de GetGeneralLogData tipados como
+    /// "int"/"string" vía "dynamic" → "Could not convert argument 9 for call to
+    /// GetGeneralLogData" (fallo de conversión de tipos, detectado ANTES de invocar el
+    /// método COM). (2) v1.1.0, mismos "ref" tipados como "object" → EXACTO el mismo
+    /// error, con el binario ya reconstruido — descarta que fuera el tipo CLR del local.
+    /// (3) v1.2.0, método alternativo GetGeneralLogDataStr (variante que devuelve BSTR en
+    /// vez de VARIANT numérico) → error DISTINTO, "Error while invoking
+    /// GetGeneralLogDataStr" (ya no es un fallo de conversión de tipos sino de la
+    /// invocación COM en sí, dentro de IDispatch::Invoke). Con dos fallos distintos usando
+    /// "dynamic" (el keyword de C#, resuelto por el DLR/ComBinder), se sospecha del
+    /// MECANISMO de llamada, no solo de los tipos o el nombre del método — así que esta
+    /// versión cambia a <see cref="Type.InvokeMember"/> con <see cref="ParameterModifier"/>
+    /// explícito, la forma clásica (pre-C#4 dynamic) de invocar Automation COM por enlace
+    /// tardío, con control total sobre qué argumentos son "ref" en vez de depender del
+    /// binder implícito de "dynamic".</para>
+    /// </summary>
     private List<RawAttendanceRecord> ReadAllGeneralLogEntries()
     {
         var records = new List<RawAttendanceRecord>();
@@ -367,87 +427,34 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
             return records;
         }
 
-        // Primer intento probado en Windows real (release v1.1.0): declarar todos los
-        // "ref" de GetGeneralLogData como "object" en vez de "int"/"string". Seguía
-        // fallando EXACTO igual ("Could not convert argument 9 for call to
-        // GetGeneralLogData") con el binario ya reconstruido — descartado que fuera el
-        // tipo CLR del local. Se cambia de método: GetGeneralLogDataStr es la variante del
-        // SDK de ZKTeco que devuelve TODOS los valores como string (BSTR) en vez de VARIANT
-        // numérico. BSTR marshalea de forma mucho más predecible a través del enlace tardío
-        // (dynamic/DLR) contra Automation COM heredado sin ensamblado de interop generado,
-        // así que es el workaround recomendado para este problema específico. Si el SDK
-        // instalado en esta máquina no expone GetGeneralLogDataStr (versión más vieja),
-        // cae de vuelta a la variante numérica original en vez de tumbar la descarga.
-        try
-        {
-            return ReadAllGeneralLogEntriesUsingStrVariant();
-        }
-        catch (Microsoft.CSharp.RuntimeBinder.RuntimeBinderException)
-        {
-            return ReadAllGeneralLogEntriesUsingNumericVariant();
-        }
-    }
+        object comObject = _zk!;
+        var comType = comObject.GetType();
 
-    private List<RawAttendanceRecord> ReadAllGeneralLogEntriesUsingStrVariant()
-    {
-        var records = new List<RawAttendanceRecord>();
+        object?[] args = { MachineNumber, "", 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 
-        object enrollNumber = "", verifyMode = "", inOutMode = "";
-        object year = "", month = "", day = "", hour = "", minute = "", second = "", workCode = "";
-
-        while (_zk!.GetGeneralLogDataStr(
-                   MachineNumber, ref enrollNumber, ref verifyMode, ref inOutMode,
-                   ref year, ref month, ref day, ref hour, ref minute, ref second, ref workCode))
+        while ((bool)comType.InvokeMember(
+                   "GetGeneralLogData", BindingFlags.InvokeMethod, binder: null, target: comObject,
+                   args: args, modifiers: GeneralLogDataParameterModifiers, culture: null, namedParameters: null)!)
         {
-            var pin = Convert.ToString(enrollNumber) ?? "";
-            var verifyModeInt = ParseIntOrDefault(verifyMode);
-            var inOutModeInt = ParseIntOrDefault(inOutMode);
+            var pin = Convert.ToString(args[1]) ?? "";
+            var verifyModeInt = Convert.ToInt32(args[2]);
+            var inOutModeInt = Convert.ToInt32(args[3]);
             var timestamp = new DateTime(
-                ParseIntOrDefault(year), ParseIntOrDefault(month), ParseIntOrDefault(day),
-                ParseIntOrDefault(hour), ParseIntOrDefault(minute), ParseIntOrDefault(second), DateTimeKind.Unspecified);
+                Convert.ToInt32(args[4]), Convert.ToInt32(args[5]), Convert.ToInt32(args[6]),
+                Convert.ToInt32(args[7]), Convert.ToInt32(args[8]), Convert.ToInt32(args[9]), DateTimeKind.Unspecified);
             records.Add(new RawAttendanceRecord(
                 pin, timestamp, MapVerifyMode(verifyModeInt), inOutModeInt,
                 RawPayload: $"ZK|{pin}|{verifyModeInt}|{inOutModeInt}|{timestamp:o}"));
+
+            // InvokeMember reescribe args[] en el sitio con los valores de salida de la
+            // llamada anterior — MachineNumber (args[0]) no debería cambiar, pero se
+            // reafirma explícitamente antes de la siguiente vuelta para no depender de
+            // ese detalle de implementación del marshaling COM.
+            args[0] = MachineNumber;
         }
 
         return records;
     }
-
-    /// <summary>Respaldo si GetGeneralLogDataStr no existe en el SDK instalado — la
-    /// variante numérica original (ver historial: probada en Windows real y falló con
-    /// "Could not convert argument 9", pero se conserva como segundo intento porque ese
-    /// fallo podría deberse a la máquina/versión específica del SDK, no a esta forma de
-    /// llamarlo en general).</summary>
-    private List<RawAttendanceRecord> ReadAllGeneralLogEntriesUsingNumericVariant()
-    {
-        var records = new List<RawAttendanceRecord>();
-
-        object enrollNumber = "";
-        object verifyMode = 0, inOutMode = 0, year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0, workCode = 0;
-
-        while (_zk!.GetGeneralLogData(
-                   MachineNumber, ref enrollNumber, ref verifyMode, ref inOutMode,
-                   ref year, ref month, ref day, ref hour, ref minute, ref second, ref workCode))
-        {
-            var pin = Convert.ToString(enrollNumber) ?? "";
-            var verifyModeInt = Convert.ToInt32(verifyMode);
-            var inOutModeInt = Convert.ToInt32(inOutMode);
-            var timestamp = new DateTime(
-                Convert.ToInt32(year), Convert.ToInt32(month), Convert.ToInt32(day),
-                Convert.ToInt32(hour), Convert.ToInt32(minute), Convert.ToInt32(second), DateTimeKind.Unspecified);
-            records.Add(new RawAttendanceRecord(
-                pin, timestamp, MapVerifyMode(verifyModeInt), inOutModeInt,
-                RawPayload: $"ZK|{pin}|{verifyModeInt}|{inOutModeInt}|{timestamp:o}"));
-        }
-
-        return records;
-    }
-
-    /// <summary>GetGeneralLogDataStr devuelve todo como texto — Convert.ToInt32 no acepta
-    /// un string vacío ni texto no numérico, así que se usa int.TryParse con 0 de
-    /// respaldo en vez de dejar que una fila rara tumbe toda la descarga.</summary>
-    private static int ParseIntOrDefault(object value) =>
-        int.TryParse(Convert.ToString(value), out var parsed) ? parsed : 0;
 
     /// <summary>Mapeo best-effort — la convención más citada del SDK (1=huella,
     /// 3=contraseña, 4=tarjeta), sin confirmar todavía contra el F22/ID real. Cualquier
