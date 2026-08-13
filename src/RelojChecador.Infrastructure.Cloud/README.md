@@ -55,7 +55,8 @@ clave se filtrara queda limitado a los datos de este carwash.
   con el mismo valor.
 - Sin conexión a internet es un caso **esperado** (operación offline-first): cada ciclo va
   en su propio `try/catch`, se registra en el log como advertencia y se reintenta en el
-  siguiente ciclo (cada `IntervalSeconds`, 60s por defecto) — nunca tumba la app.
+  siguiente ciclo (cada `IntervalSeconds`, 10s por defecto — configurable en
+  `appsettings.json` sin recompilar) — nunca tumba la app.
 
 ## Verificado sin necesitar la `service_role` key
 

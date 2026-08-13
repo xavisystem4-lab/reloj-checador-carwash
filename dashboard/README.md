@@ -52,9 +52,9 @@ Con esto, solo las cuentas que tú crees manualmente (paso anterior) pueden entr
   vincular" si el dispositivo todavía no tiene un `EmployeeDeviceMapping` para ese PIN),
   sucursal, dispositivo, método de verificación, tipo (entrada/salida).
 - **Exportar CSV** del reporte visible (respeta los filtros aplicados).
-- Se actualiza solo cada 30 segundos mientras la pestaña está abierta (la app de
-  escritorio sube cada ~60s, así que los datos pueden tardar hasta un minuto en aparecer
-  aquí después de la marcación real).
+- Se actualiza solo cada 10 segundos mientras la pestaña está abierta (la app de
+  escritorio también sube cada ~10s, así que los datos aparecen aquí casi al instante
+  después de la marcación real).
 
 ## Desplegar cambios
 

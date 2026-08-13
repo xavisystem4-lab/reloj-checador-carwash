@@ -15,7 +15,7 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-const REFRESH_INTERVAL_MS = 30_000;
+const REFRESH_INTERVAL_MS = 10_000;
 const MAX_ROWS = 2000;
 
 // ---- Referencias al DOM ----
@@ -371,9 +371,9 @@ function csvEscape(value) {
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
-// ---- Auto-actualización: la app de escritorio sube cada ~60s, así que refrescar cada
-// 30s mantiene el Dashboard razonablemente al día sin castigar a Supabase con
-// polling agresivo. ----
+// ---- Auto-actualización: la app de escritorio sube cada ~10s (ver
+// SupabaseSyncOptions.IntervalSeconds en el repo principal), así que refrescar aquí
+// cada 10s también mantiene el Dashboard prácticamente al día. ----
 function startAutoRefresh() {
   stopAutoRefresh();
   autoRefreshTimer = setInterval(() => {
