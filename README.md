@@ -108,6 +108,11 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   correo — ver `dashboard/README.md`
 - Pantalla de Empleados (alta + listado): mismo patrón MVVM que Sucursales/Dispositivos,
   primer tramo de la Fase 3 (navegación completa de la UI)
+- Vincular Empleado↔Dispositivo (`EmployeeDeviceMapping`): desde la pantalla de Empleados,
+  botón "Vincular a dispositivo" por fila (PIN capturado a mano, no descargado del
+  dispositivo — ver decisión de alcance en `EmployeesViewModel`); columna "Dispositivos
+  vinculados" muestra el resumen. Prerequisito de una futura pantalla de Asistencia que
+  muestre nombres en vez de PINs crudos.
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Confirmar el login real del Dashboard (requiere que el usuario cree su primera cuenta
@@ -116,8 +121,9 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
 - Navegación completa de la UI (Fase 3 del diseño visual — Sucursales, Empleados y
   Dispositivos ya existen; faltan Asistencia, Reportes y el resto de secciones finales) —
   **en curso**
-- Editar/eliminar empleados y vincular empleado↔dispositivo (`EmployeeDeviceMapping`,
-  backend ya listo) — siguiente tramo de Fase 3
+- Pantalla de Asistencia (consultar marcaciones ya guardadas localmente, ahora resolubles a
+  nombre de empleado gracias al vínculo Empleado↔Dispositivo) y editar/eliminar empleados —
+  siguiente tramo de Fase 3
 - Reportes, auditoría, incidencias, nómina (Fases 5-6)
 - Razón social real y logotipo/icono para el instalador y la app
 
