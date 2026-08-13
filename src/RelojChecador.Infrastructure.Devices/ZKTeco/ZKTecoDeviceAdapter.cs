@@ -41,7 +41,13 @@ namespace RelojChecador.Infrastructure.Devices.ZKTeco;
 /// </summary>
 public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
 {
-    private const string ProgId = "zkemkeeper.CZKEM";
+    // Confirmado en Windows real (no era la convención más citada que se había asumido
+    // aquí — "zkemkeeper.CZKEM" resultó incorrecto): consultando el registro tras un
+    // regsvr32 exitoso, el CLSID {00853A19-BD51-419B-9269-2DABE57EB61F} de zkemkeeper.dll
+    // tiene VersionIndependentProgID "zkemkeeper.ZKEM" (y ProgID versionado
+    // "zkemkeeper.ZKEM.1"). Se usa el VersionIndependentProgID, la práctica estándar para
+    // enlace tardío — siempre apunta a la versión más reciente registrada.
+    private const string ProgId = "zkemkeeper.ZKEM";
     private const int MachineNumber = 1; // Un solo dispositivo por conexión Connect_Net — convención del SDK.
 
     // Enlace tardío a propósito (ver comentario de la clase) — dynamic, no un tipo generado.
