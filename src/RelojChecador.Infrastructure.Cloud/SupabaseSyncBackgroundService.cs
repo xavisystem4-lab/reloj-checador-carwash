@@ -27,6 +27,7 @@ namespace RelojChecador.Infrastructure.Cloud;
 public sealed class SupabaseSyncBackgroundService(
     IServiceScopeFactory scopeFactory,
     SupabaseSyncOptions options,
+    SupabaseSyncStatus status,
     ILogger<SupabaseSyncBackgroundService> logger) : BackgroundService
 {
     private const int AttendanceBatchSize = 500;
@@ -40,6 +41,7 @@ public sealed class SupabaseSyncBackgroundService(
                 "Sincronización con Supabase deshabilitada (falta Url o ServiceRoleKey en " +
                 "%LocalAppData%\\RelojChecador\\appsettings.Local.json) — la app sigue funcionando " +
                 "100% local, sin nube por ahora.");
+            status.MarkDisabled();
             return;
         }
 
@@ -48,15 +50,24 @@ public sealed class SupabaseSyncBackgroundService(
 
         while (!stoppingToken.IsCancellationRequested)
         {
+            status.MarkAttemptStarted();
             try
             {
                 await RunOnceAsync(stoppingToken);
+                status.MarkSuccess();
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
+                // El mensaje de log original ("probablemente sin conexión a internet") asumía
+                // la causa más común, pero también puede ser un error real (401 por clave mal
+                // pegada, 404 por URL mal escrita, RLS, etc.) — SupabaseSyncStatus.LastError
+                // guarda el mensaje completo de la excepción para que se vea en la app sin
+                // tener que ir a buscar el archivo de log.
                 logger.LogWarning(ex,
-                    "Ciclo de sincronización con Supabase falló — probablemente sin conexión a internet. " +
-                    "Se reintenta en el siguiente ciclo, nada se pierde localmente.");
+                    "Ciclo de sincronización con Supabase falló (puede ser falta de internet o un " +
+                    "error real de configuración/credenciales). Se reintenta en el siguiente ciclo, " +
+                    "nada se pierde localmente.");
+                status.MarkFailure(ex.Message);
             }
 
             try

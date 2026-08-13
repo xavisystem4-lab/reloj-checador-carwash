@@ -14,6 +14,7 @@ public static class DependencyInjection
         this IServiceCollection services, SupabaseSyncOptions options)
     {
         services.AddSingleton(options);
+        services.AddSingleton<SupabaseSyncStatus>();
 
         if (options.IsConfigured)
         {

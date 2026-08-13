@@ -27,10 +27,45 @@ directo en el panel de Supabase:
 4. Esa misma persona entra a https://reloj-checador-carwash.netlify.app con ese correo y
    contraseña.
 
-Puedes repetir esto para dar acceso a varias personas — cualquier cuenta creada así ve
-los reportes de **todas** las sucursales (no hay todavía separación de acceso por
-sucursal en el Dashboard; si algún día hace falta, se resuelve con una tabla de
-permisos + políticas RLS más finas, no está construido en esta versión).
+Ese primer paso manual es **solo para la primera cuenta** (nadie puede entrar todavía, así
+que nadie puede usar el panel de abajo). A partir de ahí, esa persona ya puede invitar a
+las demás desde el propio Dashboard — botón **"👤 Usuarios"** en la barra superior.
+
+Cualquier cuenta (creada manualmente o invitada desde el panel) ve los reportes de
+**todas** las sucursales (no hay todavía separación de acceso por sucursal en el
+Dashboard; si algún día hace falta, se resuelve con una tabla de permisos + políticas RLS
+más finas, no está construido en esta versión).
+
+## Panel "Usuarios" (invitar / editar nombre / quitar acceso)
+
+Botón **"👤 Usuarios"** en la barra superior, visible para cualquiera que ya tenga sesión
+iniciada — el modelo de confianza es deliberadamente simple (un solo negocio pequeño, no
+un sistema con roles jerárquicos): cualquier persona con acceso de lectura también puede
+invitar o quitar acceso a otras.
+
+- **Invitar**: pide nombre + correo, Supabase le manda a esa persona un correo con un
+  enlace para que **ella misma** defina su contraseña — este sitio nunca genera ni ve
+  contraseñas de nadie.
+- **Editar nombre**: el lápiz ✏️ junto a cualquier usuario; cada persona también puede
+  cambiar el suyo propio con el botón de su nombre en la esquina superior derecha.
+- **Quitar acceso**: el bote de basura 🗑️ (no aparece junto a tu propia cuenta, para no
+  poder auto-eliminarte por accidente).
+
+Todo esto corre a través de una Edge Function de Supabase, `manage-users`
+(`supabase/functions/manage-users/index.ts`) — es la única pieza de este proyecto que usa
+la `service_role` key, y lo hace **del lado del servidor** (Supabase la inyecta como
+variable de entorno dentro de la función; nunca viaja al navegador). El sitio estático
+solo llama a la función con `supabase.functions.invoke(...)`, que adjunta el JWT de la
+sesión actual — la función (desplegada con `verify_jwt=true`) rechaza cualquier llamada
+sin una sesión válida.
+
+Redesplegar la función tras editarla:
+
+```bash
+npx supabase functions deploy manage-users --project-ref vkvlucpjgvqrlvevcimq
+```
+
+(o usando la herramienta MCP de Supabase, como se hizo la primera vez).
 
 ## Recomendado: cerrar el registro público
 

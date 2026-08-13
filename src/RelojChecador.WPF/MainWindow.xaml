@@ -12,25 +12,40 @@
          normal de WPF para esos controles específicos, así que fijar el DataContext aquí
          no les afecta. -->
     <DockPanel>
-        <!-- Barra de versión / actualización — visible siempre, sin importar la pestaña
-             activa: buscar/instalar actualizaciones no es una operación de ninguna
+        <!-- Barra superior — solo el interruptor de modo claro/oscuro (a pedido explícito:
+             "me gustaría que la opción del modo oscuro estuviese arriba"). Separada de la
+             barra inferior de versión/actualización a propósito: cambiar de tema es una
+             preferencia de toda la sesión, distinta de "hay una actualización pendiente". -->
+        <Border DockPanel.Dock="Top" Padding="14,8" Background="{DynamicResource BrushSurface}"
+                BorderBrush="{DynamicResource BrushBorder}" BorderThickness="0,0,0,1">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Left" Text="Reloj Checador" FontWeight="Bold" FontSize="15"
+                           VerticalAlignment="Center" Foreground="{DynamicResource BrushText}" />
+                <Button DockPanel.Dock="Right" x:Name="DarkModeToggleButton" Style="{StaticResource GhostButton}"
+                        Click="OnToggleDarkModeClick" ToolTip="Cambiar entre modo claro y oscuro"
+                        FontSize="16" HorizontalAlignment="Right" />
+            </DockPanel>
+        </Border>
+
+        <!-- Barra de versión / actualización / estado de la nube — visible siempre, sin
+             importar la pestaña activa: ninguna de estas tres cosas es una operación de una
              pantalla en particular. -->
         <Border DockPanel.Dock="Bottom" Padding="14,8" Background="{DynamicResource BrushSurface}"
                 BorderBrush="{DynamicResource BrushBorder}" BorderThickness="0,1,0,0">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="0" Text="{Binding CurrentVersionLabel}" VerticalAlignment="Center"
                            FontWeight="SemiBold" Foreground="{DynamicResource BrushTextSecondary}" Margin="0,0,18,0" />
-                <TextBlock Grid.Column="1" Text="{Binding UpdateStatusMessage}" VerticalAlignment="Center"
+                <TextBlock Grid.Column="1" Text="{Binding CloudSyncStatusMessage}" VerticalAlignment="Center"
+                           Foreground="{DynamicResource BrushTextSecondary}" TextTrimming="CharacterEllipsis"
+                           MaxWidth="360" Margin="0,0,18,0" ToolTip="{Binding CloudSyncStatusMessage}" />
+                <TextBlock Grid.Column="2" Text="{Binding UpdateStatusMessage}" VerticalAlignment="Center"
                            Foreground="{DynamicResource BrushTextSecondary}" TextTrimming="CharacterEllipsis" />
-                <Button Grid.Column="2" x:Name="DarkModeToggleButton" Style="{StaticResource GhostButton}"
-                        Click="OnToggleDarkModeClick" ToolTip="Cambiar entre modo claro y oscuro"
-                        FontSize="16" Margin="0,0,8,0" />
                 <Button Grid.Column="3" Content="Actualizar versión" Style="{StaticResource PrimaryButton}"
                         Command="{Binding CheckForUpdateCommand}" />
             </Grid>

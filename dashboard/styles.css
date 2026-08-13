@@ -145,8 +145,19 @@ body {
 .topbar-logo { font-size: 22px; }
 .topbar-name { font-weight: 700; font-size: 15px; }
 .topbar-subtitle { font-size: 12px; color: var(--muted); }
-.topbar-actions { display: flex; align-items: center; gap: 14px; }
-.user-email { font-size: 12.5px; color: var(--muted); }
+.topbar-actions { display: flex; align-items: center; gap: 10px; }
+.user-name-button {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  padding: 6px 8px;
+  border-radius: 8px;
+}
+.user-name-button:hover { background: var(--accent-soft); color: var(--accent); }
 
 .btn {
   padding: 9px 16px;
@@ -252,6 +263,79 @@ tbody tr:hover { background: var(--accent-soft); }
 .pill-out { background: var(--red-soft); color: var(--red); }
 
 .table-note { font-size: 11.5px; color: var(--dim); margin-top: 12px; }
+
+/* ---------- Modal de usuarios ---------- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 100;
+}
+/* Mismo motivo que #login-screen[hidden] más arriba: sin esta regla explícita, el
+   "display: flex" de .modal-overlay le gana en la cascada al "display: none" del atributo
+   hidden, y el modal se queda visible aunque hidden=true. */
+.modal-overlay[hidden] { display: none; }
+
+.modal-card {
+  width: 100%;
+  max-width: 560px;
+  max-height: 85vh;
+  overflow-y: auto;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 24px 70px rgba(0,0,0,0.25);
+}
+.modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.modal-header h2 { margin: 0; font-size: 17px; font-weight: 800; }
+.modal-close {
+  border: none; background: transparent; color: var(--muted); font-size: 16px;
+  cursor: pointer; padding: 4px 8px; border-radius: 8px;
+}
+.modal-close:hover { background: var(--accent-soft); color: var(--accent); }
+
+.invite-form { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.invite-form input {
+  flex: 1;
+  min-width: 140px;
+  padding: 9px 11px;
+  border-radius: 8px;
+  border: 1px solid var(--card-border);
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: 13.5px;
+  font-family: inherit;
+}
+.invite-success {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  background: var(--green-soft);
+  color: var(--green);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.users-table-scroll { overflow-x: auto; border: 1px solid var(--card-border); border-radius: 12px; }
+.users-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.users-table thead th {
+  text-align: left; padding: 10px 14px; font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted);
+  background: var(--row-border); white-space: nowrap;
+}
+.users-table tbody td { padding: 10px 14px; border-top: 1px solid var(--row-border); }
+.users-table .btn-icon {
+  border: none; background: transparent; color: var(--muted); cursor: pointer;
+  font-size: 13px; padding: 4px 6px; border-radius: 6px;
+}
+.users-table .btn-icon:hover { background: var(--accent-soft); color: var(--accent); }
+.users-table .btn-icon.danger:hover { background: var(--red-soft); color: var(--red); }
+.user-name-cell-empty { color: var(--dim); font-style: italic; }
 
 @media (max-width: 640px) {
   .topbar { flex-wrap: wrap; gap: 10px; }

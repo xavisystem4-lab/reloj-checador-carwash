@@ -41,7 +41,8 @@
         </div>
       </div>
       <div class="topbar-actions">
-        <span id="user-email" class="user-email"></span>
+        <button id="user-name-button" class="user-name-button" type="button" title="Editar mi nombre"></button>
+        <button id="users-button" class="btn btn-outline" type="button">👤 Usuarios</button>
         <button id="logout-button" class="btn btn-ghost" type="button">Cerrar sesión</button>
       </div>
     </header>
@@ -119,6 +120,44 @@
         escritorio de cada sucursal — pueden tardar unos segundos en aparecer aquí.
       </div>
     </section>
+  </div>
+
+  <!-- ===================== MODAL: gestión de usuarios del Dashboard ===================== -->
+  <!-- Cualquier persona con sesión iniciada puede invitar/editar/eliminar otras cuentas —
+       modelo de confianza deliberadamente simple (ver manage-users Edge Function): un solo
+       negocio pequeño, no un sistema con roles jerárquicos. Invitar SIEMPRE manda un correo
+       de Supabase para que la persona invitada defina su propia contraseña — esta pantalla
+       nunca crea ni ve contraseñas de nadie. -->
+  <div id="users-modal" class="modal-overlay" hidden>
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>Usuarios del Dashboard</h2>
+        <button id="users-modal-close" class="modal-close" type="button" aria-label="Cerrar">✕</button>
+      </div>
+
+      <form id="invite-form" class="invite-form">
+        <input id="invite-name-input" type="text" placeholder="Nombre" required />
+        <input id="invite-email-input" type="email" placeholder="correo@ejemplo.com" required />
+        <button id="invite-button" class="btn btn-primary" type="submit">+ Invitar</button>
+      </form>
+      <div id="invite-error" class="login-error" hidden></div>
+      <div id="invite-success" class="invite-success" hidden></div>
+
+      <div id="users-list-status" class="table-status">Cargando…</div>
+      <div class="users-table-scroll">
+        <table class="users-table">
+          <thead>
+            <tr>
+              <th>Nombre</th>
+              <th>Correo</th>
+              <th>Último acceso</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="users-tbody"></tbody>
+        </table>
+      </div>
+    </div>
   </div>
 
   <script type="module" src="app.js"></script>

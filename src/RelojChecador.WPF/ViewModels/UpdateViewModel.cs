@@ -4,6 +4,7 @@ using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using RelojChecador.Application.Updates;
+using RelojChecador.Infrastructure.Cloud;
 using Serilog;
 
 namespace RelojChecador.WPF.ViewModels;
@@ -12,6 +13,9 @@ namespace RelojChecador.WPF.ViewModels;
 /// ViewModel del botón "Actualizar versión" — visible en toda la app (ver
 /// MainWindow.xaml, barra inferior), no solo en una pestaña, porque buscar/instalar
 /// actualizaciones no es una operación de negocio de ninguna pantalla en particular.
+/// También expone el estado de la sincronización con Supabase (ver
+/// <see cref="CloudSyncStatusMessage"/>) — mismo criterio: es estado global de la app, no
+/// de una pantalla en particular, y visible en la misma barra.
 ///
 /// Nunca actualiza en silencio: siempre confirma con un cuadro de diálogo antes de
 /// descargar, y de nuevo antes de cerrar la app para instalar — igual que el resto del
@@ -21,6 +25,7 @@ namespace RelojChecador.WPF.ViewModels;
 public sealed partial class UpdateViewModel : ObservableObject
 {
     private readonly IUpdateChecker _updateChecker;
+    private readonly SupabaseSyncStatus _syncStatus;
 
     [ObservableProperty]
     private string _currentVersionLabel;
@@ -31,9 +36,13 @@ public sealed partial class UpdateViewModel : ObservableObject
     [ObservableProperty]
     private bool _isBusy;
 
-    public UpdateViewModel(IUpdateChecker updateChecker)
+    [ObservableProperty]
+    private string _cloudSyncStatusMessage = "☁️ Nube: verificando…";
+
+    public UpdateViewModel(IUpdateChecker updateChecker, SupabaseSyncStatus syncStatus)
     {
         _updateChecker = updateChecker;
+        _syncStatus = syncStatus;
 
         // Misma fuente que usa GitHubUpdateChecker para comparar (Directory.Build.props,
         // <Version>) — se lee aquí de forma independiente porque la versión debe verse en
@@ -41,6 +50,40 @@ public sealed partial class UpdateViewModel : ObservableObject
         // de una consulta a GitHub.
         var version = Assembly.GetEntryAssembly()?.GetName().Version;
         CurrentVersionLabel = version is null ? "v?.?.?" : $"v{version.Major}.{version.Minor}.{version.Build}";
+
+        // SupabaseSyncStatus.Changed se dispara desde el hilo del BackgroundService, no el
+        // de UI — hay que pasar por el Dispatcher antes de tocar una propiedad enlazada.
+        _syncStatus.Changed += (_, _) =>
+            System.Windows.Application.Current?.Dispatcher.Invoke(RefreshCloudSyncStatusMessage);
+        RefreshCloudSyncStatusMessage();
+    }
+
+    /// <summary>Traduce el estado crudo de <see cref="SupabaseSyncStatus"/> a un mensaje
+    /// legible — existe porque diagnosticar "no sube nada a Supabase" sin ver esto en
+    /// pantalla resultó, en la práctica, muy lento (varias rondas de capturas de pantalla
+    /// pedidas al usuario para revisar el archivo de logs a mano).</summary>
+    private void RefreshCloudSyncStatusMessage()
+    {
+        if (!_syncStatus.IsConfigured)
+        {
+            CloudSyncStatusMessage = "☁️ Nube: sin configurar (la app funciona 100% local)";
+            return;
+        }
+
+        if (_syncStatus.LastError is not null)
+        {
+            CloudSyncStatusMessage = $"☁️ Nube: error — {_syncStatus.LastError}";
+            return;
+        }
+
+        if (_syncStatus.LastSuccessAtUtc is { } lastSuccessUtc)
+        {
+            var secondsAgo = Math.Max(0, (int)(DateTime.UtcNow - lastSuccessUtc).TotalSeconds);
+            CloudSyncStatusMessage = $"☁️ Nube: conectado (hace {secondsAgo}s)";
+            return;
+        }
+
+        CloudSyncStatusMessage = "☁️ Nube: sincronizando…";
     }
 
     [RelayCommand]

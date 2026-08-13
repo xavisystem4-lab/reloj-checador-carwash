@@ -33,8 +33,20 @@ const emailInput = document.getElementById('email-input');
 const passwordInput = document.getElementById('password-input');
 const loginError = document.getElementById('login-error');
 const loginButton = document.getElementById('login-button');
-const userEmailLabel = document.getElementById('user-email');
+const userNameButton = document.getElementById('user-name-button');
 const logoutButton = document.getElementById('logout-button');
+
+const usersButton = document.getElementById('users-button');
+const usersModal = document.getElementById('users-modal');
+const usersModalClose = document.getElementById('users-modal-close');
+const inviteForm = document.getElementById('invite-form');
+const inviteNameInput = document.getElementById('invite-name-input');
+const inviteEmailInput = document.getElementById('invite-email-input');
+const inviteButton = document.getElementById('invite-button');
+const inviteError = document.getElementById('invite-error');
+const inviteSuccess = document.getElementById('invite-success');
+const usersListStatus = document.getElementById('users-list-status');
+const usersTbody = document.getElementById('users-tbody');
 
 const branchSelect = document.getElementById('branch-select');
 const fromInput = document.getElementById('from-input');
@@ -80,13 +92,24 @@ async function init() {
   fromInput.addEventListener('change', () => loadReport());
   toInput.addEventListener('change', () => loadReport());
   searchInput.addEventListener('input', debounce(() => renderTable(lastLoadedRows), 200));
+
+  userNameButton.addEventListener('click', onEditOwnNameClick);
+  usersButton.addEventListener('click', openUsersModal);
+  usersModalClose.addEventListener('click', closeUsersModal);
+  usersModal.addEventListener('click', (event) => {
+    if (event.target === usersModal) closeUsersModal(); // clic fuera de la tarjeta
+  });
+  inviteForm.addEventListener('submit', onInviteSubmit);
 }
 
+let currentSession = null;
+
 function applySessionState(session) {
+  currentSession = session;
   if (session) {
     loginScreen.hidden = true;
     dashboardScreen.hidden = false;
-    userEmailLabel.textContent = session.user.email ?? '';
+    userNameButton.textContent = displayNameFor(session.user);
     startAutoRefresh();
     loadBranches().then(() => loadReport());
     loadDevicesStatus();
@@ -94,7 +117,16 @@ function applySessionState(session) {
     loginScreen.hidden = false;
     dashboardScreen.hidden = true;
     stopAutoRefresh();
+    closeUsersModal();
   }
+}
+
+/// El nombre visible viene de user_metadata.full_name (lo edita la propia persona con el
+/// botón de su nombre, o se lo pone un admin al invitarla) — si todavía no tiene uno
+/// definido, se cae al correo, nunca se deja el botón vacío.
+function displayNameFor(user) {
+  const fullName = user?.user_metadata?.full_name;
+  return (fullName && fullName.trim()) || user?.email || '';
 }
 
 // ---- Inicio de sesión ----
@@ -134,6 +166,160 @@ function mapAuthError(error) {
 
 async function onLogoutClick() {
   await supabase.auth.signOut();
+}
+
+// ---- Editar mi propio nombre ----
+// A propósito NO usa la Edge Function: cambiar tu PROPIO nombre es una operación segura de
+// hacer directo contra tu propia sesión (anon key + tu JWT), sin necesitar la service_role
+// key del lado del servidor — eso solo hace falta para tocar la cuenta de alguien MÁS
+// (invitar, editar el nombre de otra persona, eliminar), ver callManageUsers().
+async function onEditOwnNameClick() {
+  const current = currentSession?.user?.user_metadata?.full_name ?? '';
+  const next = window.prompt('¿Cómo quieres que aparezca tu nombre en el Dashboard?', current);
+  if (next === null) return; // canceló
+  const trimmed = next.trim();
+  if (!trimmed) return;
+
+  const { data, error } = await supabase.auth.updateUser({ data: { full_name: trimmed } });
+  if (error) {
+    window.alert('No se pudo actualizar tu nombre: ' + error.message);
+    return;
+  }
+
+  currentSession = { ...currentSession, user: data.user };
+  userNameButton.textContent = displayNameFor(data.user);
+}
+
+// ---- Panel "Usuarios del Dashboard" (manage-users Edge Function) ----
+// Cualquier acción que toque la cuenta de OTRA persona (listar todas, invitar, editar el
+// nombre de alguien más, eliminar) necesita la service_role key del lado del servidor —
+// nunca se expone en este archivo. supabase.functions.invoke() adjunta automáticamente el
+// JWT de la sesión actual, y la Edge Function (verify_jwt=true) rechaza la llamada si esa
+// sesión no es válida.
+async function callManageUsers(action, payload) {
+  const { data, error } = await supabase.functions.invoke('manage-users', {
+    body: { action, ...payload },
+  });
+  if (error) {
+    // supabase-js no siempre expone el cuerpo del error de la función directamente —
+    // se intenta leer la respuesta real para mostrar el mensaje útil ("correo ya
+    // registrado", etc.) en vez de un genérico "Edge Function returned a non-2xx status".
+    const detail = await error.context?.json?.().catch(() => null);
+    throw new Error(detail?.error ?? error.message ?? 'Error desconocido.');
+  }
+  if (data?.error) {
+    throw new Error(data.error);
+  }
+  return data;
+}
+
+function openUsersModal() {
+  usersModal.hidden = false;
+  inviteError.hidden = true;
+  inviteSuccess.hidden = true;
+  inviteForm.reset();
+  loadUsersList();
+}
+
+function closeUsersModal() {
+  usersModal.hidden = true;
+}
+
+async function loadUsersList() {
+  usersListStatus.textContent = 'Cargando…';
+  usersTbody.innerHTML = '';
+  try {
+    const { users } = await callManageUsers('list', {});
+    usersListStatus.textContent = `${users.length} usuario(s) con acceso al Dashboard.`;
+    renderUsersTable(users);
+  } catch (err) {
+    usersListStatus.textContent = 'No se pudo cargar la lista: ' + err.message;
+  }
+}
+
+function renderUsersTable(users) {
+  usersTbody.innerHTML = '';
+  const fragment = document.createDocumentFragment();
+
+  for (const user of users) {
+    const tr = document.createElement('tr');
+    const nameCell = user.full_name
+      ? escapeHtml(user.full_name)
+      : '<span class="user-name-cell-empty">(sin nombre)</span>';
+    const lastSignIn = user.last_sign_in_at
+      ? formatDateTime(user.last_sign_in_at)
+      : '<span class="user-name-cell-empty">nunca entró</span>';
+    const isSelf = user.id === currentSession?.user?.id;
+
+    tr.innerHTML = `
+      <td>${nameCell}</td>
+      <td>${escapeHtml(user.email ?? '')}</td>
+      <td>${lastSignIn}</td>
+      <td style="text-align:right; white-space:nowrap;">
+        <button class="btn-icon" data-action="edit" data-id="${user.id}" data-name="${escapeHtml(user.full_name ?? '')}" title="Editar nombre">✏️</button>
+        ${isSelf ? '' : `<button class="btn-icon danger" data-action="delete" data-id="${user.id}" data-email="${escapeHtml(user.email ?? '')}" title="Eliminar acceso">🗑️</button>`}
+      </td>
+    `;
+    fragment.appendChild(tr);
+  }
+
+  usersTbody.appendChild(fragment);
+  usersTbody.querySelectorAll('button[data-action="edit"]').forEach(btn =>
+    btn.addEventListener('click', () => onEditOtherUserName(btn.dataset.id, btn.dataset.name)));
+  usersTbody.querySelectorAll('button[data-action="delete"]').forEach(btn =>
+    btn.addEventListener('click', () => onDeleteUser(btn.dataset.id, btn.dataset.email)));
+}
+
+async function onEditOtherUserName(userId, currentName) {
+  const next = window.prompt('Nuevo nombre para esta cuenta:', currentName ?? '');
+  if (next === null) return;
+  const trimmed = next.trim();
+
+  try {
+    await callManageUsers('update_name', { user_id: userId, full_name: trimmed });
+    loadUsersList();
+  } catch (err) {
+    window.alert('No se pudo actualizar el nombre: ' + err.message);
+  }
+}
+
+async function onDeleteUser(userId, email) {
+  const confirmed = window.confirm(
+    `¿Quitar el acceso al Dashboard de "${email}"? Esta persona ya no podrá iniciar sesión.`);
+  if (!confirmed) return;
+
+  try {
+    await callManageUsers('delete', { user_id: userId });
+    loadUsersList();
+  } catch (err) {
+    window.alert('No se pudo eliminar el acceso: ' + err.message);
+  }
+}
+
+async function onInviteSubmit(event) {
+  event.preventDefault();
+  inviteError.hidden = true;
+  inviteSuccess.hidden = true;
+  inviteButton.disabled = true;
+  inviteButton.textContent = 'Invitando…';
+
+  try {
+    const result = await callManageUsers('invite', {
+      email: inviteEmailInput.value.trim(),
+      full_name: inviteNameInput.value.trim(),
+    });
+    inviteSuccess.textContent =
+      `Se invitó a ${result.user.email} — le llegó un correo para que defina su propia contraseña.`;
+    inviteSuccess.hidden = false;
+    inviteForm.reset();
+    loadUsersList();
+  } catch (err) {
+    inviteError.textContent = 'No se pudo invitar: ' + err.message;
+    inviteError.hidden = false;
+  } finally {
+    inviteButton.disabled = false;
+    inviteButton.textContent = '+ Invitar';
+  }
 }
 
 // ---- Carga de sucursales (para el filtro) ----
