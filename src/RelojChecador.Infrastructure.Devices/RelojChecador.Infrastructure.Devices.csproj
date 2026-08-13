@@ -14,11 +14,21 @@
   <!-- SDK de ZKTeco (ver third-party/zkteco-sdk/README.md): se copian junto al .exe final
        de quien referencie este proyecto (RelojChecador.WPF) para que ZKTecoDeviceAdapter
        los encuentre en tiempo de ejecución. zkemkeeper.dll además se registra como
-       servidor COM al instalar — ver installer/RelojChecador.iss, Flags: regserver. -->
+       servidor COM al instalar — ver installer/RelojChecador.iss, Flags: regserver.
+
+       ExcludeFromSingleFile=true es obligatorio: RelojChecador.WPF publica con
+       PublishSingleFile=true, que por defecto empaqueta TODO (incluidos estos .dll) dentro
+       del único .exe. Un COM server necesita existir como archivo físico real en el disco
+       para poder registrarse (regsvr32 / Inno Setup Flags: regserver) — no puede vivir
+       empaquetado dentro de un single-file bundle. Sin esta bandera, ISCC.exe falla al
+       compilar el instalador porque zkemkeeper.dll simplemente no existe como archivo
+       suelto en la carpeta publicada (visto en CI: "Source file ...\zkemkeeper.dll does
+       not exist"). -->
   <ItemGroup>
     <None Include="..\..\third-party\zkteco-sdk\*.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>%(Filename)%(Extension)</Link>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
     </None>
   </ItemGroup>
 
