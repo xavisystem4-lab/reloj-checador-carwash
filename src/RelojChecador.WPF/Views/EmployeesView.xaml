@@ -1,0 +1,39 @@
+<UserControl x:Class="RelojChecador.WPF.Views.EmployeesView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             mc:Ignorable="d" d:DesignHeight="550" d:DesignWidth="1000">
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="Empleados" FontSize="24" FontWeight="Bold" Margin="0,0,0,4" />
+
+        <TextBlock Grid.Row="1" Text="{Binding StatusMessage}" FontSize="13" Foreground="{DynamicResource BrushTextSecondary}" Margin="0,0,0,12" />
+
+        <Button Grid.Row="2" Content="+ Nuevo empleado" Style="{StaticResource PrimaryButton}"
+                HorizontalAlignment="Left" Margin="0,0,0,12" Click="OnAddEmployeeClick" />
+
+        <!-- Bindea a EmployeeRow (Employee + BranchName ya resuelto), no a Employee
+             directo — Employee solo guarda BranchId, sin navegación a Branch. -->
+        <DataGrid Grid.Row="3" ItemsSource="{Binding Employees}" AutoGenerateColumns="False" IsReadOnly="True"
+                  CanUserAddRows="False" GridLinesVisibility="Horizontal" HeadersVisibility="Column">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Número" Binding="{Binding Employee.Number}" Width="90" />
+                <DataGridTextColumn Header="Nombre" Binding="{Binding Employee.FullName}" Width="*" />
+                <DataGridTextColumn Header="Sucursal" Binding="{Binding BranchName}" Width="150" />
+                <DataGridTextColumn Header="Departamento" Binding="{Binding Employee.Department}" Width="130" />
+                <DataGridTextColumn Header="Puesto" Binding="{Binding Employee.Position}" Width="130" />
+                <DataGridTextColumn Header="Fecha de alta" Binding="{Binding Employee.HireDate, StringFormat='dd/MM/yyyy'}" Width="110" />
+                <DataGridTextColumn Header="Estatus" Binding="{Binding Employee.Status}" Width="90" />
+                <DataGridTextColumn Header="Teléfono" Binding="{Binding Employee.Phone}" Width="110" />
+                <DataGridTextColumn Header="Correo" Binding="{Binding Employee.Email}" Width="160" />
+            </DataGrid.Columns>
+        </DataGrid>
+    </Grid>
+</UserControl>

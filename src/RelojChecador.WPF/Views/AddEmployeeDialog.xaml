@@ -1,0 +1,67 @@
+<Window x:Class="RelojChecador.WPF.Views.AddEmployeeDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Nuevo empleado" Height="560" Width="420"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
+        ShowInTaskbar="False">
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,10">
+            <TextBlock Text="Número de empleado *" FontWeight="SemiBold" Margin="0,0,0,2" />
+            <TextBox x:Name="NumberTextBox" MaxLength="20" Padding="4" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="1" Margin="0,0,0,10">
+            <TextBlock Text="Nombre completo *" FontWeight="SemiBold" Margin="0,0,0,2" />
+            <TextBox x:Name="FullNameTextBox" Padding="4" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="2" Margin="0,0,0,10">
+            <TextBlock Text="Sucursal *" FontWeight="SemiBold" Margin="0,0,0,2" />
+            <ComboBox x:Name="BranchComboBox" Padding="4" DisplayMemberPath="Name" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="3" Margin="0,0,0,10">
+            <TextBlock Text="Fecha de alta * (dd/mm/aaaa)" FontWeight="SemiBold" Margin="0,0,0,2" />
+            <!-- Se precarga con la fecha de hoy desde el code-behind (no un binding XAML a
+                 DateTime.Now, que no es una propiedad realmente estática) — el usuario la
+                 sobreescribe si el alta es retroactiva. -->
+            <TextBox x:Name="HireDateTextBox" Padding="4" />
+        </StackPanel>
+
+        <Grid Grid.Row="4" Margin="0,0,0,10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="10" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0">
+                <TextBlock Text="Departamento" FontWeight="SemiBold" Margin="0,0,0,2" />
+                <TextBox x:Name="DepartmentTextBox" Padding="4" />
+            </StackPanel>
+            <StackPanel Grid.Column="2">
+                <TextBlock Text="Puesto" FontWeight="SemiBold" Margin="0,0,0,2" />
+                <TextBox x:Name="PositionTextBox" Padding="4" />
+            </StackPanel>
+        </Grid>
+
+        <TextBlock Grid.Row="6" x:Name="ErrorTextBlock" Foreground="{DynamicResource BrushDanger}" TextWrapping="Wrap"
+                    Visibility="Collapsed" Margin="0,0,0,10" />
+
+        <StackPanel Grid.Row="8" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="Cancelar" Width="90" Margin="0,0,8,0" Click="OnCancelClick" IsCancel="True" />
+            <Button Content="Guardar" Width="90" Style="{StaticResource PrimaryButton}" Click="OnSaveClick" IsDefault="True" />
+        </StackPanel>
+    </Grid>
+</Window>

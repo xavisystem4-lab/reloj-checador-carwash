@@ -12,8 +12,8 @@ public partial class MainWindow : Window
     private readonly ThemeService _themeService;
 
     public MainWindow(
-        MainViewModel branchesViewModel, DevicesViewModel devicesViewModel, UpdateViewModel updateViewModel,
-        ThemeService themeService)
+        MainViewModel branchesViewModel, EmployeesViewModel employeesViewModel, DevicesViewModel devicesViewModel,
+        UpdateViewModel updateViewModel, ThemeService themeService)
     {
         InitializeComponent();
 
@@ -21,6 +21,7 @@ public partial class MainWindow : Window
 
         DataContext = updateViewModel;
         BranchesViewControl.DataContext = branchesViewModel;
+        EmployeesViewControl.DataContext = employeesViewModel;
         DevicesViewControl.DataContext = devicesViewModel;
 
         // ThemeService.Initialize() ya corrió en App.xaml.cs (antes de crear esta ventana);
@@ -30,6 +31,7 @@ public partial class MainWindow : Window
         Loaded += async (_, _) =>
         {
             await branchesViewModel.InitializeAsync();
+            await employeesViewModel.InitializeAsync();
             await devicesViewModel.InitializeAsync();
         };
     }

@@ -103,6 +103,7 @@ public partial class App : System.Windows.Application
                     // mantener un único DbContext abierto durante toda la sesión de la app.
                     services.AddScoped<MainWindow>();
                     services.AddScoped<MainViewModel>();
+                    services.AddScoped<EmployeesViewModel>();
                     services.AddScoped<DevicesViewModel>();
                     services.AddScoped<UpdateViewModel>();
                 })

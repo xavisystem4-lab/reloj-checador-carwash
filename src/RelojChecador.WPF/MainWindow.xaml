@@ -81,12 +81,15 @@
             </Grid>
         </Border>
 
-        <!-- Navegación mínima por pestañas: solo Sucursales y Dispositivos existen por ahora.
-             El resto de secciones (Empleados, Asistencia, Reportes...) del menú lateral
-             definido en la Fase 3 todavía no están construidas. -->
+        <!-- Navegación por pestañas: Sucursales, Empleados y Dispositivos existen ya.
+             El resto de secciones (Asistencia, Reportes...) del menú lateral definido en
+             la Fase 3 todavía no están construidas. -->
         <TabControl Padding="4">
             <TabItem Header="Sucursales">
                 <views:BranchesView x:Name="BranchesViewControl" />
+            </TabItem>
+            <TabItem Header="Empleados">
+                <views:EmployeesView x:Name="EmployeesViewControl" />
             </TabItem>
             <TabItem Header="Dispositivos">
                 <views:DevicesView x:Name="DevicesViewControl" />

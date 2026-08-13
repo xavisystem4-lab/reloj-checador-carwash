@@ -106,13 +106,18 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
 - Modo oscuro en la app de escritorio (barra superior) y en el Dashboard
 - Panel de usuarios del Dashboard (invitar/quitar acceso), mostrando nombre en vez de
   correo — ver `dashboard/README.md`
+- Pantalla de Empleados (alta + listado): mismo patrón MVVM que Sucursales/Dispositivos,
+  primer tramo de la Fase 3 (navegación completa de la UI)
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Confirmar el login real del Dashboard (requiere que el usuario cree su primera cuenta
   en Supabase Auth — ver `dashboard/README.md` — algo que, por diseño, nunca se hace
   automáticamente desde aquí)
-- Navegación completa de la UI (Fase 3 del diseño visual — hoy solo hay dos vistas
-  mínimas, Sucursales y Dispositivos, no las pantallas finales) — **en curso**
+- Navegación completa de la UI (Fase 3 del diseño visual — Sucursales, Empleados y
+  Dispositivos ya existen; faltan Asistencia, Reportes y el resto de secciones finales) —
+  **en curso**
+- Editar/eliminar empleados y vincular empleado↔dispositivo (`EmployeeDeviceMapping`,
+  backend ya listo) — siguiente tramo de Fase 3
 - Reportes, auditoría, incidencias, nómina (Fases 5-6)
 - Razón social real y logotipo/icono para el instalador y la app
 
