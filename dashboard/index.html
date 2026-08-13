@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reloj Checador — Reportes</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- ===================== PANTALLA DE INICIO DE SESIÓN ===================== -->
+  <!-- No hay formulario de "crear cuenta" a propósito: las cuentas del Dashboard se
+       crean directamente en el panel de Supabase (Authentication → Users → Add user),
+       nunca desde aquí — ver dashboard/README.md. -->
+  <main id="login-screen" class="login-screen">
+    <form id="login-form" class="login-card" autocomplete="on">
+      <div class="login-logo">🕐</div>
+      <h1>Reloj Checador</h1>
+      <p class="login-subtitle">Reportes de asistencia</p>
+
+      <label for="email-input">Correo</label>
+      <input id="email-input" name="email" type="email" required autocomplete="username" placeholder="tu@correo.com" />
+
+      <label for="password-input">Contraseña</label>
+      <input id="password-input" name="password" type="password" required autocomplete="current-password" placeholder="••••••••" />
+
+      <div id="login-error" class="login-error" hidden></div>
+
+      <button id="login-button" type="submit">Iniciar sesión</button>
+    </form>
+  </main>
+
+  <!-- ===================== DASHBOARD (solo tras iniciar sesión) ===================== -->
+  <div id="dashboard-screen" class="dashboard-screen" hidden>
+    <header class="topbar">
+      <div class="topbar-title">
+        <span class="topbar-logo">🕐</span>
+        <div>
+          <div class="topbar-name">Reloj Checador</div>
+          <div class="topbar-subtitle">Reportes de asistencia</div>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <span id="user-email" class="user-email"></span>
+        <button id="logout-button" class="btn btn-ghost" type="button">Cerrar sesión</button>
+      </div>
+    </header>
+
+    <section class="filters">
+      <div class="filter-field">
+        <label for="branch-select">Sucursal</label>
+        <select id="branch-select">
+          <option value="">Todas</option>
+        </select>
+      </div>
+      <div class="filter-field">
+        <label for="from-input">Desde</label>
+        <input id="from-input" type="date" />
+      </div>
+      <div class="filter-field">
+        <label for="to-input">Hasta</label>
+        <input id="to-input" type="date" />
+      </div>
+      <div class="filter-field filter-field-grow">
+        <label for="search-input">Buscar empleado o PIN</label>
+        <input id="search-input" type="text" placeholder="Nombre o PIN del dispositivo…" />
+      </div>
+      <div class="filter-actions">
+        <button id="refresh-button" class="btn btn-primary" type="button">Actualizar</button>
+        <button id="export-button" class="btn btn-outline" type="button">⬇ Exportar CSV</button>
+      </div>
+    </section>
+
+    <section id="kpi-row" class="kpi-row">
+      <div class="kpi-card">
+        <div class="kpi-value" id="kpi-total">—</div>
+        <div class="kpi-label">Marcaciones en el rango</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-value" id="kpi-employees">—</div>
+        <div class="kpi-label">Empleados con marcación</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-value" id="kpi-devices">—</div>
+        <div class="kpi-label">Dispositivos activos</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-value" id="kpi-unlinked">—</div>
+        <div class="kpi-label">Sin vincular a empleado</div>
+      </div>
+    </section>
+
+    <section class="table-section">
+      <div id="table-status" class="table-status">Cargando…</div>
+      <div class="table-scroll">
+        <table id="attendance-table">
+          <thead>
+            <tr>
+              <th>Fecha y hora</th>
+              <th>Empleado</th>
+              <th>Sucursal</th>
+              <th>Dispositivo</th>
+              <th>Método</th>
+              <th>Tipo</th>
+            </tr>
+          </thead>
+          <tbody id="attendance-tbody"></tbody>
+        </table>
+      </div>
+      <div class="table-note">
+        Hora mostrada en la zona horaria de tu navegador. Los datos los sube la app de
+        escritorio de cada sucursal — pueden tardar hasta un minuto en aparecer aquí.
+      </div>
+    </section>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

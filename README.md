@@ -21,10 +21,11 @@ navegación completa del diseño visual es la Fase 3, todavía pendiente.
 - **EF Core + SQLite** como base local de cada instalación
 - **Supabase** (PostgreSQL + Auth) como plataforma central — proyecto dedicado
   `reloj-checador-carwash`, esquema y sincronización push-only ya conectados (ver
-  `src/RelojChecador.Infrastructure.Cloud/README.md`); el Dashboard web de reportes
-  todavía no existe (ver "Pendiente" abajo)
+  `src/RelojChecador.Infrastructure.Cloud/README.md`)
 - **Serilog** para logging estructurado
 - **xUnit** para pruebas unitarias/integración
+- **Dashboard web** (`dashboard/`): sitio estático HTML/CSS/JS sin build, desplegado en
+  Netlify, lee reportes directo de Supabase — ver `dashboard/README.md`
 
 ## Estructura
 
@@ -32,7 +33,7 @@ navegación completa del diseño visual es la Fase 3, todavía pendiente.
 src/RelojChecador.Domain/               Entidades y reglas de negocio, sin dependencias externas
 src/RelojChecador.Application/          Casos de uso, contratos (IAttendanceDeviceAdapter, repositorios), Result/Error
 src/RelojChecador.Infrastructure.Data/  EF Core + SQLite, repositorios, migraciones
-src/RelojChecador.Infrastructure.Devices/ Adaptadores de dispositivos (Simulator listo; ZKTeco pendiente del SDK)
+src/RelojChecador.Infrastructure.Devices/ Adaptadores de dispositivos (Simulator + ZKTecoDeviceAdapter real)
 src/RelojChecador.Infrastructure.Cloud/ Motor de sincronización push-only con Supabase (ver su propio README)
 src/RelojChecador.Infrastructure.Security/ Windows Credential Manager (solo compila en Windows)
 src/RelojChecador.Infrastructure.Logging/ Configuración de Serilog
@@ -41,6 +42,7 @@ tests/                                  Pruebas unitarias/integración por capa
 tools/RelojChecador.DeviceSimulator/    Simulador standalone del protocolo del reloj (pendiente de contenido)
 installer/                              Script de Inno Setup + guía para generar el instalador de Windows
 supabase/                               Migraciones SQL versionadas (ya aplicadas al proyecto real); Edge Functions pendiente
+dashboard/                              Sitio estático (HTML/CSS/JS) de reportes, desplegado en Netlify — ver su propio README
 ```
 
 ## Compilar y probar
@@ -91,6 +93,10 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   sincronización incremental de asistencias por cursor, tablas chicas completas en cada
   ciclo, offline-first (nunca tumba la app sin internet) — ver
   `src/RelojChecador.Infrastructure.Cloud/README.md` para cómo activarla en una instalación
+- Dashboard web de reportes (`dashboard/`, desplegado en
+  https://reloj-checador-carwash.netlify.app): filtros por sucursal/fecha/empleado, KPIs,
+  exportar CSV, solo lectura (RLS lo garantiza a nivel de base de datos, no solo en el
+  código del sitio) — ver `dashboard/README.md` para crear la primera cuenta de acceso
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Confirmar `ZKTecoDeviceAdapter` contra el F22/ID real en Windows (nombres de método y
@@ -99,7 +105,9 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
 - Confirmar la sincronización con Supabase con la `service_role` key real corriendo en
   Windows (el esquema/RLS ya se verificó con la `anon` key; falta el flujo completo con
   datos reales — no se pudo probar en esta sesión, hecha desde macOS)
-- Dashboard web de reportes (Supabase Auth + lectura de las tablas ya sincronizadas)
+- Confirmar el login real del Dashboard (requiere que el usuario cree su primera cuenta
+  en Supabase Auth — ver `dashboard/README.md` — algo que, por diseño, nunca se hace
+  automáticamente desde aquí)
 - Módulo de auto-actualización de la app (verificar versión disponible y actualizar sin
   reinstalar a mano)
 - Navegación completa de la UI (Fase 3 del diseño visual — hoy solo hay una ventana mínima

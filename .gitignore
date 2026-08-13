@@ -34,3 +34,7 @@ appsettings.Local.json
 
 ## macOS
 .DS_Store
+
+## Netlify CLI (estado local del deploy del Dashboard — no es secreto, pero es
+## generado por la herramienta en cada máquina, no código fuente)
+dashboard/.netlify/
