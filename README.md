@@ -5,6 +5,15 @@ empleados, sucursales, asistencia y nómina, con sincronización a Supabase y op
 offline-first. Proyecto para un carwash en Mexicali, B.C., México — una sola empresa,
 varias sucursales (single-tenant).
 
+## Vista previa de la interfaz
+
+Captura real tomada en un runner de Windows durante el CI (ver
+`.github/workflows/`, paso "Capturar pantalla de la app") — no es un mockup.
+Hoy solo existe esta pantalla mínima (Sucursales + Dispositivos); la
+navegación completa del diseño visual es la Fase 3, todavía pendiente.
+
+![Pantalla de Sucursales](docs/screenshots/sucursales.png)
+
 ## Stack
 
 - **.NET 10 LTS** / C#
