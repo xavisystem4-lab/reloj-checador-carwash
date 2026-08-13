@@ -84,15 +84,14 @@ jobs:
 
             Add-Type -AssemblyName System.Windows.Forms
             Add-Type -AssemblyName System.Drawing
-            Add-Type @"
-              using System;
-              using System.Runtime.InteropServices;
-              public class Win32 {
-                [DllImport("user32.dll")]
-                public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
-                public struct RECT { public int Left, Top, Right, Bottom; }
-              }
-"@
+            # Nota: se evita a propósito el here-string "@ ... "@" de PowerShell aquí — su
+            # delimitador de cierre debe ir sin indentación al inicio de línea, lo cual rompe
+            # la indentación consistente que exige el bloque literal de YAML (run: |) y hace
+            # que el workflow ni siquiera se dispare (error de parseo silencioso en GitHub).
+            $win32Src = 'using System; using System.Runtime.InteropServices; ' +
+              'public class Win32 { [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect); ' +
+              'public struct RECT { public int Left, Top, Right, Bottom; } }'
+            Add-Type -TypeDefinition $win32Src
 
             $proc.Refresh()
             $hwnd = $proc.MainWindowHandle
