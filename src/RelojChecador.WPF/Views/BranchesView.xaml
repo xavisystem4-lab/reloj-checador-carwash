@@ -26,7 +26,13 @@
                 <DataGridTextColumn Header="Nombre" Binding="{Binding Name}" Width="*" />
                 <DataGridTextColumn Header="Zona horaria" Binding="{Binding TimeZoneId}" Width="180" />
                 <DataGridTextColumn Header="Razón social" Binding="{Binding LegalEntityName}" Width="200" />
-                <DataGridCheckBoxColumn Header="Activa" Binding="{Binding IsActive}" Width="70" />
+                <!-- Mode=OneWay explícito: aunque el DataGrid ya es IsReadOnly, DataGridCheckBoxColumn
+                     arma el binding del CheckBox interno (IsChecked) como TwoWay por defecto sin importar
+                     eso, y falla al cargar la tabla porque Branch.IsActive es de solo lectura en el
+                     dominio (sin setter público) — ver App.xaml.cs ReportFatal, InvalidOperationException
+                     "Un enlace TwoWay u OneWayToSource no puede funcionar en la propiedad de sólo
+                     lectura 'IsActive'" reportado la primera vez que corrió en Windows real. -->
+                <DataGridCheckBoxColumn Header="Activa" Binding="{Binding IsActive, Mode=OneWay}" Width="70" />
             </DataGrid.Columns>
         </DataGrid>
     </Grid>
