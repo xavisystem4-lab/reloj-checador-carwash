@@ -416,9 +416,18 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
     /// explícito, la forma clásica (pre-C#4 dynamic) de invocar Automation COM por enlace
     /// tardío, con control total sobre qué argumentos son "ref" en vez de depender del
     /// binder implícito de "dynamic". (4) v1.3.0, Type.InvokeMember con los campos
-    /// numéricos boxeados como "int" → <c>DISP_E_TYPEMISMATCH</c> (0x80020005) — ver
-    /// comentario junto al array "args" más abajo sobre la corrección aplicada en esta
-    /// versión (short en vez de int).</para>
+    /// numéricos boxeados como "int" (Int32/VT_I4) → <c>DISP_E_TYPEMISMATCH</c>
+    /// (0x80020005). (5) v1.4.0, exactamente lo mismo pero boxeados como "short"
+    /// (Int16/VT_I2) → EL MISMO error, byte por byte — dato clave: si el problema fuera el
+    /// ANCHO del entero (Int16 vs Int32), cambiarlo debería haber dado éxito o un error
+    /// DISTINTO; que sea idéntico descarta esa hipótesis y apunta a otra cosa: el
+    /// parámetro no espera ningún tipo numérico concreto, sino un VARIANT genérico
+    /// (<c>VT_VARIANT</c>) — típico de interfaces Automation pensadas para VB6/VBScript,
+    /// donde todos los parámetros son "Variant" por convención. Marshalear un valor
+    /// boxeado como "short"/"int" vía Type.InvokeMember NO produce VT_VARIANT (el
+    /// marshaler usa el tipo real del valor boxeado, sea cual sea, para elegir un VARTYPE
+    /// concreto) — hace falta <see cref="VariantWrapper"/> explícito para forzar
+    /// VT_VARIANT sin importar el tipo interno.</para>
     /// </summary>
     private List<RawAttendanceRecord> ReadAllGeneralLogEntries()
     {
@@ -433,20 +442,30 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
         object comObject = _zk!;
         var comType = comObject.GetType();
 
-        // (4) v1.3.0, Type.InvokeMember con los 9 campos numéricos boxeados como "int"
-        // (Int32/VT_I4) → por fin un error de COM real y específico: DISP_E_TYPEMISMATCH
-        // (0x80020005, "Los tipos no coinciden"), ya NO una falla del mecanismo de enlace
-        // tardío en sí (eso quedó descartado: Type.InvokeMember sí logra invocar el método
-        // real del dispositivo). Los campos numéricos de GetGeneralLogData en varias
-        // implementaciones documentadas del SDK de ZKTeco (zkemkeeper.dll) son en realidad
-        // SHORT (Int16/VT_I2), no LONG (Int32/VT_I4) — un desajuste muy citado en foros de
-        // integración con este mismo SDK. Se boxean como "short" en vez de "int".
-        object?[] args = { MachineNumber, "", (short)0, (short)0, (short)0, (short)0, (short)0, (short)0, (short)0, (short)0, (short)0 };
-
-        while ((bool)comType.InvokeMember(
-                   "GetGeneralLogData", BindingFlags.InvokeMethod, binder: null, target: comObject,
-                   args: args, modifiers: GeneralLogDataParameterModifiers, culture: null, namedParameters: null)!)
+        while (true)
         {
+            // Un array nuevo en cada vuelta, a propósito: tras la llamada, InvokeMember
+            // reemplaza cada posición "ref" por el valor de salida SIN volver a envolverlo
+            // en VariantWrapper (el wrapper es solo una instrucción de marshaling para el
+            // valor de ENTRADA) — si se reutilizara el mismo array entre vueltas, la
+            // siguiente llamada perdería el forzado a VT_VARIANT justo donde más importa.
+            object?[] args =
+            {
+                MachineNumber,
+                new VariantWrapper(""), new VariantWrapper((short)0), new VariantWrapper((short)0),
+                new VariantWrapper((short)0), new VariantWrapper((short)0), new VariantWrapper((short)0),
+                new VariantWrapper((short)0), new VariantWrapper((short)0), new VariantWrapper((short)0),
+                new VariantWrapper((short)0),
+            };
+
+            var hasMore = (bool)comType.InvokeMember(
+                "GetGeneralLogData", BindingFlags.InvokeMethod, binder: null, target: comObject,
+                args: args, modifiers: GeneralLogDataParameterModifiers, culture: null, namedParameters: null)!;
+            if (!hasMore)
+            {
+                break;
+            }
+
             var pin = Convert.ToString(args[1]) ?? "";
             var verifyModeInt = Convert.ToInt32(args[2]);
             var inOutModeInt = Convert.ToInt32(args[3]);
@@ -456,12 +475,6 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
             records.Add(new RawAttendanceRecord(
                 pin, timestamp, MapVerifyMode(verifyModeInt), inOutModeInt,
                 RawPayload: $"ZK|{pin}|{verifyModeInt}|{inOutModeInt}|{timestamp:o}"));
-
-            // InvokeMember reescribe args[] en el sitio con los valores de salida de la
-            // llamada anterior — MachineNumber (args[0]) no debería cambiar, pero se
-            // reafirma explícitamente antes de la siguiente vuelta para no depender de
-            // ese detalle de implementación del marshaling COM.
-            args[0] = MachineNumber;
         }
 
         return records;
