@@ -61,16 +61,29 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
 
     public event EventHandler<RawAttendanceRecord>? AttendancePunchReceived;
 
-    private Result<dynamic> EnsureComObject()
+    // Devuelve Result<object>, NO Result<dynamic> — encontrado como bug real en Windows
+    // (ver commit): cuando el argumento de Result.Success(...) es de tipo "dynamic", el
+    // compilador liga esa llamada en tiempo de ejecución (DLR) y el genérico T se infiere
+    // del tipo EN TIEMPO DE EJECUCIÓN del valor (aquí, System.__ComObject — el wrapper que
+    // usa .NET para objetos COM), no del tipo estático declarado. El resultado real en
+    // ejecución termina siendo Result<System.__ComObject>, y como Result<T> es invariante
+    // (una clase normal, sin "out T"), no hay conversión implícita hacia Result<object>/
+    // Result<dynamic> — el binder revienta con RuntimeBinderException: "Cannot implicitly
+    // convert type 'Result<System.__ComObject>' to 'Result<object>'." Fix: asignar el
+    // valor COM a una variable de tipo "object" ANTES de pasarlo a Result.Success — eso
+    // corta la cadena de "dynamic" en ese punto y fuerza resolución estática normal (T se
+    // infiere como object, sin pasar por el DLR).
+    private Result<object> EnsureComObject()
     {
         if (_zk is not null)
         {
-            return Result.Success(_zk);
+            object existing = _zk;
+            return Result.Success(existing);
         }
 
         if (!OperatingSystem.IsWindows())
         {
-            return Result.Failure<dynamic>(DeviceErrors.SdkNotAvailable("esta plataforma no es Windows"));
+            return Result.Failure<object>(DeviceErrors.SdkNotAvailable("esta plataforma no es Windows"));
         }
 
         try
@@ -78,20 +91,21 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
             var type = Type.GetTypeFromProgID(ProgId);
             if (type is null)
             {
-                return Result.Failure<dynamic>(
+                return Result.Failure<object>(
                     DeviceErrors.SdkNotAvailable($"no se encontró el ProgID '{ProgId}' en el registro de Windows"));
             }
 
             _zk = Activator.CreateInstance(type);
-            return Result.Success(_zk!);
+            object created = _zk!;
+            return Result.Success(created);
         }
         catch (COMException ex)
         {
-            return Result.Failure<dynamic>(DeviceErrors.SdkNotAvailable(ex.Message));
+            return Result.Failure<object>(DeviceErrors.SdkNotAvailable(ex.Message));
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            return Result.Failure<dynamic>(DeviceErrors.SdkNotAvailable(ex.Message));
+            return Result.Failure<object>(DeviceErrors.SdkNotAvailable(ex.Message));
         }
     }
 
