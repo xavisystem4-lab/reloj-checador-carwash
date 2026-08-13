@@ -15,19 +15,24 @@
         <!-- Barra de versión / actualización — visible siempre, sin importar la pestaña
              activa: buscar/instalar actualizaciones no es una operación de ninguna
              pantalla en particular. -->
-        <Border DockPanel.Dock="Bottom" Padding="14,8" Background="#F3F3F3" BorderBrush="#DDDDDD" BorderThickness="0,1,0,0">
+        <Border DockPanel.Dock="Bottom" Padding="14,8" Background="{DynamicResource BrushSurface}"
+                BorderBrush="{DynamicResource BrushBorder}" BorderThickness="0,1,0,0">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="0" Text="{Binding CurrentVersionLabel}" VerticalAlignment="Center"
-                           FontWeight="SemiBold" Foreground="#444444" Margin="0,0,18,0" />
+                           FontWeight="SemiBold" Foreground="{DynamicResource BrushTextSecondary}" Margin="0,0,18,0" />
                 <TextBlock Grid.Column="1" Text="{Binding UpdateStatusMessage}" VerticalAlignment="Center"
-                           Foreground="#777777" TextTrimming="CharacterEllipsis" />
-                <Button Grid.Column="2" Content="Actualizar versión" Command="{Binding CheckForUpdateCommand}"
-                        Padding="12,6" />
+                           Foreground="{DynamicResource BrushTextSecondary}" TextTrimming="CharacterEllipsis" />
+                <Button Grid.Column="2" x:Name="DarkModeToggleButton" Style="{StaticResource GhostButton}"
+                        Click="OnToggleDarkModeClick" ToolTip="Cambiar entre modo claro y oscuro"
+                        FontSize="16" Margin="0,0,8,0" />
+                <Button Grid.Column="3" Content="Actualizar versión" Style="{StaticResource PrimaryButton}"
+                        Command="{Binding CheckForUpdateCommand}" />
             </Grid>
         </Border>
 

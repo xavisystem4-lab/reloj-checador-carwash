@@ -1,0 +1,29 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- Paleta clara. Colors.Dark.xaml define las MISMAS claves con otros valores —
+         ThemeService intercambia el diccionario completo (el primero en
+         Application.Resources.MergedDictionaries) en tiempo de ejecución. Todos los
+         estilos de Styles.xaml usan DynamicResource (no StaticResource) sobre estas
+         claves para repintarse solos al cambiar de tema, sin reconstruir ninguna ventana. -->
+
+    <SolidColorBrush x:Key="BrushWindowBackground" Color="#F4F5F7" />
+    <SolidColorBrush x:Key="BrushSurface" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="BrushSurfaceAlt" Color="#EEF0F3" />
+    <SolidColorBrush x:Key="BrushBorder" Color="#E0E3E8" />
+    <SolidColorBrush x:Key="BrushBorderStrong" Color="#C7CBD3" />
+    <SolidColorBrush x:Key="BrushText" Color="#1A1D23" />
+    <SolidColorBrush x:Key="BrushTextSecondary" Color="#6B7280" />
+    <SolidColorBrush x:Key="BrushAccent" Color="#2563EB" />
+    <SolidColorBrush x:Key="BrushAccentHover" Color="#1D4ED8" />
+    <SolidColorBrush x:Key="BrushAccentPressed" Color="#1E40AF" />
+    <SolidColorBrush x:Key="BrushAccentText" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="BrushSuccess" Color="#16A34A" />
+    <SolidColorBrush x:Key="BrushSuccessSurface" Color="#E3F5EB" />
+    <SolidColorBrush x:Key="BrushDanger" Color="#DC2626" />
+    <SolidColorBrush x:Key="BrushSelection" Color="#DCE6FD" />
+    <SolidColorBrush x:Key="BrushRowAlt" Color="#F7F8FA" />
+    <SolidColorBrush x:Key="BrushDisabled" Color="#F0F1F3" />
+    <SolidColorBrush x:Key="BrushDisabledText" Color="#A7ACB5" />
+
+</ResourceDictionary>

@@ -156,7 +156,7 @@ public sealed class SimulatorDeviceAdapter : IAttendanceDeviceAdapter, IDisposab
         return Task.FromResult(Result.Success(DateTime.UtcNow));
     }
 
-    public Task<Result> SetDeviceTimeAsync(DateTime utcTime, CancellationToken cancellationToken = default)
+    public Task<Result> SetDeviceTimeAsync(DateTime deviceTime, CancellationToken cancellationToken = default)
     {
         if (!_isConnected)
         {

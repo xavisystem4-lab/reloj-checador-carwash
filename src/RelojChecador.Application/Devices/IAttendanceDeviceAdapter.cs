@@ -45,7 +45,10 @@ public interface IAttendanceDeviceAdapter
 
     Task<Result<DateTime>> GetDeviceTimeAsync(CancellationToken cancellationToken = default);
 
-    Task<Result> SetDeviceTimeAsync(DateTime utcTime, CancellationToken cancellationToken = default);
+    /// <summary>Escribe la hora en el reloj del dispositivo TAL CUAL — no se aplica
+    /// conversión de zona horaria. Quien llame decide qué hora enviar (normalmente la hora
+    /// local de la sucursal).</summary>
+    Task<Result> SetDeviceTimeAsync(DateTime deviceTime, CancellationToken cancellationToken = default);
 
     Task<Result<IReadOnlyList<RawAttendanceRecord>>> DownloadAttendanceLogsAsync(
         CancellationToken cancellationToken = default);

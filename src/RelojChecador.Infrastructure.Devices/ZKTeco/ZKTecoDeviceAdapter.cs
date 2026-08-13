@@ -269,6 +269,20 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
         }, cancellationToken);
     }
 
+    // 7 parámetros de GetDeviceTime: MachineNumber (entrada) + 6 "ref" de salida.
+    private static readonly ParameterModifier[] DeviceTimeParameterModifiers = CreateDeviceTimeParameterModifiers();
+
+    private static ParameterModifier[] CreateDeviceTimeParameterModifiers()
+    {
+        var modifier = new ParameterModifier(7);
+        for (var i = 1; i < 7; i++)
+        {
+            modifier[i] = true;
+        }
+
+        return new[] { modifier };
+    }
+
     public async Task<Result<DateTime>> GetDeviceTimeAsync(CancellationToken cancellationToken = default)
     {
         if (!_isConnected)
@@ -280,29 +294,43 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
         {
             try
             {
-                // object, no int — mismo motivo que ReadAllGeneralLogEntries (ver ese
-                // comentario): confirmado en Windows real que "ref int" falla con
-                // GetGeneralLogData; se aplica el mismo tratamiento aquí preventivamente,
-                // aunque GetDeviceTime en sí todavía no se ha probado contra hardware real.
-                object year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0;
-                bool ok = _zk!.GetDeviceTime(MachineNumber, ref year, ref month, ref day, ref hour, ref minute, ref second);
+                // Type.InvokeMember con "int" normal, NO "dynamic" con "ref object" — el
+                // mismo patrón que costó seis versiones descubrir para GetGeneralLogData
+                // (ver ReadAllGeneralLogEntries): "dynamic" contra este SDK falla de formas
+                // impredecibles con parámetros "ref" numéricos, mientras que
+                // Type.InvokeMember con el tipo CLR correcto (aquí "int", igual que
+                // SSR_GetGeneralLogData) sí funciona. Se aplica aquí preventivamente en vez
+                // de esperar a que GetDeviceTime falle igual en hardware real.
+                object comObject = _zk!;
+                var comType = comObject.GetType();
+                object?[] args = { MachineNumber, 0, 0, 0, 0, 0, 0 };
+
+                bool ok = (bool)comType.InvokeMember(
+                    "GetDeviceTime", BindingFlags.InvokeMethod, binder: null, target: comObject,
+                    args: args, modifiers: DeviceTimeParameterModifiers, culture: null, namedParameters: null)!;
                 if (!ok)
                 {
                     return Result.Failure<DateTime>(Error.Unexpected("GetDeviceTime devolvió falso."));
                 }
 
                 return Result.Success(new DateTime(
-                    Convert.ToInt32(year), Convert.ToInt32(month), Convert.ToInt32(day),
-                    Convert.ToInt32(hour), Convert.ToInt32(minute), Convert.ToInt32(second), DateTimeKind.Unspecified));
+                    Convert.ToInt32(args[1]), Convert.ToInt32(args[2]), Convert.ToInt32(args[3]),
+                    Convert.ToInt32(args[4]), Convert.ToInt32(args[5]), Convert.ToInt32(args[6]), DateTimeKind.Unspecified));
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
-                return Result.Failure<DateTime>(Error.Unexpected($"GetDeviceTime falló: {ex.Message}"));
+                return Result.Failure<DateTime>(Error.Unexpected($"GetDeviceTime falló: {DescribeException(ex)}"));
             }
         }, cancellationToken);
     }
 
-    public async Task<Result> SetDeviceTimeAsync(DateTime utcTime, CancellationToken cancellationToken = default)
+    /// <summary>El parámetro se llama "deviceTime" (no "utcTime" como antes) a propósito:
+    /// los relojes ZKTeco de este tipo no aplican ninguna conversión de zona horaria — el
+    /// valor que se escriba aquí es exactamente lo que el dispositivo va a mostrar y a usar
+    /// para sellar las marcaciones nuevas. Quien llama a este método decide qué hora
+    /// escribir (normalmente la hora LOCAL de la sucursal, para que coincida con lo que la
+    /// gente ve físicamente en el reloj) — ver DevicesViewModel.SyncDeviceTimeAsync.</summary>
+    public async Task<Result> SetDeviceTimeAsync(DateTime deviceTime, CancellationToken cancellationToken = default)
     {
         if (!_isConnected)
         {
@@ -314,12 +342,13 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
             try
             {
                 bool ok = _zk!.SetDeviceTime2(
-                    MachineNumber, utcTime.Year, utcTime.Month, utcTime.Day, utcTime.Hour, utcTime.Minute, utcTime.Second);
+                    MachineNumber, deviceTime.Year, deviceTime.Month, deviceTime.Day,
+                    deviceTime.Hour, deviceTime.Minute, deviceTime.Second);
                 return ok ? Result.Success() : Result.Failure(Error.Unexpected("SetDeviceTime2 devolvió falso."));
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
-                return Result.Failure(Error.Unexpected($"SetDeviceTime2 falló: {ex.Message}"));
+                return Result.Failure(Error.Unexpected($"SetDeviceTime2 falló: {DescribeException(ex)}"));
             }
         }, cancellationToken);
     }

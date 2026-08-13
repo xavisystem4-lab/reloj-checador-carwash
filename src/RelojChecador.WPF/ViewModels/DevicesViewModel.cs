@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.EntityFrameworkCore;
@@ -409,7 +410,11 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
 
         AttendanceRecords.Clear();
         var savedCount = 0;
-        foreach (var record in result.Value)
+        // Más reciente arriba — el dispositivo entrega los registros en el orden en que
+        // los tiene almacenados internamente (normalmente de llegada), no por fecha; se
+        // ordena explícitamente antes de mostrarlos para que la marcación más nueva quede
+        // primera sin depender de esa suposición.
+        foreach (var record in result.Value.OrderByDescending(r => r.TimestampUtc))
         {
             AttendanceRecords.Add(record);
             if (await PersistAttendanceAsync(record, source: "descarga manual"))
@@ -420,6 +425,26 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
 
         AppendLog($"Descarga completa: {result.Value.Count} registro(s) leído(s) desde el dispositivo " +
                    $"({savedCount} nuevo(s) guardado(s) en la base local, el resto ya existía).");
+    }
+
+    /// <summary>Escribe la hora LOCAL de esta PC en el reloj del dispositivo — no se envía
+    /// UTC: el reloj no aplica ninguna conversión de zona horaria, así que lo que se
+    /// escriba aquí es exactamente lo que la gente va a ver físicamente en la pantalla del
+    /// dispositivo y lo que quedará sellado en las marcaciones nuevas.</summary>
+    [RelayCommand]
+    private async Task SyncDeviceTimeAsync()
+    {
+        var beforeResult = await _deviceAdapter.GetDeviceTimeAsync();
+        var before = beforeResult.IsSuccess ? beforeResult.Value.ToString("dd/MM/yyyy HH:mm:ss") : "desconocida";
+
+        var result = await _deviceAdapter.SetDeviceTimeAsync(DateTime.Now);
+        if (result.IsFailure)
+        {
+            AppendLog($"No se pudo sincronizar la hora del dispositivo: {result.Error.Message}");
+            return;
+        }
+
+        AppendLog($"Hora del dispositivo sincronizada (antes: {before} → ahora: {DateTime.Now:dd/MM/yyyy HH:mm:ss}).");
     }
 
     private void AppendLog(string message) =>

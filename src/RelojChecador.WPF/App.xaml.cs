@@ -11,6 +11,7 @@ using RelojChecador.Infrastructure.Data;
 using RelojChecador.Infrastructure.Devices.ZKTeco;
 using RelojChecador.Infrastructure.Logging;
 using RelojChecador.Infrastructure.Updates;
+using RelojChecador.WPF.Services;
 using RelojChecador.WPF.ViewModels;
 using Serilog;
 
@@ -92,6 +93,11 @@ public partial class App : System.Windows.Application
                     services.AddRelojChecadorCloudSync(supabaseOptions);
                     services.AddRelojChecadorUpdates();
 
+                    // Singleton, no Scoped: el tema es un estado global de la app (una sola
+                    // preferencia, compartida por todas las ventanas), no algo ligado a la
+                    // vida de una ventana en particular.
+                    services.AddSingleton(new ThemeService(_appDataDirectory));
+
                     // Scoped, no Singleton: cada ventana principal recibe su propio DbContext con
                     // vida acotada a esa ventana (ver el scope creado más abajo), en vez de
                     // mantener un único DbContext abierto durante toda la sesión de la app.
@@ -110,6 +116,10 @@ public partial class App : System.Windows.Application
             }
 
             Log.Information("RelojChecador iniciando. Base de datos local: {DatabasePath}", databasePath);
+
+            // Se aplica el tema guardado ANTES de crear la ventana principal — así abre
+            // directamente con el tema correcto, sin un parpadeo inicial en claro.
+            _host.Services.GetRequiredService<ThemeService>().Initialize();
 
             _mainWindowScope = _host.Services.CreateScope();
             var mainWindow = _mainWindowScope.ServiceProvider.GetRequiredService<MainWindow>();

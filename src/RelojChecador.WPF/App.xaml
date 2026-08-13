@@ -5,6 +5,17 @@
     <!-- Sin StartupUri: la ventana principal se resuelve por inyección de dependencias
          en App.xaml.cs (OnStartup), no la crea WPF automáticamente. -->
     <Application.Resources>
-
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!-- Colors.*.xaml SIEMPRE debe ser el primer diccionario de esta lista —
+                     ThemeService.ApplyColorDictionary reemplaza el elemento en el índice 0
+                     al cambiar de tema. Se arranca en modo claro por defecto; si hay una
+                     preferencia guardada, ThemeService.Initialize() lo intercambia por
+                     Colors.Dark.xaml ANTES de mostrar la primera ventana (ver App.xaml.cs),
+                     así que no hay parpadeo visible del tema equivocado al abrir la app. -->
+                <ResourceDictionary Source="/RelojChecador.WPF;component/Themes/Colors.Light.xaml" />
+                <ResourceDictionary Source="/RelojChecador.WPF;component/Themes/Styles.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
     </Application.Resources>
 </Application>

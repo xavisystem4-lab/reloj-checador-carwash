@@ -14,10 +14,10 @@
 
         <TextBlock Grid.Row="0" Text="Sucursales" FontSize="24" FontWeight="Bold" Margin="0,0,0,4" />
 
-        <TextBlock Grid.Row="1" Text="{Binding StatusMessage}" FontSize="13" Foreground="#666666" Margin="0,0,0,12" />
+        <TextBlock Grid.Row="1" Text="{Binding StatusMessage}" FontSize="13" Foreground="{DynamicResource BrushTextSecondary}" Margin="0,0,0,12" />
 
-        <Button Grid.Row="2" Content="+ Nueva sucursal" HorizontalAlignment="Left" Padding="14,6" Margin="0,0,0,12"
-                Click="OnAddBranchClick" />
+        <Button Grid.Row="2" Content="+ Nueva sucursal" Style="{StaticResource PrimaryButton}"
+                HorizontalAlignment="Left" Margin="0,0,0,12" Click="OnAddBranchClick" />
 
         <DataGrid Grid.Row="3" ItemsSource="{Binding Branches}" AutoGenerateColumns="False" IsReadOnly="True"
                   CanUserAddRows="False" GridLinesVisibility="Horizontal" HeadersVisibility="Column">

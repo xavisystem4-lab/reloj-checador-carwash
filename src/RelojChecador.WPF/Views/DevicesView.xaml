@@ -7,15 +7,13 @@
              mc:Ignorable="d" d:DesignHeight="650" d:DesignWidth="950">
     <UserControl.Resources>
         <converters:NullToVisibilityConverter x:Key="NullToCollapsedConverter" />
+        <converters:PunchTypeToTextConverter x:Key="PunchTypeToTextConverter" />
         <BooleanToVisibilityConverter x:Key="BoolToVisibleConverter" />
-        <Style TargetType="GroupBox">
-            <Setter Property="Margin" Value="0,0,0,12" />
-            <Setter Property="Padding" Value="10" />
-            <Setter Property="FontWeight" Value="Normal" />
-        </Style>
-        <Style TargetType="Button" x:Key="ActionButton">
-            <Setter Property="Padding" Value="10,6" />
-            <Setter Property="Margin" Value="0,0,8,0" />
+        <!-- BasedOn el estilo global de Button (Themes/Styles.xaml) — sin esto, el botón
+             quedaría con el chrome nativo de Windows en vez del look plano moderno, porque
+             un estilo local con clave (x:Key) no hereda el estilo implícito por su cuenta. -->
+        <Style TargetType="Button" x:Key="ActionButton" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Margin" Value="0,0,8,8" />
         </Style>
     </UserControl.Resources>
 
@@ -27,7 +25,7 @@
         </Grid.RowDefinitions>
 
         <TextBlock Grid.Row="0" Text="Dispositivos" FontSize="24" FontWeight="Bold" Margin="0,0,0,4" />
-        <TextBlock Grid.Row="1" Text="{Binding StatusMessage}" FontSize="13" Foreground="#666666" Margin="0,0,0,12" />
+        <TextBlock Grid.Row="1" Text="{Binding StatusMessage}" FontSize="13" Foreground="{DynamicResource BrushTextSecondary}" Margin="0,0,0,12" />
 
         <Grid Grid.Row="2">
             <Grid.ColumnDefinitions>
@@ -38,15 +36,14 @@
 
             <!-- Columna izquierda: lista de dispositivos -->
             <DockPanel Grid.Column="0">
-                <Button DockPanel.Dock="Top" Content="+ Nuevo dispositivo" Padding="10,6" Margin="0,0,0,10"
+                <Button DockPanel.Dock="Top" Content="+ Nuevo dispositivo" Style="{StaticResource PrimaryButton}" Margin="0,0,0,10"
                         HorizontalAlignment="Stretch" Click="OnAddDeviceClick" />
-                <ListBox ItemsSource="{Binding Devices}" SelectedItem="{Binding SelectedDevice, Mode=TwoWay}"
-                         BorderThickness="1" BorderBrush="#DDDDDD">
+                <ListBox ItemsSource="{Binding Devices}" SelectedItem="{Binding SelectedDevice, Mode=TwoWay}">
                     <ListBox.ItemTemplate>
                         <DataTemplate>
                             <StackPanel Margin="4">
                                 <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
-                                <TextBlock FontSize="11" Foreground="#666666">
+                                <TextBlock FontSize="11" Foreground="{DynamicResource BrushTextSecondary}">
                                     <Run Text="{Binding IpAddress, Mode=OneWay}" />
                                     <Run Text=":" />
                                     <Run Text="{Binding TcpPort, Mode=OneWay}" />
@@ -63,15 +60,15 @@
 
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
                         <TextBlock Text="{Binding SelectedDevice.Name}" FontSize="18" FontWeight="Bold" />
-                        <TextBlock Text="{Binding SelectedDevice.Brand}" Foreground="#666666" Margin="10,0,0,0" VerticalAlignment="Center" />
-                        <TextBlock Text="{Binding SelectedDevice.Model}" Foreground="#666666" Margin="6,0,0,0" VerticalAlignment="Center" />
-                        <Border Background="#E3F5EB" CornerRadius="10" Padding="8,3" Margin="12,0,0,0"
+                        <TextBlock Text="{Binding SelectedDevice.Brand}" Foreground="{DynamicResource BrushTextSecondary}" Margin="10,0,0,0" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding SelectedDevice.Model}" Foreground="{DynamicResource BrushTextSecondary}" Margin="6,0,0,0" VerticalAlignment="Center" />
+                        <Border Background="{DynamicResource BrushSuccessSurface}" CornerRadius="10" Padding="8,3" Margin="12,0,0,0"
                                 VerticalAlignment="Center"
                                 Visibility="{Binding IsMonitoringRealTime, Converter={StaticResource BoolToVisibleConverter}}">
-                            <TextBlock Text="🟢 En vivo — las marcaciones nuevas aparecen solas" FontSize="11" FontWeight="SemiBold" Foreground="#1F7A4D" />
+                            <TextBlock Text="🟢 En vivo — las marcaciones nuevas aparecen solas" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource BrushSuccess}" />
                         </Border>
                     </StackPanel>
-                    <TextBlock Margin="0,0,0,12" Foreground="#666666">
+                    <TextBlock Margin="0,0,0,12" Foreground="{DynamicResource BrushTextSecondary}">
                         <Run Text="{Binding SelectedDevice.IpAddress, Mode=OneWay}" />
                         <Run Text=":" />
                         <Run Text="{Binding SelectedDevice.TcpPort, Mode=OneWay}" />
@@ -80,10 +77,12 @@
                     <WrapPanel Margin="0,0,0,12">
                         <Button Style="{StaticResource ActionButton}" Content="Hacer ping" Command="{Binding PingCommand}" />
                         <Button Style="{StaticResource ActionButton}" Content="Probar puerto TCP" Command="{Binding TestPortCommand}" />
-                        <Button Style="{StaticResource ActionButton}" Content="Conectar" Command="{Binding ConnectCommand}" />
+                        <Button Style="{StaticResource PrimaryButton}" Margin="0,0,8,8" Content="Conectar" Command="{Binding ConnectCommand}" />
                         <Button Style="{StaticResource ActionButton}" Content="Desconectar" Command="{Binding DisconnectCommand}" />
                         <Button Style="{StaticResource ActionButton}" Content="Consultar información" Command="{Binding GetDeviceInfoCommand}" />
                         <Button Style="{StaticResource ActionButton}" Content="Descargar asistencias" Command="{Binding DownloadAttendanceCommand}" />
+                        <Button Style="{StaticResource ActionButton}" Content="Sincronizar hora" Command="{Binding SyncDeviceTimeCommand}"
+                                ToolTip="Escribe la hora de esta PC en el reloj del dispositivo" />
                     </WrapPanel>
 
                     <GroupBox Header="Diagnóstico de conexión (5 niveles — nunca se asume éxito sin probar)">
@@ -168,9 +167,9 @@
                                   GridLinesVisibility="Horizontal">
                             <DataGrid.Columns>
                                 <DataGridTextColumn Header="PIN empleado" Binding="{Binding DeviceUserPin}" Width="100" />
-                                <DataGridTextColumn Header="Fecha y hora" Binding="{Binding TimestampUtc}" Width="160" />
+                                <DataGridTextColumn Header="Fecha y hora" Binding="{Binding TimestampUtc, StringFormat='dd/MM/yyyy HH:mm:ss'}" Width="150" />
                                 <DataGridTextColumn Header="Método" Binding="{Binding VerifyMethod}" Width="100" />
-                                <DataGridTextColumn Header="Tipo" Binding="{Binding PunchType}" Width="60" />
+                                <DataGridTextColumn Header="Tipo" Binding="{Binding PunchType, Converter={StaticResource PunchTypeToTextConverter}}" Width="170" />
                             </DataGrid.Columns>
                         </DataGrid>
                     </GroupBox>
