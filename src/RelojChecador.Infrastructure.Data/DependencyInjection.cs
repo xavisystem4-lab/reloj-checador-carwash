@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using RelojChecador.Application.Attendances;
 using RelojChecador.Application.Branches;
 using RelojChecador.Application.Common;
 using RelojChecador.Application.Devices;
@@ -25,6 +26,7 @@ public static class DependencyInjection
         services.AddScoped<IEmployeeRepository, EfEmployeeRepository>();
         services.AddScoped<IDeviceRepository, EfDeviceRepository>();
         services.AddScoped<IUserRepository, EfUserRepository>();
+        services.AddScoped<IAttendanceRepository, EfAttendanceRepository>();
 
         return services;
     }

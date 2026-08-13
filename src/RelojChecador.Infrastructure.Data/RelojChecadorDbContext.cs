@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using RelojChecador.Application.Common;
+using RelojChecador.Domain.Attendances;
 using RelojChecador.Domain.Branches;
 using RelojChecador.Domain.Devices;
 using RelojChecador.Domain.EmployeeDeviceMappings;
@@ -24,6 +25,7 @@ public sealed class RelojChecadorDbContext : DbContext, IUnitOfWork
     public DbSet<Device> Devices => Set<Device>();
     public DbSet<EmployeeDeviceMapping> EmployeeDeviceMappings => Set<EmployeeDeviceMapping>();
     public DbSet<User> Users => Set<User>();
+    public DbSet<Attendance> Attendances => Set<Attendance>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

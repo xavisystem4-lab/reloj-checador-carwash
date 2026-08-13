@@ -2,9 +2,11 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.EntityFrameworkCore;
+using RelojChecador.Application.Attendances;
 using RelojChecador.Application.Branches;
 using RelojChecador.Application.Common;
 using RelojChecador.Application.Devices;
+using RelojChecador.Domain.Attendances;
 using RelojChecador.Domain.Branches;
 using RelojChecador.Domain.Common;
 using RelojChecador.Domain.Devices;
@@ -30,6 +32,7 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
 {
     private readonly IDeviceRepository _deviceRepository;
     private readonly IBranchRepository _branchRepository;
+    private readonly IAttendanceRepository _attendanceRepository;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IAttendanceDeviceAdapter _deviceAdapter;
 
@@ -68,11 +71,13 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
     public DevicesViewModel(
         IDeviceRepository deviceRepository,
         IBranchRepository branchRepository,
+        IAttendanceRepository attendanceRepository,
         IUnitOfWork unitOfWork,
         IAttendanceDeviceAdapter deviceAdapter)
     {
         _deviceRepository = deviceRepository;
         _branchRepository = branchRepository;
+        _attendanceRepository = attendanceRepository;
         _unitOfWork = unitOfWork;
         _deviceAdapter = deviceAdapter;
 
@@ -95,7 +100,78 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
             AttendanceRecords.Insert(0, record);
             AppendLog($"🟢 Marcación en vivo — PIN {record.DeviceUserPin} · {record.TimestampUtc:HH:mm:ss} · {record.VerifyMethod}");
         });
+
+        // Fire-and-forget deliberado: el evento del adaptador es síncrono (no se puede
+        // "esperar" desde aquí sin bloquear su hilo de sondeo) y guardar en SQLite no debe
+        // frenar la siguiente marcación. Los errores se registran en la bitácora en vez de
+        // perderse en silencio — ver PersistAttendanceAsync.
+        _ = PersistAttendanceAsync(record, source: "tiempo real");
     }
+
+    /// <summary>Traduce y guarda una marcación cruda del adaptador como Attendance local,
+    /// con deduplicación (la misma marcación puede llegar tanto por el monitoreo en tiempo
+    /// real como por una descarga manual posterior — ver IAttendanceRepository.ExistsAsync).
+    /// Requiere que <see cref="SelectedDevice"/> siga siendo el dispositivo que reportó el
+    /// registro para resolver DeviceId/BranchId — válido en este ViewModel porque cambiar
+    /// de dispositivo detiene el monitoreo del anterior (ver OnSelectedDeviceChanged).</summary>
+    private async Task<bool> PersistAttendanceAsync(RawAttendanceRecord record, string source)
+    {
+        var device = SelectedDevice;
+        if (device is null)
+        {
+            AppendLog($"⚠️ Marcación recibida ({source}) sin dispositivo seleccionado — no se pudo guardar.");
+            return false;
+        }
+
+        try
+        {
+            var alreadyExists = await _attendanceRepository.ExistsAsync(
+                device.Id, record.DeviceUserPin, record.TimestampUtc);
+            if (alreadyExists)
+            {
+                return false;
+            }
+
+            var attendance = Attendance.Create(
+                deviceId: device.Id,
+                branchId: device.BranchId,
+                deviceUserPin: record.DeviceUserPin,
+                timestampUtc: record.TimestampUtc,
+                verifyMethod: MapVerifyMethod(record.VerifyMethod),
+                punchType: record.PunchType,
+                rawPayload: record.RawPayload);
+
+            await _attendanceRepository.AddAsync(attendance);
+            await _unitOfWork.SaveChangesAsync();
+            return true;
+        }
+        catch (DbUpdateException ex)
+        {
+            // El índice único (DeviceId, DeviceUserPin, TimestampUtc) es la garantía real
+            // contra duplicados ante una carrera entre el sondeo en tiempo real y una
+            // descarga manual simultánea — el ExistsAsync de arriba es solo la vía rápida
+            // que evita la mayoría de los intentos, no la única defensa.
+            Log.Warning(ex, "No se pudo guardar la marcación (posible duplicado): PIN={Pin}, DeviceId={DeviceId}",
+                record.DeviceUserPin, device.Id);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Error inesperado al guardar una marcación: PIN={Pin}, DeviceId={DeviceId}",
+                record.DeviceUserPin, device.Id);
+            AppendLog($"⚠️ No se pudo guardar la marcación de PIN {record.DeviceUserPin}: {ex.Message}");
+            return false;
+        }
+    }
+
+    private static AttendanceVerifyMethod MapVerifyMethod(VerifyMethod method) => method switch
+    {
+        VerifyMethod.Fingerprint => AttendanceVerifyMethod.Fingerprint,
+        VerifyMethod.Password => AttendanceVerifyMethod.Password,
+        VerifyMethod.Card => AttendanceVerifyMethod.Card,
+        VerifyMethod.Face => AttendanceVerifyMethod.Face,
+        _ => AttendanceVerifyMethod.Unknown,
+    };
 
     public async Task InitializeAsync()
     {
@@ -291,14 +367,18 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         }
 
         AttendanceRecords.Clear();
+        var savedCount = 0;
         foreach (var record in result.Value)
         {
             AttendanceRecords.Add(record);
+            if (await PersistAttendanceAsync(record, source: "descarga manual"))
+            {
+                savedCount++;
+            }
         }
 
-        AppendLog($"Descarga completa: {result.Value.Count} registro(s) leído(s) desde el dispositivo.");
-        // Nota: todavía no se persisten en la base local (eso requiere resolver primero la
-        // conciliación con EmployeeDeviceMapping) — por ahora solo se muestran en pantalla.
+        AppendLog($"Descarga completa: {result.Value.Count} registro(s) leído(s) desde el dispositivo " +
+                   $"({savedCount} nuevo(s) guardado(s) en la base local, el resto ya existía).");
     }
 
     private void AppendLog(string message) =>
