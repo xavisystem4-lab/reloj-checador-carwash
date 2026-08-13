@@ -25,5 +25,10 @@ appsettings.Development.json
 appsettings.Local.json
 **/secrets.json
 
+## Bases de datos SQLite locales (nunca se versionan, son datos de cada instalación)
+*.db
+*.db-shm
+*.db-wal
+
 ## macOS
 .DS_Store
