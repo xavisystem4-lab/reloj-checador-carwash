@@ -27,7 +27,8 @@ namespace RelojChecador.Infrastructure.Devices.ZKTeco;
 /// <para><b>Por qué monitoreo por sondeo (polling) y no el evento COM <c>OnAttTransactionEx</c>:</b>
 /// los eventos COM (connection points) necesitan una interfaz de evento fuertemente tipada
 /// para poder suscribirse con <c>+=</c> — eso exige el ensamblado de interop generado que
-/// justo estamos evitando por el punto anterior. Sondear <c>ReadGeneralLogData</c> cada
+/// justo estamos evitando por el punto anterior. Sondear la bitácora (<c>ReadAllGLogData</c>
+/// + <c>SSR_GetGeneralLogData</c>, ver <see cref="ReadAllGeneralLogEntries"/>) cada
 /// pocos segundos es el patrón más usado en integraciones de este SDK en la práctica (más
 /// estable entre versiones de firmware que el modo "tiempo real" nativo) y cumple el
 /// requisito de que la marcación aparezca casi al instante sin depender de un botón.</para>
@@ -36,7 +37,7 @@ namespace RelojChecador.Infrastructure.Devices.ZKTeco;
 /// mapeo de <c>dwVerifyMode</c> a <see cref="VerifyMethod"/> y el "backup number" de
 /// <c>SSR_DeleteEnrollData</c> siguen la convención más citada en la documentación/comunidad
 /// del SDK, pero no se probaron todavía contra el F22/ID real — quedan marcados donde
-/// aplica. Todo lo demás (Connect_Net, ReadGeneralLogData/GetGeneralLogData,
+/// aplica. Todo lo demás (Connect_Net, ReadAllGLogData/SSR_GetGeneralLogData,
 /// ReadAllUserID/SSR_GetAllUserInfo, SSR_SetUserInfo, EnableDevice, RestartDevice,
 /// ClearGLog) es la API pública documentada del SDK.</para>
 /// </summary>
@@ -418,22 +419,33 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
     /// binder implícito de "dynamic". (4) v1.3.0, Type.InvokeMember con los campos
     /// numéricos boxeados como "int" (Int32/VT_I4) → <c>DISP_E_TYPEMISMATCH</c>
     /// (0x80020005). (5) v1.4.0, exactamente lo mismo pero boxeados como "short"
-    /// (Int16/VT_I2) → EL MISMO error, byte por byte — dato clave: si el problema fuera el
-    /// ANCHO del entero (Int16 vs Int32), cambiarlo debería haber dado éxito o un error
-    /// DISTINTO; que sea idéntico descarta esa hipótesis y apunta a otra cosa: el
-    /// parámetro no espera ningún tipo numérico concreto, sino un VARIANT genérico
-    /// (<c>VT_VARIANT</c>) — típico de interfaces Automation pensadas para VB6/VBScript,
-    /// donde todos los parámetros son "Variant" por convención. Marshalear un valor
-    /// boxeado como "short"/"int" vía Type.InvokeMember NO produce VT_VARIANT (el
-    /// marshaler usa el tipo real del valor boxeado, sea cual sea, para elegir un VARTYPE
-    /// concreto) — hace falta <see cref="VariantWrapper"/> explícito para forzar
-    /// VT_VARIANT sin importar el tipo interno.</para>
+    /// (Int16/VT_I2) → EL MISMO error, byte por byte. (6) v1.5.0, los mismos parámetros
+    /// envueltos en <see cref="VariantWrapper"/> (forzando VT_VARIANT explícito) → OTRA VEZ
+    /// el mismo error, byte por byte. Con el ancho del entero, el "wrapping" a Variant, Y el
+    /// mecanismo de invocación (dynamic vs. InvokeMember) ya descartados como causa — los
+    /// tres únicos ejes que se habían probado — la única variable que quedaba sin probar era
+    /// el MÉTODO EN SÍ: resulta que <c>GetGeneralLogData</c> (el nombre usado en todos los
+    /// intentos anteriores, tomado de la documentación genérica del SDK) no es el método que
+    /// usan la mayoría de integraciones reales y funcionando contra hardware ZKTeco — usan
+    /// <c>SSR_GetGeneralLogData</c> (una interfaz distinta, con su propio DISPID), emparejado
+    /// con <c>ReadAllGLogData</c> como preparación del buffer (en vez de
+    /// <c>ReadGeneralLogData</c>). Firma confirmada contra un wrapper de interop real
+    /// (generado por Visual Studio contra el type library real de zkemkeeper.dll, la fuente
+    /// más confiable posible sin poder inspeccionar el type library de esta máquina
+    /// directamente): <c>bool SSR_GetGeneralLogData(int dwMachineNumber, out string
+    /// dwEnrollNumber, out int dwVerifyMode, out int dwInOutMode, out int dwYear, out int
+    /// dwMonth, out int dwDay, out int dwHour, out int dwMinute, out int dwSecond, ref int
+    /// dwWorkCode)</c> — enrollNumber como string, TODO lo demás como int normal (ni short
+    /// ni Variant envuelto), y workCode el único explícitamente "ref" (el resto son "out",
+    /// que a nivel de marshaling COM se comporta igual que "ref" — de ahí que
+    /// <see cref="GeneralLogDataParameterModifiers"/> siga marcando las 10 posiciones como
+    /// byref).</para>
     /// </summary>
     private List<RawAttendanceRecord> ReadAllGeneralLogEntries()
     {
         var records = new List<RawAttendanceRecord>();
 
-        bool hasData = _zk!.ReadGeneralLogData(MachineNumber);
+        bool hasData = _zk!.ReadAllGLogData(MachineNumber);
         if (!hasData)
         {
             return records;
@@ -444,22 +456,10 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
 
         while (true)
         {
-            // Un array nuevo en cada vuelta, a propósito: tras la llamada, InvokeMember
-            // reemplaza cada posición "ref" por el valor de salida SIN volver a envolverlo
-            // en VariantWrapper (el wrapper es solo una instrucción de marshaling para el
-            // valor de ENTRADA) — si se reutilizara el mismo array entre vueltas, la
-            // siguiente llamada perdería el forzado a VT_VARIANT justo donde más importa.
-            object?[] args =
-            {
-                MachineNumber,
-                new VariantWrapper(""), new VariantWrapper((short)0), new VariantWrapper((short)0),
-                new VariantWrapper((short)0), new VariantWrapper((short)0), new VariantWrapper((short)0),
-                new VariantWrapper((short)0), new VariantWrapper((short)0), new VariantWrapper((short)0),
-                new VariantWrapper((short)0),
-            };
+            object?[] args = { MachineNumber, "", 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 
             var hasMore = (bool)comType.InvokeMember(
-                "GetGeneralLogData", BindingFlags.InvokeMethod, binder: null, target: comObject,
+                "SSR_GetGeneralLogData", BindingFlags.InvokeMethod, binder: null, target: comObject,
                 args: args, modifiers: GeneralLogDataParameterModifiers, culture: null, namedParameters: null)!;
             if (!hasMore)
             {
