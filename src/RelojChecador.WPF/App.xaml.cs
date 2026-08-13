@@ -1,5 +1,6 @@
 using System.IO;
 using System.Windows;
+using System.Windows.Threading;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -27,50 +28,127 @@ public partial class App : System.Windows.Application
 {
     private IHost? _host;
     private IServiceScope? _mainWindowScope;
+    private readonly string _appDataDirectory = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RelojChecador");
 
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
 
-        var appDataDirectory = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RelojChecador");
-        Directory.CreateDirectory(appDataDirectory);
-        var databasePath = Path.Combine(appDataDirectory, "relojchecador.db");
-        var logDirectory = Path.Combine(appDataDirectory, "logs");
-
-        _host = Host.CreateDefaultBuilder()
-            .UseRelojChecadorLogging(logDirectory)
-            .ConfigureServices((_, services) =>
-            {
-                services.AddRelojChecadorData($"Data Source={databasePath}");
-
-                // Mientras no exista el adaptador real de ZKTeco (pendiente del SDK oficial —
-                // ver memoria del proyecto), toda la app usa el simulador. Sustituir esta línea
-                // por ZKTecoDeviceAdapter es el único cambio necesario cuando esté listo.
-                services.AddSingleton<IAttendanceDeviceAdapter, SimulatorDeviceAdapter>();
-
-                // Scoped, no Singleton: cada ventana principal recibe su propio DbContext con
-                // vida acotada a esa ventana (ver el scope creado más abajo), en vez de
-                // mantener un único DbContext abierto durante toda la sesión de la app.
-                services.AddScoped<MainWindow>();
-                services.AddScoped<MainViewModel>();
-                services.AddScoped<DevicesViewModel>();
-            })
-            .Build();
-
-        // Las migraciones corren en un scope efímero propio, independiente del de la ventana.
-        using (var migrationScope = _host.Services.CreateScope())
+        // Manejadores globales instalados ANTES que nada más pueda fallar: sin esto, una
+        // excepción no capturada en cualquier punto (arranque, un "async void" de un
+        // Loaded, un hilo de background) tumba el proceso completo sin dejar rastro visible
+        // — que fue exactamente el síntoma reportado ("abre y se cierra") al probar el
+        // instalador por primera vez en Windows real. Con esto, en vez de un cierre mudo,
+        // el usuario ve un cuadro de diálogo con el motivo y queda un log del crash.
+        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+            ReportFatal(args.ExceptionObject as Exception, "AppDomain.UnhandledException", args.IsTerminating);
+        Dispatcher.UnhandledException += (_, args) =>
         {
-            var dbContext = migrationScope.ServiceProvider.GetRequiredService<RelojChecadorDbContext>();
-            dbContext.Database.Migrate();
+            ReportFatal(args.Exception, "Dispatcher.UnhandledException", isTerminating: false);
+            args.Handled = true; // evita que WPF vuelva a tumbar el proceso tras mostrar el aviso
+        };
+        TaskScheduler.UnobservedTaskException += (_, args) =>
+        {
+            ReportFatal(args.Exception, "TaskScheduler.UnobservedTaskException", isTerminating: false);
+            args.SetObserved();
+        };
+
+        try
+        {
+            Directory.CreateDirectory(_appDataDirectory);
+            var databasePath = Path.Combine(_appDataDirectory, "relojchecador.db");
+            var logDirectory = Path.Combine(_appDataDirectory, "logs");
+
+            _host = Host.CreateDefaultBuilder()
+                .UseRelojChecadorLogging(logDirectory)
+                .ConfigureServices((_, services) =>
+                {
+                    services.AddRelojChecadorData($"Data Source={databasePath}");
+
+                    // Mientras no exista el adaptador real de ZKTeco (pendiente del SDK oficial —
+                    // ver memoria del proyecto), toda la app usa el simulador. Sustituir esta línea
+                    // por ZKTecoDeviceAdapter es el único cambio necesario cuando esté listo.
+                    services.AddSingleton<IAttendanceDeviceAdapter, SimulatorDeviceAdapter>();
+
+                    // Scoped, no Singleton: cada ventana principal recibe su propio DbContext con
+                    // vida acotada a esa ventana (ver el scope creado más abajo), en vez de
+                    // mantener un único DbContext abierto durante toda la sesión de la app.
+                    services.AddScoped<MainWindow>();
+                    services.AddScoped<MainViewModel>();
+                    services.AddScoped<DevicesViewModel>();
+                })
+                .Build();
+
+            // Las migraciones corren en un scope efímero propio, independiente del de la ventana.
+            using (var migrationScope = _host.Services.CreateScope())
+            {
+                var dbContext = migrationScope.ServiceProvider.GetRequiredService<RelojChecadorDbContext>();
+                dbContext.Database.Migrate();
+            }
+
+            Log.Information("RelojChecador iniciando. Base de datos local: {DatabasePath}", databasePath);
+
+            _mainWindowScope = _host.Services.CreateScope();
+            var mainWindow = _mainWindowScope.ServiceProvider.GetRequiredService<MainWindow>();
+            mainWindow.Closed += (_, _) => _mainWindowScope?.Dispose();
+            mainWindow.Show();
+        }
+        catch (Exception ex)
+        {
+            // Cualquier falla durante el arranque (migración, construcción del host, creación
+            // de la ventana) se reporta igual que un crash tardío, en vez de dejar que la
+            // excepción suba sin capturar y cierre la app en silencio.
+            ReportFatal(ex, "OnStartup", isTerminating: true);
+            Shutdown(-1);
+        }
+    }
+
+    /// <summary>
+    /// Último recurso ante un error que de otro modo cerraría la app sin explicación:
+    /// intenta dejar constancia en el log de Serilog (puede no estar listo si el crash
+    /// ocurrió antes de configurarlo, de ahí el respaldo en texto plano) y, sobre todo,
+    /// SIEMPRE muestra un cuadro de diálogo visible — para no repetir un cierre mudo.
+    /// </summary>
+    private void ReportFatal(Exception? ex, string source, bool isTerminating)
+    {
+        var text = ex?.ToString() ?? "(excepción nula)";
+        try
+        {
+            Log.Fatal(ex, "Error fatal no controlado en {Source} (isTerminating={IsTerminating})", source, isTerminating);
+            Log.CloseAndFlush();
+        }
+        catch
+        {
+            // Serilog podría no estar configurado todavía si el crash ocurrió muy temprano.
         }
 
-        Log.Information("RelojChecador iniciando. Base de datos local: {DatabasePath}", databasePath);
+        try
+        {
+            Directory.CreateDirectory(_appDataDirectory);
+            var crashLogPath = Path.Combine(_appDataDirectory, $"crash-{DateTime.Now:yyyyMMdd-HHmmss}.log");
+            File.WriteAllText(crashLogPath,
+                $"Fuente: {source}{Environment.NewLine}Terminando el proceso: {isTerminating}{Environment.NewLine}{Environment.NewLine}{text}");
+        }
+        catch
+        {
+            // Si ni siquiera se puede escribir el archivo de respaldo, al menos queda el MessageBox.
+        }
 
-        _mainWindowScope = _host.Services.CreateScope();
-        var mainWindow = _mainWindowScope.ServiceProvider.GetRequiredService<MainWindow>();
-        mainWindow.Closed += (_, _) => _mainWindowScope?.Dispose();
-        mainWindow.Show();
+        try
+        {
+            System.Windows.MessageBox.Show(
+                $"RelojChecador encontró un error inesperado y no puede continuar.\n\n" +
+                $"Origen: {source}\n\n{text}\n\n" +
+                $"Se guardó el detalle en:\n{_appDataDirectory}",
+                "RelojChecador — Error",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+        catch
+        {
+            // Si tampoco se puede mostrar el MessageBox, ya no queda nada más por intentar.
+        }
     }
 
     protected override void OnExit(ExitEventArgs e)
