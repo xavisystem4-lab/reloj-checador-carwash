@@ -21,7 +21,13 @@ public static class DependencyInjection
             services.AddHttpClient<SupabaseRestClient>();
         }
 
-        services.AddHostedService<SupabaseSyncBackgroundService>();
+        // Registrado como Singleton (no solo como IHostedService) y AddHostedService
+        // apunta a esa MISMA instancia — así el botón "Conectar con nube" de la UI puede
+        // resolver SupabaseSyncBackgroundService directamente y llamar
+        // TriggerSyncNowAsync() sobre el servicio real que ya está corriendo su ciclo
+        // automático, en vez de crear una instancia aparte que nunca arranca.
+        services.AddSingleton<SupabaseSyncBackgroundService>();
+        services.AddHostedService(sp => sp.GetRequiredService<SupabaseSyncBackgroundService>());
         return services;
     }
 }

@@ -33,6 +33,12 @@ public sealed class SupabaseSyncBackgroundService(
     private const int AttendanceBatchSize = 500;
     private const string AttendanceCursorKey = "Attendance";
 
+    // Evita que el botón "Conectar con nube" (TriggerSyncNowAsync, disparado desde la UI)
+    // y el ciclo automático de este mismo servicio corran a la vez — cada uno crea su
+    // propio DbContext (scopeFactory.CreateScope()) y dos ciclos escribiendo el cursor de
+    // asistencias al mismo tiempo podrían pisarse entre sí.
+    private readonly SemaphoreSlim _runLock = new(1, 1);
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         if (!options.IsConfigured)
@@ -50,10 +56,45 @@ public sealed class SupabaseSyncBackgroundService(
 
         while (!stoppingToken.IsCancellationRequested)
         {
+            await RunCycleAsync(stoppingToken);
+
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(options.IntervalSeconds), stoppingToken);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+        }
+    }
+
+    /// <summary>Dispara un ciclo de sincronización de inmediato, sin esperar al siguiente
+    /// tick automático — usado por el botón "Conectar con nube" de la barra inferior
+    /// (ver DevicesViewModel/UpdateViewModel) para poder probar en el momento en vez de
+    /// esperar hasta 10s (IntervalSeconds). Si la sincronización no está configurada,
+    /// deja constancia de eso en <see cref="SupabaseSyncStatus"/> igual que el ciclo
+    /// automático, en vez de lanzar una excepción — el botón nunca debe tumbar la UI.</summary>
+    public async Task TriggerSyncNowAsync(CancellationToken cancellationToken = default)
+    {
+        if (!options.IsConfigured)
+        {
+            status.MarkDisabled();
+            return;
+        }
+
+        await RunCycleAsync(cancellationToken);
+    }
+
+    private async Task RunCycleAsync(CancellationToken cancellationToken)
+    {
+        await _runLock.WaitAsync(cancellationToken);
+        try
+        {
             status.MarkAttemptStarted();
             try
             {
-                await RunOnceAsync(stoppingToken);
+                await RunOnceAsync(cancellationToken);
                 status.MarkSuccess();
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -69,15 +110,10 @@ public sealed class SupabaseSyncBackgroundService(
                     "nada se pierde localmente.");
                 status.MarkFailure(ex.Message);
             }
-
-            try
-            {
-                await Task.Delay(TimeSpan.FromSeconds(options.IntervalSeconds), stoppingToken);
-            }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
+        }
+        finally
+        {
+            _runLock.Release();
         }
     }
 

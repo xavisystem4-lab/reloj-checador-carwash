@@ -26,6 +26,7 @@ public sealed partial class UpdateViewModel : ObservableObject
 {
     private readonly IUpdateChecker _updateChecker;
     private readonly SupabaseSyncStatus _syncStatus;
+    private readonly SupabaseSyncBackgroundService _syncService;
 
     [ObservableProperty]
     private string _currentVersionLabel;
@@ -39,10 +40,15 @@ public sealed partial class UpdateViewModel : ObservableObject
     [ObservableProperty]
     private string _cloudSyncStatusMessage = "☁️ Nube: verificando…";
 
-    public UpdateViewModel(IUpdateChecker updateChecker, SupabaseSyncStatus syncStatus)
+    [ObservableProperty]
+    private bool _isCloudSyncBusy;
+
+    public UpdateViewModel(
+        IUpdateChecker updateChecker, SupabaseSyncStatus syncStatus, SupabaseSyncBackgroundService syncService)
     {
         _updateChecker = updateChecker;
         _syncStatus = syncStatus;
+        _syncService = syncService;
 
         // Misma fuente que usa GitHubUpdateChecker para comparar (Directory.Build.props,
         // <Version>) — se lee aquí de forma independiente porque la versión debe verse en
@@ -84,6 +90,30 @@ public sealed partial class UpdateViewModel : ObservableObject
         }
 
         CloudSyncStatusMessage = "☁️ Nube: sincronizando…";
+    }
+
+    /// <summary>Botón "Conectar con nube" — dispara un ciclo de sincronización de
+    /// inmediato en vez de esperar hasta 10s (IntervalSeconds) al siguiente ciclo
+    /// automático, para poder probar en el momento si la configuración de Supabase
+    /// funciona. El resultado se ve reflejado en <see cref="CloudSyncStatusMessage"/>
+    /// (RefreshCloudSyncStatusMessage ya está suscrito a los cambios de estado).</summary>
+    [RelayCommand]
+    private async Task SyncCloudNowAsync()
+    {
+        if (IsCloudSyncBusy)
+        {
+            return;
+        }
+
+        IsCloudSyncBusy = true;
+        try
+        {
+            await _syncService.TriggerSyncNowAsync();
+        }
+        finally
+        {
+            IsCloudSyncBusy = false;
+        }
     }
 
     [RelayCommand]
