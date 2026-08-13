@@ -53,6 +53,22 @@ jobs:
           name: RelojChecador-win-x64
           path: installer/publish/
 
+      - name: Instalar Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Compilar el instalador (Setup.exe) con Inno Setup
+        shell: pwsh
+        run: |
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          & $iscc installer\RelojChecador.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC.exe falló con código $LASTEXITCODE" }
+
+      - name: Subir el instalador generado
+        uses: actions/upload-artifact@v4
+        with:
+          name: RelojChecador-Setup
+          path: installer/output/*.exe
+
       - name: Capturar pantalla de la app (evidencia visual, best-effort)
         if: always()
         continue-on-error: true
