@@ -91,27 +91,28 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   `reloj-checador-carwash`): esquema con RLS aplicado y verificado (lectura solo para
   usuarios autenticados, escritura solo desde la app de escritorio vía `service_role`),
   sincronización incremental de asistencias por cursor, tablas chicas completas en cada
-  ciclo, offline-first (nunca tumba la app sin internet) — ver
+  ciclo, offline-first (nunca tumba la app sin internet) — **confirmada funcionando en
+  hardware real** (indicador "Nube: conectado" en la barra superior, punto verde/rojo
+  según estado, botón "Conectar con nube" para forzar un ciclo, sincroniza cada 5s) — ver
   `src/RelojChecador.Infrastructure.Cloud/README.md` para cómo activarla en una instalación
-- Dashboard web de reportes (`dashboard/`, desplegado en
-  https://reloj-checador-carwash.netlify.app): filtros por sucursal/fecha/empleado, KPIs,
-  exportar CSV, solo lectura (RLS lo garantiza a nivel de base de datos, no solo en el
-  código del sitio) — ver `dashboard/README.md` para crear la primera cuenta de acceso
+- `ZKTecoDeviceAdapter` **confirmado contra hardware real** (F22/ID de campo) en Windows:
+  ProgID correcto (`zkemkeeper.ZKEM`), descarga de asistencias vía
+  `SSR_GetGeneralLogData` + `ReadAllGLogData` (parámetros `ref` como `object` genérico),
+  registro de éxito/fallo de cada intento de conexión para reflejar el estado real
+- Módulo de auto-actualización vía GitHub Releases
+  (`RelojChecador.Infrastructure.Updates`): consulta la última release del repo público,
+  compara contra la versión del ensamblado, descarga el instalador con progreso y lo
+  lanza — botón "Actualizar versión" en la barra inferior de la app
+- Modo oscuro en la app de escritorio (barra superior) y en el Dashboard
+- Panel de usuarios del Dashboard (invitar/quitar acceso), mostrando nombre en vez de
+  correo — ver `dashboard/README.md`
 
 **Pendiente (bloqueado por decisiones o datos externos):**
-- Confirmar `ZKTecoDeviceAdapter` contra el F22/ID real en Windows (nombres de método y
-  códigos del SDK como el mapeo de `dwVerifyMode` siguen la convención más citada de la
-  comunidad, sin verificar todavía contra hardware — ver comentarios en la clase)
-- Confirmar la sincronización con Supabase con la `service_role` key real corriendo en
-  Windows (el esquema/RLS ya se verificó con la `anon` key; falta el flujo completo con
-  datos reales — no se pudo probar en esta sesión, hecha desde macOS)
 - Confirmar el login real del Dashboard (requiere que el usuario cree su primera cuenta
   en Supabase Auth — ver `dashboard/README.md` — algo que, por diseño, nunca se hace
   automáticamente desde aquí)
-- Módulo de auto-actualización de la app (verificar versión disponible y actualizar sin
-  reinstalar a mano)
-- Navegación completa de la UI (Fase 3 del diseño visual — hoy solo hay una ventana mínima
-  de prueba, no las pantallas finales)
+- Navegación completa de la UI (Fase 3 del diseño visual — hoy solo hay dos vistas
+  mínimas, Sucursales y Dispositivos, no las pantallas finales) — **en curso**
 - Reportes, auditoría, incidencias, nómina (Fases 5-6)
 - Razón social real y logotipo/icono para el instalador y la app
 
