@@ -1,0 +1,29 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+
+## Resultados de pruebas
+[Tt]est[Rr]esult*/
+*.trx
+*.coverage
+*.coveragexml
+
+## Visual Studio / Rider / VS Code
+.vs/
+.idea/
+*.DotSettings.user
+
+## Publicación / instalador
+publish/
+installer/output/
+
+## Secretos locales — NUNCA se versionan
+*.env
+appsettings.Development.json
+appsettings.Local.json
+**/secrets.json
+
+## macOS
+.DS_Store

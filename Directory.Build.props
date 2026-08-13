@@ -1,0 +1,17 @@
+<Project>
+
+  <!-- Configuración común a todos los proyectos de la solución RelojChecador.
+       Cada .csproj individual solo debe declarar lo que lo hace distinto
+       (TargetFramework especial, UseWPF, paquetes propios, etc.). -->
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Deterministic>true</Deterministic>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <Company>Reloj Checador Carwash</Company>
+    <Product>Reloj Checador</Product>
+  </PropertyGroup>
+
+</Project>

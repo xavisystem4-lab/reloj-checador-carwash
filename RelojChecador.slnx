@@ -1,0 +1,20 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/RelojChecador.Application/RelojChecador.Application.csproj" />
+    <Project Path="src/RelojChecador.Domain/RelojChecador.Domain.csproj" />
+    <Project Path="src/RelojChecador.Infrastructure.Cloud/RelojChecador.Infrastructure.Cloud.csproj" />
+    <Project Path="src/RelojChecador.Infrastructure.Data/RelojChecador.Infrastructure.Data.csproj" />
+    <Project Path="src/RelojChecador.Infrastructure.Devices/RelojChecador.Infrastructure.Devices.csproj" />
+    <Project Path="src/RelojChecador.Infrastructure.Logging/RelojChecador.Infrastructure.Logging.csproj" />
+    <Project Path="src/RelojChecador.Infrastructure.Security/RelojChecador.Infrastructure.Security.csproj" />
+    <Project Path="src/RelojChecador.WPF/RelojChecador.WPF.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/RelojChecador.Application.Tests/RelojChecador.Application.Tests.csproj" />
+    <Project Path="tests/RelojChecador.Domain.Tests/RelojChecador.Domain.Tests.csproj" />
+    <Project Path="tests/RelojChecador.Infrastructure.Tests/RelojChecador.Infrastructure.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/RelojChecador.DeviceSimulator/RelojChecador.DeviceSimulator.csproj" />
+  </Folder>
+</Solution>

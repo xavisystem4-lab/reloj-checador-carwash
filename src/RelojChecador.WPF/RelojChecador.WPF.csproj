@@ -1,0 +1,25 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\RelojChecador.Domain\RelojChecador.Domain.csproj" />
+    <ProjectReference Include="..\RelojChecador.Application\RelojChecador.Application.csproj" />
+    <ProjectReference Include="..\RelojChecador.Infrastructure.Data\RelojChecador.Infrastructure.Data.csproj" />
+    <ProjectReference Include="..\RelojChecador.Infrastructure.Devices\RelojChecador.Infrastructure.Devices.csproj" />
+    <ProjectReference Include="..\RelojChecador.Infrastructure.Cloud\RelojChecador.Infrastructure.Cloud.csproj" />
+    <ProjectReference Include="..\RelojChecador.Infrastructure.Security\RelojChecador.Infrastructure.Security.csproj" />
+    <ProjectReference Include="..\RelojChecador.Infrastructure.Logging\RelojChecador.Infrastructure.Logging.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <!-- Permite restaurar/compilar contra las reference assemblies de Windows Desktop desde macOS/Linux.
+         La compilación (dotnet build) puede funcionar aquí, pero SOLO se puede EJECUTAR y probar
+         visualmente en Windows real. No asumir que "compila" significa "funciona en Windows". -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+
+</Project>
