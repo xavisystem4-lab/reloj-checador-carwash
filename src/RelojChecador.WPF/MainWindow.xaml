@@ -5,18 +5,33 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:RelojChecador.WPF"
         mc:Ignorable="d"
-        Title="Reloj Checador" Height="450" Width="800">
-    <!-- Ventana mínima de arranque: confirma que DI + EF Core + SQLite local + binding
-         funcionan de extremo a extremo. La navegación completa (Fase 3) se construye
-         sobre esta misma base en una tarea posterior. -->
+        Title="Reloj Checador" Height="550" Width="900">
+    <!-- Primera pantalla funcional real: sucursales. La navegación completa con el resto
+         de secciones (Empleados, Dispositivos, Asistencia...) es un paso posterior. -->
     <Grid Margin="24">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <TextBlock Grid.Row="0" Text="Reloj Checador" FontSize="24" FontWeight="Bold" Margin="0,0,0,12" />
+        <TextBlock Grid.Row="0" Text="Sucursales" FontSize="24" FontWeight="Bold" Margin="0,0,0,4" />
 
-        <TextBlock Grid.Row="1" Text="{Binding StatusMessage}" FontSize="14" />
+        <TextBlock Grid.Row="1" Text="{Binding StatusMessage}" FontSize="13" Foreground="#666666" Margin="0,0,0,12" />
+
+        <Button Grid.Row="2" Content="+ Nueva sucursal" HorizontalAlignment="Left" Padding="14,6" Margin="0,0,0,12"
+                Click="OnAddBranchClick" />
+
+        <DataGrid Grid.Row="3" ItemsSource="{Binding Branches}" AutoGenerateColumns="False" IsReadOnly="True"
+                  CanUserAddRows="False" GridLinesVisibility="Horizontal" HeadersVisibility="Column">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Código" Binding="{Binding Code}" Width="100" />
+                <DataGridTextColumn Header="Nombre" Binding="{Binding Name}" Width="*" />
+                <DataGridTextColumn Header="Zona horaria" Binding="{Binding TimeZoneId}" Width="180" />
+                <DataGridTextColumn Header="Razón social" Binding="{Binding LegalEntityName}" Width="200" />
+                <DataGridCheckBoxColumn Header="Activa" Binding="{Binding IsActive}" Width="70" />
+            </DataGrid.Columns>
+        </DataGrid>
     </Grid>
 </Window>
