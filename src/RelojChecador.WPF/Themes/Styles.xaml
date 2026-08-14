@@ -285,10 +285,35 @@
         <Setter Property="Padding" Value="8,6" />
     </Style>
 
+    <!-- ComboBoxItem SÍ necesita su propio ControlTemplate (a diferencia del ComboBox de
+         arriba): sin uno, el resaltado al pasar el mouse sobre un ítem del desplegable
+         usa el color de highlight NATIVO de Windows (un azul claro), que el Background de
+         arriba no alcanza a cubrir — el texto (BrushText, claro en modo oscuro) quedaba
+         casi invisible sobre ese highlight también claro. Reportado por el usuario
+         ("en Sucursal y Estatus no se notan las letras") — bug real, no cosmético menor:
+         el texto llegaba a ser genuinamente ilegible al elegir una sucursal o un estatus.
+         Con plantilla propia, el resaltado usa BrushSelection (mismo brush que ya usa
+         ListBoxItem/DataGridCell) y el texto se mantiene siempre en BrushText. -->
     <Style TargetType="ComboBoxItem">
-        <Setter Property="Background" Value="{DynamicResource BrushSurface}" />
-        <Setter Property="Foreground" Value="{DynamicResource BrushText}" />
         <Setter Property="Padding" Value="8,6" />
+        <Setter Property="Foreground" Value="{DynamicResource BrushText}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ComboBoxItem">
+                    <Border x:Name="Bd" Background="{DynamicResource BrushSurface}" Padding="{TemplateBinding Padding}">
+                        <ContentPresenter />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsHighlighted" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BrushSelection}" />
+                        </Trigger>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BrushSelection}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 
     <!-- TextBox: usado en los formularios de "Nueva sucursal" / "Nuevo dispositivo". El

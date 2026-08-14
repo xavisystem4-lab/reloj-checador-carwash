@@ -15,14 +15,15 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-const REFRESH_INTERVAL_MS = 5_000;
+const REFRESH_INTERVAL_MS = 30_000;
 const MAX_ROWS = 2000;
 
-// La app de escritorio solo actualiza LastCommunicationAtUtc cuando alguien le da
-// "Conectar" con éxito en la pantalla de Dispositivos — no en cada ciclo de
-// sincronización (ese ciclo solo reenvía el valor ya guardado). Por eso "Conectado" aquí
-// se basa en qué tan RECIENTE es esa marca, no en un simple booleano — evita que un
-// dispositivo quede "Conectado" para siempre solo porque una vez funcionó.
+// La app de escritorio actualiza LastCommunicationAtUtc al presionar "Conectar" con éxito
+// en Dispositivos, y desde v1.10.7 también con cada marcación que llega por el monitoreo
+// en tiempo real (antes solo con "Conectar" manual — un reloj que seguía funcionando
+// normalmente podía mostrarse "Desconectado" aquí sin estarlo de verdad). Por eso
+// "Conectado" se basa en qué tan RECIENTE es esa marca, no en un simple booleano — evita
+// que un dispositivo quede "Conectado" para siempre solo porque una vez funcionó.
 const DEVICE_ONLINE_THRESHOLD_MINUTES = 5;
 
 // ---- Referencias al DOM ----
@@ -630,9 +631,9 @@ function csvEscape(value) {
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
-// ---- Auto-actualización: la app de escritorio sube cada ~5s (ver
+// ---- Auto-actualización: la app de escritorio sube cada ~30s (ver
 // SupabaseSyncOptions.IntervalSeconds en el repo principal), así que refrescar aquí
-// cada 5s también mantiene el Dashboard prácticamente al día. ----
+// cada 30s también mantiene el Dashboard prácticamente al día. ----
 function startAutoRefresh() {
   stopAutoRefresh();
   autoRefreshTimer = setInterval(() => {

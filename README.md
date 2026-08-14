@@ -152,6 +152,14 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   hasta comprobarse. Empleados dados de alta ANTES de esta versión quedan con
   `WeeklySalary = 0` tras actualizar (la migración no puede inventar un sueldo) — hay que
   editarlos con su sueldo real o el reporte los mostrará en $0
+- Corregido: los ítems de cualquier `ComboBox` (Sucursal, Estatus, Dispositivo, etc.) eran
+  casi ilegibles al pasar el mouse sobre ellos — el resaltado nativo de Windows usa un
+  fondo claro que Styles.xaml no cubría, dejando el texto claro del tema oscuro sobre un
+  fondo también claro. `ComboBoxItem` ya tiene su propio `ControlTemplate` (como
+  `ListBoxItem`), usando `BrushSelection` para el resaltado en vez del color nativo
+- Intervalo de sincronización 30s (antes 5s, a pedido explícito del usuario) —
+  `SupabaseSyncOptions.IntervalSeconds` en `appsettings.json`, y el auto-refresco del
+  Dashboard web ajustado igual para seguir mostrando los datos prácticamente al día
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Confirmar el login real del Dashboard (requiere que el usuario cree su primera cuenta
