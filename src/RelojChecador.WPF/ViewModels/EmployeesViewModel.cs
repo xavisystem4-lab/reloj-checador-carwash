@@ -26,9 +26,10 @@ namespace RelojChecador.WPF.ViewModels;
 public sealed record EmployeeRow(Employee Employee, string BranchName, string LinkedDevicesSummary);
 
 /// <summary>
-/// ViewModel de la pantalla de Empleados: alta, edición, baja lógica ("eliminar" =
-/// ChangeStatus a Terminated, nunca se borra el registro — ver DeleteEmployeeAsync) y
-/// listado (Fase 3), más el vínculo
+/// ViewModel de la pantalla de Empleados: alta (con sueldo semanal/tarifa de hora extra,
+/// insumo de nómina sin cálculo fiscal — ver Employee.cs), edición, baja lógica
+/// ("eliminar" = ChangeStatus a Terminated, nunca se borra el registro — ver
+/// DeleteEmployeeAsync) y listado (Fase 3), más el vínculo
 /// Empleado↔Dispositivo (EmployeeDeviceMapping) — asocia el PIN interno que cada reloj usa
 /// para reconocer a un empleado, prerequisito para que una futura pantalla de Asistencia
 /// pueda mostrar nombres en vez de PINs crudos. El PIN se captura a mano en el diálogo
@@ -180,17 +181,20 @@ public sealed partial class EmployeesViewModel : ObservableObject
 
     public async Task<IReadOnlyList<Device>> GetDevicesAsync() => await _deviceRepository.ListAsync();
 
+    /// <param name="weeklySalary">Insumo de nómina sin cálculo fiscal — ver comentario de
+    /// clase de Employee.</param>
     /// <param name="deviceId">Dispositivo a vincular en la misma operación, o null para
     /// no vincular ahora (se puede hacer después con "Vincular a dispositivo").</param>
     /// <param name="deviceUserPin">Requerido si <paramref name="deviceId"/> no es null.</param>
     /// <returns>Un mensaje de error comprensible si algo salió mal, o null si se guardó correctamente.</returns>
     public async Task<string?> CreateEmployeeAsync(
-        string number, string fullName, Guid branchId, DateOnly hireDate, string? department, string? position,
-        Guid? deviceId = null, string? deviceUserPin = null)
+        string number, string fullName, Guid branchId, DateOnly hireDate, decimal weeklySalary, string? department, string? position,
+        decimal? overtimeHourlyRate = null, Guid? deviceId = null, string? deviceUserPin = null)
     {
         try
         {
-            var employee = Employee.Create(EmployeeNumber.Create(number), fullName, branchId, hireDate, department, position);
+            var employee = Employee.Create(
+                EmployeeNumber.Create(number), fullName, branchId, hireDate, weeklySalary, department, position, overtimeHourlyRate);
             await _employeeRepository.AddAsync(employee);
 
             // Alta + vínculo en la misma transacción (un solo SaveChangesAsync más abajo):
@@ -232,13 +236,16 @@ public sealed partial class EmployeesViewModel : ObservableObject
 
     /// <param name="number">Número de empleado — puede haber cambiado respecto al actual
     /// (corrección de un error de captura del alta, ver Employee.ChangeNumber).</param>
+    /// <param name="weeklySalary">Insumo de nómina sin cálculo fiscal — ver comentario de
+    /// clase de Employee.</param>
     /// <param name="deviceId">Dispositivo a vincular en la misma operación si el empleado
     /// todavía no tenía ninguno (ver EditEmployeeDialog) — null si no aplica.</param>
     /// <param name="deviceUserPin">Requerido si <paramref name="deviceId"/> no es null.</param>
     /// <returns>Un mensaje de error comprensible si algo salió mal, o null si se guardó correctamente.</returns>
     public async Task<string?> UpdateEmployeeAsync(
         Guid employeeId, string number, string fullName, Guid branchId, string? department, string? position,
-        string? phone, string? email, EmploymentStatus status, Guid? deviceId = null, string? deviceUserPin = null)
+        string? phone, string? email, EmploymentStatus status, decimal weeklySalary, decimal? overtimeHourlyRate = null,
+        Guid? deviceId = null, string? deviceUserPin = null)
     {
         try
         {
@@ -258,6 +265,7 @@ public sealed partial class EmployeesViewModel : ObservableObject
 
             employee.UpdatePersonalInfo(fullName, department, position);
             employee.UpdateContact(phone, email);
+            employee.UpdateCompensation(weeklySalary, overtimeHourlyRate);
             if (employee.BranchId != branchId)
             {
                 employee.TransferToBranch(branchId);

@@ -81,9 +81,9 @@
             </Grid>
         </Border>
 
-        <!-- Navegación por pestañas: Sucursales, Empleados, Dispositivos y Asistencia
-             existen ya. El resto de secciones (Reportes...) del menú lateral definido en
-             la Fase 3 todavía no están construidas. -->
+        <!-- Navegación por pestañas: Sucursales, Empleados, Dispositivos, Asistencia y
+             Reportes (Fase 3 completa + el tramo acotado de Fases 5-6: horas trabajadas +
+             insumo de nómina, sin cálculo fiscal). -->
         <TabControl Padding="4">
             <TabItem Header="Sucursales">
                 <views:BranchesView x:Name="BranchesViewControl" />
@@ -96,6 +96,9 @@
             </TabItem>
             <TabItem Header="Asistencia">
                 <views:AttendanceView x:Name="AttendanceViewControl" />
+            </TabItem>
+            <TabItem Header="Reportes">
+                <views:PayrollView x:Name="PayrollViewControl" />
             </TabItem>
         </TabControl>
     </DockPanel>

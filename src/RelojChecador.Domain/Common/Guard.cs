@@ -31,4 +31,12 @@ public static class Guard
                 $"El valor de '{paramName}' ({value}) debe estar entre {minInclusive} y {maxInclusive}.");
         }
     }
+
+    public static void AgainstNegative(decimal value, string paramName)
+    {
+        if (value < 0)
+        {
+            throw new DomainException($"El valor de '{paramName}' no puede ser negativo.");
+        }
+    }
 }

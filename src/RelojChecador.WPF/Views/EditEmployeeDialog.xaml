@@ -1,11 +1,12 @@
 <Window x:Class="RelojChecador.WPF.Views.EditEmployeeDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Editar empleado" Height="760" Width="420"
+        Title="Editar empleado" Height="830" Width="420"
         WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
         ShowInTaskbar="False">
     <Grid Margin="20">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -57,7 +58,26 @@
             </StackPanel>
         </Grid>
 
+        <!-- Insumo de nómina sin ningún cálculo fiscal (ISR/IMSS) — ver
+             EmployeesViewModel/WorkedHoursCalculator. Tarifa de hora extra es opcional:
+             solo aplica si al empleado le corresponden horas extra. -->
         <Grid Grid.Row="5" Margin="0,0,0,10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="10" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0">
+                <TextBlock Text="Sueldo semanal *" FontWeight="SemiBold" Margin="0,0,0,2" />
+                <TextBox x:Name="WeeklySalaryTextBox" Padding="4" />
+            </StackPanel>
+            <StackPanel Grid.Column="2">
+                <TextBlock Text="Tarifa hora extra" FontWeight="SemiBold" Margin="0,0,0,2" />
+                <TextBox x:Name="OvertimeHourlyRateTextBox" Padding="4" />
+            </StackPanel>
+        </Grid>
+
+        <Grid Grid.Row="6" Margin="0,0,0,10">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="10" />
@@ -77,22 +97,22 @@
              (ver code-behind) — si ya tiene uno o más, agregar otro se sigue haciendo con
              el botón "Vincular a dispositivo" de la lista, para no meter aquí la
              complejidad de editar/quitar vínculos existentes. -->
-        <StackPanel Grid.Row="6" x:Name="LinkDeviceSection" Margin="0,0,0,6">
+        <StackPanel Grid.Row="7" x:Name="LinkDeviceSection" Margin="0,0,0,6">
             <CheckBox x:Name="LinkDeviceCheckBox" Content="Vincular a un reloj checador ahora"
                       Checked="OnLinkDeviceCheckedChanged" Unchecked="OnLinkDeviceCheckedChanged" />
         </StackPanel>
 
-        <StackPanel Grid.Row="7" x:Name="LinkDevicePanel" Visibility="Collapsed" Margin="0,0,0,10">
+        <StackPanel Grid.Row="8" x:Name="LinkDevicePanel" Visibility="Collapsed" Margin="0,0,0,10">
             <TextBlock Text="Dispositivo *" FontWeight="SemiBold" Margin="0,0,0,2" />
             <ComboBox x:Name="DeviceComboBox" Padding="4" DisplayMemberPath="Name" Margin="0,0,0,8" />
             <TextBlock Text="PIN en el dispositivo *" FontWeight="SemiBold" Margin="0,0,0,2" />
             <TextBox x:Name="DevicePinTextBox" MaxLength="50" Padding="4" />
         </StackPanel>
 
-        <TextBlock Grid.Row="8" x:Name="ErrorTextBlock" Foreground="{DynamicResource BrushDanger}" TextWrapping="Wrap"
+        <TextBlock Grid.Row="9" x:Name="ErrorTextBlock" Foreground="{DynamicResource BrushDanger}" TextWrapping="Wrap"
                     Visibility="Collapsed" Margin="0,10,0,10" VerticalAlignment="Top" />
 
-        <StackPanel Grid.Row="9" Orientation="Horizontal" HorizontalAlignment="Right">
+        <StackPanel Grid.Row="10" Orientation="Horizontal" HorizontalAlignment="Right">
             <Button Content="Cancelar" Width="90" Margin="0,0,8,0" Click="OnCancelClick" IsCancel="True" />
             <Button Content="Guardar" Width="90" Style="{StaticResource PrimaryButton}" Click="OnSaveClick" IsDefault="True" />
         </StackPanel>

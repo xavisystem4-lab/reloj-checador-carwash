@@ -19,7 +19,7 @@ public class EfEmployeeRepositoryTests : IClassFixture<SqliteInMemoryFixture>
         using var context = _fixture.CreateContext();
         var repository = new EfEmployeeRepository(context);
         var employee = Employee.Create(
-            EmployeeNumber.Create("0114"), "Ana Torres", branchId, new DateOnly(2024, 3, 1));
+            EmployeeNumber.Create("0114"), "Ana Torres", branchId, new DateOnly(2024, 3, 1), weeklySalary: 2500m);
 
         await repository.AddAsync(employee);
         await context.SaveChangesAsync();
@@ -40,8 +40,8 @@ public class EfEmployeeRepositoryTests : IClassFixture<SqliteInMemoryFixture>
         var branchB = Guid.NewGuid();
         using var context = _fixture.CreateContext();
         var repository = new EfEmployeeRepository(context);
-        await repository.AddAsync(Employee.Create(EmployeeNumber.Create("A1"), "Empleado A", branchA, DateOnly.FromDateTime(DateTime.Today)));
-        await repository.AddAsync(Employee.Create(EmployeeNumber.Create("B1"), "Empleado B", branchB, DateOnly.FromDateTime(DateTime.Today)));
+        await repository.AddAsync(Employee.Create(EmployeeNumber.Create("A1"), "Empleado A", branchA, DateOnly.FromDateTime(DateTime.Today), weeklySalary: 2500m));
+        await repository.AddAsync(Employee.Create(EmployeeNumber.Create("B1"), "Empleado B", branchB, DateOnly.FromDateTime(DateTime.Today), weeklySalary: 2500m));
         await context.SaveChangesAsync();
 
         using var readContext = _fixture.CreateContext();
@@ -58,12 +58,12 @@ public class EfEmployeeRepositoryTests : IClassFixture<SqliteInMemoryFixture>
         var branchId = Guid.NewGuid();
         using var context = _fixture.CreateContext();
         var repository = new EfEmployeeRepository(context);
-        await repository.AddAsync(Employee.Create(EmployeeNumber.Create("DUP1"), "Primero", branchId, DateOnly.FromDateTime(DateTime.Today)));
+        await repository.AddAsync(Employee.Create(EmployeeNumber.Create("DUP1"), "Primero", branchId, DateOnly.FromDateTime(DateTime.Today), weeklySalary: 2500m));
         await context.SaveChangesAsync();
 
         using var duplicateContext = _fixture.CreateContext();
         var duplicateRepository = new EfEmployeeRepository(duplicateContext);
-        await duplicateRepository.AddAsync(Employee.Create(EmployeeNumber.Create("DUP1"), "Segundo", branchId, DateOnly.FromDateTime(DateTime.Today)));
+        await duplicateRepository.AddAsync(Employee.Create(EmployeeNumber.Create("DUP1"), "Segundo", branchId, DateOnly.FromDateTime(DateTime.Today), weeklySalary: 2500m));
 
         await Assert.ThrowsAnyAsync<Exception>(() => duplicateContext.SaveChangesAsync());
     }

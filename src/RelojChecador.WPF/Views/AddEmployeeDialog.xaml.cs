@@ -9,10 +9,12 @@ namespace RelojChecador.WPF.Views;
 /// Diálogo para capturar los datos de un nuevo empleado, con vínculo a dispositivo
 /// opcional en el mismo formulario (checkbox "Vincular a un reloj checador ahora") — evita
 /// el paso aparte de "Vincular a dispositivo" en la lista de Empleados cuando el alta y el
-/// PIN se conocen al mismo tiempo. La validación real de negocio (número/nombre
-/// requeridos, longitud máxima, duplicados, PIN duplicado en el dispositivo) la hace el
-/// dominio/base al guardar; aquí solo se evita mandar campos obviamente vacíos o una fecha
-/// ilegible, para no abrir un viaje a la base de datos innecesario.
+/// PIN se conocen al mismo tiempo. Sueldo semanal y tarifa de hora extra son insumo de
+/// nómina sin ningún cálculo fiscal — ver Employee.cs y WorkedHoursCalculator. La
+/// validación real de negocio (número/nombre requeridos, longitud máxima, duplicados, PIN
+/// duplicado en el dispositivo) la hace el dominio/base al guardar; aquí solo se evita
+/// mandar campos obviamente vacíos, negativos o una fecha ilegible, para no abrir un viaje
+/// a la base de datos innecesario.
 /// </summary>
 public partial class AddEmployeeDialog : Window
 {
@@ -24,6 +26,8 @@ public partial class AddEmployeeDialog : Window
     public DateOnly HireDate { get; private set; }
     public string? Department => string.IsNullOrWhiteSpace(DepartmentTextBox.Text) ? null : DepartmentTextBox.Text.Trim();
     public string? Position => string.IsNullOrWhiteSpace(PositionTextBox.Text) ? null : PositionTextBox.Text.Trim();
+    public decimal WeeklySalary { get; private set; }
+    public decimal? OvertimeHourlyRate { get; private set; }
 
     /// <summary>Null si el checkbox "Vincular a un reloj checador ahora" no está marcado —
     /// vincular al dar de alta es opcional.</summary>
@@ -76,6 +80,25 @@ public partial class AddEmployeeDialog : Window
             return;
         }
 
+        if (!decimal.TryParse(WeeklySalaryTextBox.Text.Trim(), NumberStyles.Number, CultureInfo.InvariantCulture, out var weeklySalary)
+            || weeklySalary < 0)
+        {
+            ShowError("El sueldo semanal debe ser un número mayor o igual a 0.");
+            return;
+        }
+
+        decimal? overtimeHourlyRate = null;
+        if (!string.IsNullOrWhiteSpace(OvertimeHourlyRateTextBox.Text))
+        {
+            if (!decimal.TryParse(OvertimeHourlyRateTextBox.Text.Trim(), NumberStyles.Number, CultureInfo.InvariantCulture, out var rate)
+                || rate < 0)
+            {
+                ShowError("La tarifa de hora extra debe ser un número mayor o igual a 0 (o déjala vacía si no aplica).");
+                return;
+            }
+            overtimeHourlyRate = rate;
+        }
+
         if (LinkDeviceCheckBox.IsChecked == true && (SelectedDevice is null || string.IsNullOrWhiteSpace(DeviceUserPin)))
         {
             ShowError("Para vincular a un dispositivo ahora, elige el reloj y escribe el PIN.");
@@ -83,6 +106,8 @@ public partial class AddEmployeeDialog : Window
         }
 
         HireDate = hireDate;
+        WeeklySalary = weeklySalary;
+        OvertimeHourlyRate = overtimeHourlyRate;
         DialogResult = true;
     }
 

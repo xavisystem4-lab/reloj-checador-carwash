@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Linq;
 using System.Windows;
 using RelojChecador.Domain.Branches;
@@ -38,6 +39,8 @@ public partial class EditEmployeeDialog : Window
     public string? Phone => string.IsNullOrWhiteSpace(PhoneTextBox.Text) ? null : PhoneTextBox.Text.Trim();
     public string? Email => string.IsNullOrWhiteSpace(EmailTextBox.Text) ? null : EmailTextBox.Text.Trim();
     public EmploymentStatus SelectedStatus => (StatusComboBox.SelectedItem as StatusOption)?.Value ?? EmploymentStatus.Active;
+    public decimal WeeklySalary { get; private set; }
+    public decimal? OvertimeHourlyRate { get; private set; }
 
     /// <summary>Null si la sección de vínculo no aplica (ya tenía uno) o el checkbox no
     /// está marcado.</summary>
@@ -60,6 +63,8 @@ public partial class EditEmployeeDialog : Window
         PositionTextBox.Text = employee.Position ?? "";
         PhoneTextBox.Text = employee.Phone ?? "";
         EmailTextBox.Text = employee.Email ?? "";
+        WeeklySalaryTextBox.Text = employee.WeeklySalary.ToString("0.##", CultureInfo.InvariantCulture);
+        OvertimeHourlyRateTextBox.Text = employee.OvertimeHourlyRate?.ToString("0.##", CultureInfo.InvariantCulture) ?? "";
 
         BranchComboBox.ItemsSource = branches;
         BranchComboBox.SelectedItem = branches.FirstOrDefault(b => b.Id == employee.BranchId);
@@ -97,6 +102,25 @@ public partial class EditEmployeeDialog : Window
             return;
         }
 
+        if (!decimal.TryParse(WeeklySalaryTextBox.Text.Trim(), NumberStyles.Number, CultureInfo.InvariantCulture, out var weeklySalary)
+            || weeklySalary < 0)
+        {
+            ShowError("El sueldo semanal debe ser un número mayor o igual a 0.");
+            return;
+        }
+
+        decimal? overtimeHourlyRate = null;
+        if (!string.IsNullOrWhiteSpace(OvertimeHourlyRateTextBox.Text))
+        {
+            if (!decimal.TryParse(OvertimeHourlyRateTextBox.Text.Trim(), NumberStyles.Number, CultureInfo.InvariantCulture, out var rate)
+                || rate < 0)
+            {
+                ShowError("La tarifa de hora extra debe ser un número mayor o igual a 0 (o déjala vacía si no aplica).");
+                return;
+            }
+            overtimeHourlyRate = rate;
+        }
+
         if (LinkDeviceSection.Visibility == Visibility.Visible && LinkDeviceCheckBox.IsChecked == true
             && (DeviceComboBox.SelectedItem is not Device || string.IsNullOrWhiteSpace(DevicePinTextBox.Text)))
         {
@@ -104,6 +128,8 @@ public partial class EditEmployeeDialog : Window
             return;
         }
 
+        WeeklySalary = weeklySalary;
+        OvertimeHourlyRate = overtimeHourlyRate;
         DialogResult = true;
     }
 

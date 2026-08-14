@@ -1,0 +1,46 @@
+<UserControl x:Class="RelojChecador.WPF.Views.PayrollView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             mc:Ignorable="d" d:DesignHeight="600" d:DesignWidth="1050">
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="Reportes" FontSize="24" FontWeight="Bold" Margin="0,0,0,4" />
+        <TextBlock Grid.Row="1" Text="Horas trabajadas e insumo de nómina por semana — sin ningún cálculo fiscal (ISR/IMSS)."
+                   FontSize="12" Foreground="{DynamicResource BrushTextSecondary}" Margin="0,0,0,12" />
+
+        <!-- Semana lunes a domingo (ver WeekBoundary) — navegación en vez de un rango de
+             fechas libre, porque la nómina es inherentemente semanal. -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,10">
+            <Button Content="‹ Semana anterior" Command="{Binding PreviousWeekCommand}" Margin="0,0,8,0" />
+            <TextBlock Text="{Binding WeekRangeText}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,8,0" MinWidth="180" />
+            <Button Content="Semana siguiente ›" Command="{Binding NextWeekCommand}" Margin="0,0,16,0" />
+            <Button Content="Actualizar" Style="{StaticResource PrimaryButton}" Command="{Binding RefreshCommand}" Margin="0,0,8,0" />
+            <Button Content="⬇ Exportar CSV" Click="OnExportCsvClick" />
+        </StackPanel>
+
+        <TextBlock Grid.Row="3" Text="{Binding StatusMessage}" FontSize="13" Foreground="{DynamicResource BrushTextSecondary}" Margin="0,0,0,12" />
+
+        <DataGrid Grid.Row="4" ItemsSource="{Binding PayrollRows}" AutoGenerateColumns="False" IsReadOnly="True"
+                  CanUserAddRows="False" GridLinesVisibility="Horizontal" HeadersVisibility="Column">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Empleado" Binding="{Binding EmployeeName}" Width="*" />
+                <DataGridTextColumn Header="Sucursal" Binding="{Binding BranchName}" Width="140" />
+                <DataGridTextColumn Header="Horas normales" Binding="{Binding RegularTimeText}" Width="110" />
+                <DataGridTextColumn Header="Horas extra" Binding="{Binding OvertimeTimeText}" Width="100" />
+                <DataGridTextColumn Header="Sueldo semanal" Binding="{Binding Summary.WeeklySalary, StringFormat='{}{0:C}'}" Width="120" />
+                <DataGridTextColumn Header="Pago horas extra" Binding="{Binding Summary.OvertimePay, StringFormat='{}{0:C}'}" Width="130" />
+                <DataGridTextColumn Header="Total a pagar" Binding="{Binding Summary.TotalPay, StringFormat='{}{0:C}'}" Width="120" />
+                <DataGridTextColumn Header="Advertencias" Binding="{Binding WarningsText}" Width="260" />
+            </DataGrid.Columns>
+        </DataGrid>
+    </Grid>
+</UserControl>

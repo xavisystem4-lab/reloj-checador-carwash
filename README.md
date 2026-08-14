@@ -138,14 +138,31 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   Dispositivos — nunca con las marcaciones que llegaban por el monitoreo en tiempo real.
   Reportado por el usuario como "a veces se desconecta" sin explicación; ahora cada
   marcación en tiempo real también refresca esa marca de tiempo
+- Pantalla de Reportes (Fases 5-6, alcance acotado explícitamente con el usuario — **sin
+  ningún cálculo fiscal**, ni ISR/IMSS ni la regla de Ley Federal del Trabajo para horas
+  extra): horas trabajadas + insumo de nómina por semana (lunes a domingo, ver
+  `RelojChecador.Application.Payroll.WeekBoundary`), calculado desde las marcaciones ya
+  guardadas. `Employee` gana `WeeklySalary` (sueldo semanal fijo, requerido) y
+  `OvertimeHourlyRate` (tarifa fija en pesos por hora extra, opcional, capturada por el
+  usuario — nunca una regla legal asumida por el sistema). El cálculo
+  (`WorkedHoursCalculator`) es defensivo: nunca inventa el cierre de un turno; cualquier
+  marcación sin pareja se reporta como advertencia visible en la columna "Advertencias",
+  nunca se suma a ciegas. **Los descansos (`PunchType` 2/3) siguen sin confirmarse contra
+  hardware real** — ver `PunchTypeToTextConverter` — así que su cálculo es especulativo
+  hasta comprobarse. Empleados dados de alta ANTES de esta versión quedan con
+  `WeeklySalary = 0` tras actualizar (la migración no puede inventar un sueldo) — hay que
+  editarlos con su sueldo real o el reporte los mostrará en $0
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Confirmar el login real del Dashboard (requiere que el usuario cree su primera cuenta
   en Supabase Auth — ver `dashboard/README.md` — algo que, por diseño, nunca se hace
   automáticamente desde aquí)
 - Navegación completa de la UI (Fase 3 del diseño visual — Sucursales, Empleados,
-  Dispositivos y Asistencia ya existen; falta el resto de secciones finales) — **en curso**
-- Reportes, auditoría, incidencias, nómina (Fases 5-6)
+  Dispositivos, Asistencia y Reportes ya existen; falta el resto de secciones finales)
+- Confirmar contra hardware real el significado de `PunchType` 2/3 (descansos) — hoy
+  especulativo, ver `WorkedHoursCalculator`
+- Cálculo fiscal de nómina (ISR, IMSS), auditoría, incidencias — resto de Fases 5-6, fuera
+  de alcance hasta confirmar las tablas y reglas vigentes
 - Razón social real y logotipo/icono para el instalador y la app
 
 ## Convenciones
