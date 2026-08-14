@@ -14,7 +14,7 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <TextBlock Grid.Row="0" x:Name="HeaderTextBlock" FontSize="16" FontWeight="Bold" Margin="0,0,0,14"
+        <TextBlock Grid.Row="0" x:Name="HeaderTextBlock" FontSize="17" FontWeight="Bold" Margin="0,0,0,14"
                    TextWrapping="Wrap" />
 
         <StackPanel Grid.Row="1" Margin="0,0,0,10">

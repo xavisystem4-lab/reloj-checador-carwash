@@ -40,10 +40,10 @@
              verde"). Separada de la barra inferior de versión/actualización a propósito:
              esto es estado "en vivo" de la sesión, distinto de "hay una actualización
              pendiente". -->
-        <Border DockPanel.Dock="Top" Padding="14,8" Background="{DynamicResource BrushSurface}"
+        <Border DockPanel.Dock="Top" Padding="16,10" Background="{DynamicResource BrushSurface}"
                 BorderBrush="{DynamicResource BrushBorder}" BorderThickness="0,0,0,1">
             <DockPanel>
-                <TextBlock DockPanel.Dock="Left" Text="Reloj Checador" FontWeight="Bold" FontSize="15"
+                <TextBlock DockPanel.Dock="Left" Text="Reloj Checador" FontWeight="Bold" FontSize="17"
                            VerticalAlignment="Center" Foreground="{DynamicResource BrushText}" />
                 <Button DockPanel.Dock="Right" x:Name="DarkModeToggleButton" Style="{StaticResource GhostButton}"
                         Click="OnToggleDarkModeClick" ToolTip="Cambiar entre modo claro y oscuro"
@@ -64,7 +64,7 @@
         <!-- Barra de versión / actualización — visible siempre, sin importar la pestaña
              activa: buscar actualizaciones no es una operación de ninguna pantalla en
              particular. -->
-        <Border DockPanel.Dock="Bottom" Padding="14,8" Background="{DynamicResource BrushSurface}"
+        <Border DockPanel.Dock="Bottom" Padding="16,10" Background="{DynamicResource BrushSurface}"
                 BorderBrush="{DynamicResource BrushBorder}" BorderThickness="0,1,0,0">
             <Grid>
                 <Grid.ColumnDefinitions>
@@ -84,20 +84,23 @@
         <!-- Navegación por pestañas: Sucursales, Empleados, Dispositivos, Asistencia y
              Reportes (Fase 3 completa + el tramo acotado de Fases 5-6: horas trabajadas +
              insumo de nómina, sin cálculo fiscal). -->
+        <!-- Íconos por pestaña (emoji, mismo criterio ya usado en el Dashboard web — sin
+             assets nuevos que empaquetar) — pulido visual pedido explícitamente
+             ("más moderno"), ayuda a ubicar la sección de un vistazo. -->
         <TabControl Padding="4">
-            <TabItem Header="Sucursales">
+            <TabItem Header="🏢 Sucursales">
                 <views:BranchesView x:Name="BranchesViewControl" />
             </TabItem>
-            <TabItem Header="Empleados">
+            <TabItem Header="👥 Empleados">
                 <views:EmployeesView x:Name="EmployeesViewControl" />
             </TabItem>
-            <TabItem Header="Dispositivos">
+            <TabItem Header="⏱️ Dispositivos">
                 <views:DevicesView x:Name="DevicesViewControl" />
             </TabItem>
-            <TabItem Header="Asistencia">
+            <TabItem Header="📋 Asistencia">
                 <views:AttendanceView x:Name="AttendanceViewControl" />
             </TabItem>
-            <TabItem Header="Reportes">
+            <TabItem Header="💰 Reportes">
                 <views:PayrollView x:Name="PayrollViewControl" />
             </TabItem>
         </TabControl>

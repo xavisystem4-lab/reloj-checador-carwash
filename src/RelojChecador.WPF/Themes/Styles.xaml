@@ -9,18 +9,23 @@
          apliquen automáticamente a todos los controles existentes sin tener que tocar cada
          XAML uno por uno. -->
 
+    <!-- Tamaño base de la app: 14 (antes 13) — a pedido explícito del usuario ("las
+         fuentes están un poco chicas, quiero que estén más grandes"). Aumento moderado a
+         propósito: un salto mayor arriesga romper las columnas de ancho fijo de los
+         DataGrid (decenas de Width="90"/"120"/etc. en toda la app) sin poder verlo
+         renderizado antes de que el usuario lo pruebe en Windows real. -->
     <Style TargetType="Window">
         <Setter Property="Background" Value="{DynamicResource BrushWindowBackground}" />
         <Setter Property="Foreground" Value="{DynamicResource BrushText}" />
         <Setter Property="FontFamily" Value="Segoe UI" />
-        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontSize" Value="14" />
     </Style>
 
     <Style TargetType="UserControl">
         <Setter Property="Background" Value="{DynamicResource BrushWindowBackground}" />
         <Setter Property="TextElement.Foreground" Value="{DynamicResource BrushText}" />
         <Setter Property="FontFamily" Value="Segoe UI" />
-        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontSize" Value="14" />
     </Style>
 
     <!-- Botón por defecto: plano, esquinas redondeadas, borde sutil. -->
@@ -29,7 +34,7 @@
         <Setter Property="Foreground" Value="{DynamicResource BrushText}" />
         <Setter Property="BorderBrush" Value="{DynamicResource BrushBorderStrong}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="Padding" Value="12,7" />
+        <Setter Property="Padding" Value="14,9" />
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="FontWeight" Value="Normal" />
         <Setter Property="Template">
@@ -69,7 +74,7 @@
         <Setter Property="Foreground" Value="{DynamicResource BrushAccentText}" />
         <Setter Property="BorderBrush" Value="{DynamicResource BrushAccent}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="Padding" Value="12,7" />
+        <Setter Property="Padding" Value="14,9" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="Template">
@@ -120,9 +125,17 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="GroupBox">
+                    <!-- DropShadowEffect nativo de WPF (sin dependencias externas) para una
+                         sensación de "tarjeta elevada" en vez de plana — parte del pulido
+                         visual pedido ("más moderno"), muy sutil (BlurRadius/Opacity bajos)
+                         para no verse pesado. -->
                     <Border Background="{DynamicResource BrushSurface}"
                             BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
                             CornerRadius="8">
+                        <Border.Effect>
+                            <DropShadowEffect Color="Black" Direction="270" ShadowDepth="1.5"
+                                               BlurRadius="10" Opacity="0.10" />
+                        </Border.Effect>
                         <Grid>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
@@ -150,19 +163,27 @@
     <!-- TabControl / TabItem: pestañas planas modernas con subrayado de acento en la
          seleccionada, en vez del chrome 3D clásico de Windows. -->
     <Style TargetType="TabItem">
-        <Setter Property="Padding" Value="16,10" />
+        <Setter Property="Padding" Value="18,12" />
+        <Setter Property="FontSize" Value="15" />
         <Setter Property="Foreground" Value="{DynamicResource BrushTextSecondary}" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="TabItem">
+                    <!-- La pestaña activa gana además un tinte de fondo sutil (no solo el
+                         subrayado de acento) — se nota de un vistazo cuál sección está
+                         abierta, sensación más "moderna" tipo pestaña de navegador. -->
                     <Border x:Name="Bd" Background="Transparent" BorderThickness="0,0,0,2"
-                            BorderBrush="Transparent" Padding="{TemplateBinding Padding}">
+                            BorderBrush="Transparent" CornerRadius="6,6,0,0" Padding="{TemplateBinding Padding}">
                         <ContentPresenter ContentSource="Header" HorizontalAlignment="Center" VerticalAlignment="Center" />
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsSelected" Value="True">
                             <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource BrushAccent}" />
+                            <!-- BrushSelection ya es el tinte suave de acento usado en toda
+                                 la app (selección de filas, resaltado de ComboBoxItem) —
+                                 se reutiliza aquí en vez de crear una clave de color nueva. -->
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BrushSelection}" />
                             <Setter Property="Foreground" Value="{DynamicResource BrushAccent}" />
                         </Trigger>
                         <Trigger Property="IsMouseOver" Value="True">
@@ -202,7 +223,7 @@
         <Setter Property="AlternatingRowBackground" Value="{DynamicResource BrushRowAlt}" />
         <Setter Property="HorizontalGridLinesBrush" Value="{DynamicResource BrushBorder}" />
         <Setter Property="VerticalGridLinesBrush" Value="{DynamicResource BrushBorder}" />
-        <Setter Property="RowHeight" Value="32" />
+        <Setter Property="RowHeight" Value="36" />
         <Setter Property="AlternationCount" Value="2" />
         <Setter Property="CanUserResizeRows" Value="False" />
     </Style>
@@ -211,14 +232,14 @@
         <Setter Property="Background" Value="{DynamicResource BrushSurfaceAlt}" />
         <Setter Property="Foreground" Value="{DynamicResource BrushTextSecondary}" />
         <Setter Property="FontWeight" Value="SemiBold" />
-        <Setter Property="Padding" Value="10,8" />
+        <Setter Property="Padding" Value="12,10" />
         <Setter Property="BorderBrush" Value="{DynamicResource BrushBorder}" />
         <Setter Property="BorderThickness" Value="0,0,1,1" />
         <Setter Property="HorizontalContentAlignment" Value="Left" />
     </Style>
 
     <Style TargetType="DataGridCell">
-        <Setter Property="Padding" Value="10,4" />
+        <Setter Property="Padding" Value="12,4" />
         <Setter Property="BorderThickness" Value="0" />
         <Setter Property="Foreground" Value="{DynamicResource BrushText}" />
         <Setter Property="Background" Value="Transparent" />
@@ -288,7 +309,7 @@
         <Setter Property="Foreground" Value="{DynamicResource BrushText}" />
         <Setter Property="BorderBrush" Value="{DynamicResource BrushBorderStrong}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="Padding" Value="8,6" />
+        <Setter Property="Padding" Value="10,8" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ComboBox">
@@ -310,7 +331,7 @@
                         </ToggleButton>
 
                         <ContentPresenter x:Name="ContentSite" IsHitTestVisible="False"
-                                          Margin="8,6,26,6"
+                                          Margin="10,8,28,8"
                                           HorizontalAlignment="Left" VerticalAlignment="Center"
                                           Content="{TemplateBinding SelectionBoxItem}"
                                           ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
@@ -363,7 +384,7 @@
          Con plantilla propia, el resaltado usa BrushSelection (mismo brush que ya usa
          ListBoxItem/DataGridCell) y el texto se mantiene siempre en BrushText. -->
     <Style TargetType="ComboBoxItem">
-        <Setter Property="Padding" Value="8,6" />
+        <Setter Property="Padding" Value="10,8" />
         <Setter Property="Foreground" Value="{DynamicResource BrushText}" />
         <Setter Property="Template">
             <Setter.Value>
@@ -392,7 +413,7 @@
         <Setter Property="Foreground" Value="{DynamicResource BrushText}" />
         <Setter Property="BorderBrush" Value="{DynamicResource BrushBorderStrong}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="Padding" Value="8,6" />
+        <Setter Property="Padding" Value="10,8" />
         <Setter Property="CaretBrush" Value="{DynamicResource BrushText}" />
         <Setter Property="SelectionBrush" Value="{DynamicResource BrushSelection}" />
         <Setter Property="Template">
@@ -424,7 +445,7 @@
             <Setter.Value>
                 <ControlTemplate TargetType="CheckBox">
                     <StackPanel Orientation="Horizontal">
-                        <Border x:Name="Bd" Width="18" Height="18" CornerRadius="4"
+                        <Border x:Name="Bd" Width="20" Height="20" CornerRadius="4"
                                 Background="{DynamicResource BrushSurface}" BorderBrush="{DynamicResource BrushBorderStrong}"
                                 BorderThickness="1.5" VerticalAlignment="Center">
                             <Path x:Name="CheckMark" Data="M2,7 L6,11 L14,2" Stroke="{DynamicResource BrushAccentText}"

@@ -50,8 +50,13 @@
         <span id="connection-badge-text">Verificando…</span>
       </div>
       <div class="topbar-actions">
+        <!-- "user-name-button" ya mostraba el nombre de la sesión actual (ver
+             displayNameFor en app.js), pero sin nada que lo distinguiera de
+             "users-button" de al lado — ambos con el mismo ícono 👤 se confundían.
+             Ahora este lleva el ícono "adentro" del texto (👤 Nombre, fijado en app.js)
+             y el de administración se renombra para dejar de competir visualmente. -->
         <button id="user-name-button" class="user-name-button" type="button" title="Editar mi nombre"></button>
-        <button id="users-button" class="btn btn-outline" type="button">👤 Usuarios</button>
+        <button id="users-button" class="btn btn-outline" type="button">⚙️ Administrar usuarios</button>
         <button id="logout-button" class="btn btn-ghost" type="button">Cerrar sesión</button>
       </div>
     </header>

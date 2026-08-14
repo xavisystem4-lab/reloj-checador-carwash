@@ -18,26 +18,26 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <TextBlock Grid.Row="0" Text="Asistencia" FontSize="24" FontWeight="Bold" Margin="0,0,0,4" />
+        <TextBlock Grid.Row="0" Text="Asistencia" FontSize="26" FontWeight="Bold" Margin="0,0,0,4" />
 
         <!-- Sucursal y fechas van al servidor al presionar "Actualizar"; Buscar filtra en
              memoria sobre lo ya cargado, sin recargar nada (ver AttendanceViewModel). -->
         <WrapPanel Grid.Row="1" Margin="0,0,0,10">
             <StackPanel Margin="0,0,14,10">
-                <TextBlock Text="Sucursal" FontSize="12" FontWeight="SemiBold" Margin="0,0,0,2" />
+                <TextBlock Text="Sucursal" FontSize="13" FontWeight="SemiBold" Margin="0,0,0,2" />
                 <ComboBox Width="200" Padding="4" ItemsSource="{Binding BranchOptions}"
                           SelectedItem="{Binding SelectedBranchOption, Mode=TwoWay}" />
             </StackPanel>
             <StackPanel Margin="0,0,14,10">
-                <TextBlock Text="Desde (dd/mm/aaaa)" FontSize="12" FontWeight="SemiBold" Margin="0,0,0,2" />
+                <TextBlock Text="Desde (dd/mm/aaaa)" FontSize="13" FontWeight="SemiBold" Margin="0,0,0,2" />
                 <TextBox Width="120" Padding="4" Text="{Binding FromDateText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
             </StackPanel>
             <StackPanel Margin="0,0,14,10">
-                <TextBlock Text="Hasta (dd/mm/aaaa)" FontSize="12" FontWeight="SemiBold" Margin="0,0,0,2" />
+                <TextBlock Text="Hasta (dd/mm/aaaa)" FontSize="13" FontWeight="SemiBold" Margin="0,0,0,2" />
                 <TextBox Width="120" Padding="4" Text="{Binding ToDateText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
             </StackPanel>
             <StackPanel Margin="0,0,14,10">
-                <TextBlock Text="Buscar empleado o PIN" FontSize="12" FontWeight="SemiBold" Margin="0,0,0,2" />
+                <TextBlock Text="Buscar empleado o PIN" FontSize="13" FontWeight="SemiBold" Margin="0,0,0,2" />
                 <TextBox Width="220" Padding="4" Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
             </StackPanel>
             <StackPanel Margin="0,0,0,10" VerticalAlignment="Bottom" Orientation="Horizontal">
@@ -46,7 +46,7 @@
             </StackPanel>
         </WrapPanel>
 
-        <TextBlock Grid.Row="2" Text="{Binding StatusMessage}" FontSize="13" Foreground="{DynamicResource BrushTextSecondary}" Margin="0,0,0,12" />
+        <TextBlock Grid.Row="2" Text="{Binding StatusMessage}" FontSize="14" Foreground="{DynamicResource BrushTextSecondary}" Margin="0,0,0,12" />
 
         <DataGrid Grid.Row="3" ItemsSource="{Binding Attendances}" AutoGenerateColumns="False" IsReadOnly="True"
                   CanUserAddRows="False" GridLinesVisibility="Horizontal" HeadersVisibility="Column">

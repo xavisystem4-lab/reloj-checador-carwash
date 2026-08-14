@@ -13,10 +13,10 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <TextBlock Grid.Row="0" x:Name="HeaderTextBlock" FontSize="16" FontWeight="Bold" Margin="0,0,0,4"
+        <TextBlock Grid.Row="0" x:Name="HeaderTextBlock" FontSize="17" FontWeight="Bold" Margin="0,0,0,4"
                    TextWrapping="Wrap" />
         <TextBlock Grid.Row="1" Text="Corrige el PIN si se capturó mal — el reloj sigue siendo el mismo, solo cambia el número que lo identifica."
-                   FontSize="12" Foreground="{DynamicResource BrushTextSecondary}" TextWrapping="Wrap" Margin="0,0,0,14" />
+                   FontSize="13" Foreground="{DynamicResource BrushTextSecondary}" TextWrapping="Wrap" Margin="0,0,0,14" />
 
         <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
             <ItemsControl x:Name="MappingsItemsControl">
@@ -29,11 +29,11 @@
                                 <ColumnDefinition Width="110" />
                             </Grid.ColumnDefinitions>
                             <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                                <TextBlock Text="Dispositivo" FontSize="11" Foreground="{DynamicResource BrushTextSecondary}" />
+                                <TextBlock Text="Dispositivo" FontSize="12" Foreground="{DynamicResource BrushTextSecondary}" />
                                 <TextBlock Text="{Binding DeviceName}" FontWeight="SemiBold" />
                             </StackPanel>
                             <StackPanel Grid.Column="2">
-                                <TextBlock Text="PIN" FontSize="11" Foreground="{DynamicResource BrushTextSecondary}" Margin="0,0,0,2" />
+                                <TextBlock Text="PIN" FontSize="12" Foreground="{DynamicResource BrushTextSecondary}" Margin="0,0,0,2" />
                                 <TextBox Text="{Binding NewPin, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Padding="4" MaxLength="50" />
                             </StackPanel>
                         </Grid>

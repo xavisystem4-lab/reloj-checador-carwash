@@ -115,7 +115,10 @@ function applySessionState(session) {
   if (session) {
     loginScreen.hidden = true;
     dashboardScreen.hidden = false;
-    userNameButton.textContent = displayNameFor(session.user);
+    // "👤 " adentro del texto a propósito: era el botón que se confundía con
+    // "⚙️ Administrar usuarios" de al lado — con el ícono explícito en el nombre queda
+    // claro que este es "tú", no la administración de otras cuentas.
+    userNameButton.textContent = '👤 ' + displayNameFor(session.user);
     startAutoRefresh();
     loadBranches().then(() => loadReport());
     loadDevicesStatus();
@@ -213,7 +216,7 @@ async function onEditOwnNameClick() {
   }
 
   currentSession = { ...currentSession, user: data.user };
-  userNameButton.textContent = displayNameFor(data.user);
+  userNameButton.textContent = '👤 ' + displayNameFor(data.user);
 }
 
 // ---- Panel "Usuarios del Dashboard" (manage-users Edge Function) ----

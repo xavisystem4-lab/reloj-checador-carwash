@@ -12,12 +12,20 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <TextBlock Grid.Row="0" Text="Sucursales" FontSize="24" FontWeight="Bold" Margin="0,0,0,4" />
+        <TextBlock Grid.Row="0" Text="Sucursales" FontSize="26" FontWeight="Bold" Margin="0,0,0,4" />
 
-        <TextBlock Grid.Row="1" Text="{Binding StatusMessage}" FontSize="13" Foreground="{DynamicResource BrushTextSecondary}" Margin="0,0,0,12" />
+        <TextBlock Grid.Row="1" Text="{Binding StatusMessage}" FontSize="14" Foreground="{DynamicResource BrushTextSecondary}" Margin="0,0,0,12" />
 
-        <Button Grid.Row="2" Content="+ Nueva sucursal" Style="{StaticResource PrimaryButton}"
-                HorizontalAlignment="Left" Margin="0,0,0,12" Click="OnAddBranchClick" />
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,12">
+            <Button Content="+ Nueva sucursal" Style="{StaticResource PrimaryButton}" Margin="0,0,16,0" Click="OnAddBranchClick" />
+            <Button Content="⬇ Exportar CSV" Margin="0,0,8,0" Click="OnExportCsvClick" />
+            <!-- Un solo botón cubre "exportar a PDF" e "imprimir": abre el PrintDialog
+                 nativo de Windows, donde el driver virtual "Microsoft Print to PDF"
+                 (incluido de fábrica en Windows 10/11) guarda como PDF sin instalar nada,
+                 o se puede elegir cualquier impresora física — cero dependencias nuevas
+                 en el .exe self-contained. -->
+            <Button Content="🖶 Imprimir / Exportar PDF" Click="OnPrintClick" />
+        </StackPanel>
 
         <DataGrid Grid.Row="3" ItemsSource="{Binding Branches}" AutoGenerateColumns="False" IsReadOnly="True"
                   CanUserAddRows="False" GridLinesVisibility="Horizontal" HeadersVisibility="Column">

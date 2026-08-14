@@ -257,11 +257,29 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   dominio (`payroll_deductions`, solo lectura para `authenticated`) — deja la puerta
   abierta, barata, para una futura UI de nómina en el Dashboard, que NO se construye en
   esta entrega. 10 tests nuevos (Domain + repositorio EF).
+- **Modernización visual + exportar/imprimir Sucursales + claridad de "Usuarios" en el
+  Dashboard**, a pedido explícito del usuario ("las fuentes están un poco chicas...
+  mejora mucho la interfaz"):
+  - Escala tipográfica un paso arriba en toda la app de escritorio (base 13→14, títulos
+    24→26, subtítulos 12-13→14, microetiquetas 11→12) y en el Dashboard (`body` gana
+    `font-size: 15px` explícito, antes heredaba 11-13.5px sueltos por elemento) —
+    moderado a propósito, un salto mayor arriesgaba romper las columnas de ancho fijo de
+    los `DataGrid` sin poder verlo renderizado antes de que el usuario lo probara.
+  - Pulido de componentes: `DataGrid` con más aire (`RowHeight` 32→36), botones/campos
+    con más padding, `TabItem` con ícono por pestaña (🏢👥⏱️📋💰) y tinte de fondo en la
+    activa, `GroupBox` con `DropShadowEffect` sutil — sin tocar la paleta de colores, que
+    ya era adecuada.
+  - Sucursales (la única pantalla sin ningún botón de exportación hasta ahora) gana
+    "⬇ Exportar CSV" y "🖶 Imprimir / Exportar PDF" — este último es el primer uso de
+    impresión del proyecto: un `FlowDocument` + el `PrintDialog` nativo de WPF, donde el
+    driver "Microsoft Print to PDF" (incluido de fábrica en Windows 10/11) cubre el caso
+    de PDF sin ninguna dependencia nueva en el `.exe` self-contained.
+  - Dashboard: el botón que ya mostraba el nombre de la sesión actual (`user-name-button`,
+    confirmado con una consulta a Supabase que la cuenta sí tenía `full_name` guardado)
+    se confundía visualmente con "👤 Usuarios" de al lado — ahora muestra "👤 {nombre}"
+    explícito y el de administración se renombra a "⚙️ Administrar usuarios".
 
 **Pendiente (bloqueado por decisiones o datos externos):**
-- Confirmar el login real del Dashboard (requiere que el usuario cree su primera cuenta
-  en Supabase Auth — ver `dashboard/README.md` — algo que, por diseño, nunca se hace
-  automáticamente desde aquí)
 - Navegación completa de la UI (Fase 3 del diseño visual — Sucursales, Empleados,
   Dispositivos, Asistencia y Reportes ya existen; falta el resto de secciones finales)
 - Confirmar contra hardware real el significado de `PunchType` 2/3 (descansos) — hoy

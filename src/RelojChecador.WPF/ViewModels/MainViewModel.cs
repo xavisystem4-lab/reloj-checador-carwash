@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Microsoft.EntityFrameworkCore;
 using RelojChecador.Application.Branches;
@@ -102,4 +103,33 @@ public sealed partial class MainViewModel : ObservableObject
             ? "Aún no hay sucursales registradas."
             : $"{Branches.Count} sucursal(es) registrada(s) en la base local.";
     }
+
+    /// <summary>Arma el CSV de las sucursales visibles ahora mismo — mismo patrón que
+    /// AttendanceViewModel.BuildCsv/PayrollViewModel.BuildCsv (el diálogo de guardar lo
+    /// maneja BranchesView, el ViewModel no conoce tipos de WPF).</summary>
+    public string BuildCsv()
+    {
+        var header = new[] { "Código", "Nombre", "Zona horaria", "Razón social", "Activa" };
+        var lines = new List<string> { string.Join(",", header.Select(CsvEscape)) };
+
+        foreach (var branch in Branches)
+        {
+            var fields = new[]
+            {
+                branch.Code,
+                branch.Name,
+                branch.TimeZoneId,
+                branch.LegalEntityName ?? "",
+                branch.IsActive ? "Sí" : "No",
+            };
+            lines.Add(string.Join(",", fields.Select(CsvEscape)));
+        }
+
+        return string.Join("\r\n", lines);
+    }
+
+    private static string CsvEscape(string value) =>
+        value.IndexOfAny([',', '"', '\r', '\n']) >= 0
+            ? $"\"{value.Replace("\"", "\"\"")}\""
+            : value;
 }

@@ -20,16 +20,16 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <TextBlock Grid.Row="0" x:Name="HeaderTextBlock" FontSize="16" FontWeight="Bold" Margin="0,0,0,4"
+        <TextBlock Grid.Row="0" x:Name="HeaderTextBlock" FontSize="17" FontWeight="Bold" Margin="0,0,0,4"
                    TextWrapping="Wrap" />
         <TextBlock Grid.Row="1"
                    Text="Montos que ya calculaste por fuera (tú o tu contador) — el sistema nunca calcula ISR/IMSS, solo resta lo que captures aquí del pago bruto."
-                   FontSize="12" Foreground="{DynamicResource BrushTextSecondary}" TextWrapping="Wrap" Margin="0,0,0,14" />
+                   FontSize="13" Foreground="{DynamicResource BrushTextSecondary}" TextWrapping="Wrap" Margin="0,0,0,14" />
 
-        <TextBlock Grid.Row="2" Text="ISR" FontSize="11" Foreground="{DynamicResource BrushTextSecondary}" Margin="0,0,0,2" />
+        <TextBlock Grid.Row="2" Text="ISR" FontSize="12" Foreground="{DynamicResource BrushTextSecondary}" Margin="0,0,0,2" />
         <TextBox Grid.Row="3" x:Name="IsrTextBox" Padding="6" Margin="0,0,0,10" />
 
-        <TextBlock Grid.Row="4" Text="IMSS" FontSize="11" Foreground="{DynamicResource BrushTextSecondary}" Margin="0,0,0,2" />
+        <TextBlock Grid.Row="4" Text="IMSS" FontSize="12" Foreground="{DynamicResource BrushTextSecondary}" Margin="0,0,0,2" />
         <TextBox Grid.Row="5" x:Name="ImssTextBox" Padding="6" Margin="0,0,0,10" />
 
         <Grid Grid.Row="6" Margin="0,0,0,10">
@@ -39,16 +39,16 @@
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
             <StackPanel Grid.Column="0">
-                <TextBlock Text="Otro (monto)" FontSize="11" Foreground="{DynamicResource BrushTextSecondary}" Margin="0,0,0,2" />
+                <TextBlock Text="Otro (monto)" FontSize="12" Foreground="{DynamicResource BrushTextSecondary}" Margin="0,0,0,2" />
                 <TextBox x:Name="OtherAmountTextBox" Padding="6" />
             </StackPanel>
             <StackPanel Grid.Column="2">
-                <TextBlock Text="Concepto de &quot;Otro&quot; (opcional)" FontSize="11" Foreground="{DynamicResource BrushTextSecondary}" Margin="0,0,0,2" />
+                <TextBlock Text="Concepto de &quot;Otro&quot; (opcional)" FontSize="12" Foreground="{DynamicResource BrushTextSecondary}" Margin="0,0,0,2" />
                 <TextBox x:Name="OtherLabelTextBox" Padding="6" />
             </StackPanel>
         </Grid>
 
-        <TextBlock Grid.Row="7" Text="Notas (opcional)" FontSize="11" Foreground="{DynamicResource BrushTextSecondary}" Margin="0,0,0,2" />
+        <TextBlock Grid.Row="7" Text="Notas (opcional)" FontSize="12" Foreground="{DynamicResource BrushTextSecondary}" Margin="0,0,0,2" />
         <TextBox Grid.Row="8" x:Name="NotesTextBox" Padding="6" TextWrapping="Wrap" AcceptsReturn="True"
                  Height="60" VerticalScrollBarVisibility="Auto" Margin="0,0,0,10" />
 
