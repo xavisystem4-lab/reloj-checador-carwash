@@ -70,11 +70,13 @@ public sealed class SupabaseSyncBackgroundService(
     }
 
     /// <summary>Dispara un ciclo de sincronización de inmediato, sin esperar al siguiente
-    /// tick automático — usado por el botón "Conectar con nube" de la barra superior
-    /// (ver MainWindow/UpdateViewModel) para poder probar en el momento en vez de esperar
-    /// hasta 30s (IntervalSeconds). Si la sincronización no está configurada, deja
-    /// constancia de eso en <see cref="SupabaseSyncStatus"/> igual que el ciclo
-    /// automático, en vez de lanzar una excepción — el botón nunca debe tumbar la UI.</summary>
+    /// tick automático. Dos llamadores: el botón "Conectar con nube" de la barra superior
+    /// (ver MainWindow/UpdateViewModel), para poder probar en el momento en vez de esperar
+    /// hasta 10s (IntervalSeconds); y DevicesViewModel, cada vez que se guarda una
+    /// marcación nueva (tiempo real o descarga manual) — así el Dashboard la ve casi al
+    /// instante en vez de esperar el próximo ciclo automático. Si la sincronización no
+    /// está configurada, deja constancia de eso en <see cref="SupabaseSyncStatus"/> igual
+    /// que el ciclo automático, en vez de lanzar una excepción — nunca debe tumbar la UI.</summary>
     public async Task TriggerSyncNowAsync(CancellationToken cancellationToken = default)
     {
         if (!options.IsConfigured)

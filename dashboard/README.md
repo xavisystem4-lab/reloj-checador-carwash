@@ -91,9 +91,11 @@ Con esto, solo las cuentas que tú crees manualmente (paso anterior) pueden entr
   tiene un `EmployeeDeviceMapping` para ese PIN), sucursal, dispositivo, método de
   verificación, tipo (entrada/salida).
 - **Exportar CSV** del reporte visible (respeta los filtros aplicados).
-- Se actualiza solo cada 30 segundos mientras la pestaña está abierta (la app de
-  escritorio también sube cada ~30s, ver `SupabaseSyncOptions.IntervalSeconds` en el
-  repo principal).
+- Se actualiza solo cada 10 segundos mientras la pestaña está abierta (la app de
+  escritorio también sube cada ~10s como respaldo periódico, ver
+  `SupabaseSyncOptions.IntervalSeconds` en el repo principal — además, cada marcación
+  nueva dispara su propia sincronización inmediata sin esperar ese ciclo, ver
+  `DevicesViewModel.PersistAndTriggerSyncAsync`).
 
 ### Zona horaria de `attendances.timestamp_utc` — IMPORTANTE, no es UTC real
 

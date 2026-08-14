@@ -187,6 +187,13 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   mano — reportado por el usuario como que la nube "no se actualiza" hasta hacerlo. Se
   respeta un "Desconectar" manual explícito (no reconecta solo hasta que el usuario vuelva
   a presionar "Conectar")
+- Sincronización con Supabase casi instantánea, a pedido explícito del usuario ("que sea
+  prácticamente instantáneo... en cuanto hay un evento, lo comunique de inmediato con la
+  nube"): el intervalo de respaldo baja de 30s a 10s (`SupabaseSyncOptions.IntervalSeconds`,
+  Dashboard ajustado igual), y además cada marcación nueva (tiempo real o descarga manual)
+  dispara su propio ciclo de sincronización de inmediato en vez de esperar el próximo tick
+  — ver `DevicesViewModel.PersistAndTriggerSyncAsync`, que reutiliza el mismo
+  `SupabaseSyncBackgroundService.TriggerSyncNowAsync` del botón "Conectar con nube"
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Confirmar el login real del Dashboard (requiere que el usuario cree su primera cuenta

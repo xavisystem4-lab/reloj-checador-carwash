@@ -15,7 +15,7 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-const REFRESH_INTERVAL_MS = 30_000;
+const REFRESH_INTERVAL_MS = 10_000;
 const MAX_ROWS = 2000;
 
 // La app de escritorio actualiza LastCommunicationAtUtc al presionar "Conectar" con éxito
@@ -667,9 +667,11 @@ function csvEscape(value) {
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
-// ---- Auto-actualización: la app de escritorio sube cada ~30s (ver
-// SupabaseSyncOptions.IntervalSeconds en el repo principal), así que refrescar aquí
-// cada 30s también mantiene el Dashboard prácticamente al día. ----
+// ---- Auto-actualización: la app de escritorio sube cada ~10s como respaldo periódico
+// (ver SupabaseSyncOptions.IntervalSeconds en el repo principal), y además dispara una
+// sincronización inmediata en cuanto llega una marcación nueva (sin esperar ese ciclo,
+// ver DevicesViewModel.PersistAndTriggerSyncAsync) — refrescar aquí cada 10s mantiene el
+// Dashboard prácticamente al día con ambos caminos. ----
 function startAutoRefresh() {
   stopAutoRefresh();
   autoRefreshTimer = setInterval(() => {

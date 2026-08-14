@@ -12,6 +12,7 @@ using RelojChecador.Domain.Attendances;
 using RelojChecador.Domain.Branches;
 using RelojChecador.Domain.Common;
 using RelojChecador.Domain.Devices;
+using RelojChecador.Infrastructure.Cloud;
 using Serilog;
 
 namespace RelojChecador.WPF.ViewModels;
@@ -37,6 +38,7 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
     private readonly IAttendanceRepository _attendanceRepository;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IAttendanceDeviceAdapter _deviceAdapter;
+    private readonly SupabaseSyncBackgroundService _syncService;
 
     // Reconexión automática (reportado por el usuario: "hasta que no le doy conectar...
     // no se actualiza" — sin esto, cualquier corte de red/reinicio del reloj dejaba de
@@ -85,13 +87,15 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         IBranchRepository branchRepository,
         IAttendanceRepository attendanceRepository,
         IUnitOfWork unitOfWork,
-        IAttendanceDeviceAdapter deviceAdapter)
+        IAttendanceDeviceAdapter deviceAdapter,
+        SupabaseSyncBackgroundService syncService)
     {
         _deviceRepository = deviceRepository;
         _branchRepository = branchRepository;
         _attendanceRepository = attendanceRepository;
         _unitOfWork = unitOfWork;
         _deviceAdapter = deviceAdapter;
+        _syncService = syncService;
 
         // El adaptador es Singleton (una sola instancia para toda la app — ver comentario de
         // clase) pero este ViewModel es Scoped (una instancia por ventana); por eso hay que
@@ -141,7 +145,24 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         // "esperar" desde aquí sin bloquear su hilo de sondeo) y guardar en SQLite no debe
         // frenar la siguiente marcación. Los errores se registran en la bitácora en vez de
         // perderse en silencio — ver PersistAttendanceAsync.
-        _ = PersistAttendanceAsync(record, source: "tiempo real");
+        _ = PersistAndTriggerSyncAsync(record, source: "tiempo real");
+    }
+
+    /// <summary>Guarda la marcación y, si fue realmente nueva (no un duplicado), dispara
+    /// de inmediato un ciclo de sincronización con Supabase — así el Dashboard la ve casi
+    /// al instante en vez de esperar hasta 10s (IntervalSeconds) al siguiente ciclo
+    /// automático. Pedido explícito del usuario: "en cuanto... hay un evento, que lo
+    /// comunique de inmediato... con la nube para actualizar el dashboard". El propio
+    /// TriggerSyncNowAsync ya tiene su candado (SupabaseSyncBackgroundService._runLock)
+    /// contra solaparse con el ciclo automático o con otra marcación llegando casi a la
+    /// vez, así que no hace falta ninguna protección extra aquí.</summary>
+    private async Task PersistAndTriggerSyncAsync(RawAttendanceRecord record, string source)
+    {
+        var isNew = await PersistAttendanceAsync(record, source);
+        if (isNew)
+        {
+            await _syncService.TriggerSyncNowAsync();
+        }
     }
 
     /// <summary>Traduce y guarda una marcación cruda del adaptador como Attendance local,
@@ -497,6 +518,16 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
 
         AppendLog($"Descarga completa: {result.Value.Count} registro(s) leído(s) desde el dispositivo " +
                    $"({savedCount} nuevo(s) guardado(s) en la base local, el resto ya existía).");
+
+        // Un solo ciclo de sync al final del lote (no uno por registro, a diferencia de
+        // PersistAndTriggerSyncAsync para tiempo real) — una descarga manual puede traer
+        // cientos de registros de golpe, y TriggerSyncNowAsync ya sube TODO lo pendiente
+        // en un ciclo (ver PushAttendancesIncrementalAsync), así que repetirlo por cada
+        // fila no adelantaría nada, solo generaría llamadas redundantes a Supabase.
+        if (savedCount > 0)
+        {
+            await _syncService.TriggerSyncNowAsync();
+        }
     }
 
     /// <summary>Escribe la hora LOCAL de esta PC en el reloj del dispositivo — no se envía
