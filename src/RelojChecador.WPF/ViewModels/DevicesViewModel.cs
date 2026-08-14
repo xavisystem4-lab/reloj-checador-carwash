@@ -561,6 +561,10 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
             ProtocolResult = "✅ Protocolo reconocido";
             AuthResult = "✅ Autenticación correcta";
             IsConnected = true;
+            // Cada conexión nueva empieza su propia racha de fallos de lectura desde cero
+            // — ver el comentario de DownloadAttendanceCoreAsync sobre por qué se exige
+            // más de un fallo seguido antes de dar por muerta la conexión.
+            _consecutiveDownloadFailures = 0;
             AppendLog("Comunicación completa establecida con el dispositivo.");
             await TryPersistCommunicationResultAsync(succeeded: true);
 
@@ -702,8 +706,24 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
     /// "Conectado" para siempre (nadie lo volvía a evaluar), y como TryAutoReconnectAsync
     /// solo actúa cuando IsConnected es false, el auto-reconnect (cada 15s) jamás
     /// intentaba una reconexión real — quedaba en un punto muerto silencioso hasta que
-    /// alguien presionara "Desconectar" y "Conectar" a mano. Ahora un fallo real aquí
-    /// marca la conexión como caída de verdad, para que el ciclo de 15s la retome sola.</summary>
+    /// alguien presionara "Desconectar" y "Conectar" a mano.
+    ///
+    /// REGRESIÓN real de esa misma corrección (v1.19.0, reportada por el usuario: "en la
+    /// 1.17.2 sí funcionaba y ahorita ya no... el dispositivo está prendido... hay
+    /// internet pero no comunica"): marcar desconectado ante CUALQUIER fallo, incluido uno
+    /// pasajero (un timeout puntual del SDK de ZKTeco, por ejemplo), cortaba una conexión
+    /// que en realidad seguía sana — antes, ese mismo fallo pasajero se ignoraba solo y el
+    /// siguiente ciclo de 10s reintentaba sobre la MISMA conexión ya abierta, sin
+    /// problema. Forzar una reconexión completa desde cero en cada fallo resultó ser
+    /// menos confiable que simplemente reintentar, porque el handshake de reconexión (los
+    /// 5 niveles de diagnóstico) es más propenso a fallar que una lectura sobre una
+    /// conexión ya establecida. _consecutiveDownloadFailures exige varios fallos SEGUIDOS
+    /// (no uno solo) antes de dar por muerta la conexión — un fallo aislado se sigue
+    /// ignorando igual que antes de v1.19.0; solo una racha sostenida (~30s) dispara la
+    /// reconexión real.</summary>
+    private const int MaxConsecutiveDownloadFailures = 3;
+    private int _consecutiveDownloadFailures;
+
     private async Task<(bool Success, string? Error, int TotalRead, int SavedCount)> DownloadAttendanceCoreAsync()
     {
         if (_isDownloading)
@@ -717,10 +737,17 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
             var result = await _deviceAdapter.DownloadAttendanceLogsAsync();
             if (result.IsFailure)
             {
-                await MarkDisconnectedDueToFailureAsync(result.Error.Message);
+                _consecutiveDownloadFailures++;
+                if (_consecutiveDownloadFailures >= MaxConsecutiveDownloadFailures)
+                {
+                    await MarkDisconnectedDueToFailureAsync(
+                        $"{result.Error.Message} (tras {_consecutiveDownloadFailures} intentos fallidos seguidos)");
+                }
+
                 return (false, result.Error.Message, 0, 0);
             }
 
+            _consecutiveDownloadFailures = 0;
             AttendanceRecords.Clear();
             var savedCount = 0;
             // Más reciente arriba — el dispositivo entrega los registros en el orden en que

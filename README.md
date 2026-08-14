@@ -418,6 +418,18 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   marino que se perderían casi por completo puestos directo sobre el fondo oscuro del
   tema noche (mismo error de contraste ya corregido en el instalador, ver v1.18.1); una
   tarjeta blanca constante garantiza contraste fuerte sin importar el tema activo.
+- **Fix: regresión del fix anterior** — el usuario reportó que "en la 1.17.2 sí
+  funcionaba y ahorita ya no": el dispositivo prendido, con la IP correcta, con internet,
+  pero sin comunicar. Causa real: el fix de arriba marcaba desconectado ante CUALQUIER
+  fallo de lectura, incluido uno pasajero (p. ej. un timeout puntual del SDK de ZKTeco) —
+  antes ese mismo fallo aislado se ignoraba solo y el siguiente ciclo de 10s reintentaba
+  sobre la MISMA conexión ya abierta, sin problema. Forzar una reconexión completa desde
+  cero en cada fallo resultó menos confiable que simplemente reintentar, porque el
+  handshake de reconexión (5 niveles de diagnóstico) es más propenso a fallar que una
+  lectura sobre una conexión ya establecida. Ahora se exigen 3 fallos SEGUIDOS
+  (`_consecutiveDownloadFailures`, ~30s sostenidos) antes de dar por muerta la conexión —
+  un fallo aislado se ignora igual que antes de v1.19.0; solo una racha real dispara la
+  reconexión.
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Navegación completa de la UI (Fase 3 del diseño visual — Sucursales, Empleados,
