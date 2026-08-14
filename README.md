@@ -430,6 +430,26 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   (`_consecutiveDownloadFailures`, ~30s sostenidos) antes de dar por muerta la conexión —
   un fallo aislado se ignora igual que antes de v1.19.0; solo una racha real dispara la
   reconexión.
+- **Fix crítico de raíz: el monitoreo en tiempo real nunca funcionó, desde siempre** —
+  encontrado leyendo el código a fondo a pedido explícito del usuario ("resuélvelo de raíz,
+  busca en el código que falló"), tras confirmar con pruebas reales de red (ping + puerto
+  TCP 4370 abiertos, conexión cruda aceptada) que el dispositivo estaba sano y descartar así
+  cualquier causa de red/hardware. `ZKTecoDeviceAdapter.PollForNewPunchesAsync` guardaba
+  "desde cuándo buscar marcaciones nuevas" con `DateTime.UtcNow` (hora UTC real), pero
+  `RawAttendanceRecord.TimestampUtc` —pese al nombre— en realidad contiene la hora LOCAL
+  cruda del reloj sin convertir (documentado a propósito: "el reloj no aplica ninguna
+  conversión de zona horaria", y consistente con el resto del sistema, que nunca hace
+  conversión real de huso horario — ver `AttendanceViewModel`/`PayrollViewModel`, que arman
+  sus rangos con `DateTime.Now` + `DateTime.SpecifyKind(..., DateTimeKind.Utc)` sin sumar
+  ningún offset, a propósito, para un negocio de una sola sucursal). Con Mexicali en
+  UTC-7/UTC-8, la hora local del dispositivo para CUALQUIER marcación nueva quedaba
+  numéricamente por detrás de un `DateTime.UtcNow` real — la comparación `>` nunca era
+  cierta, así que el evento `AttendancePunchReceived` (la aparición "al instante" de una
+  marcación) jamás se disparó, para ninguna marcación, desde que se escribió el adaptador.
+  Corregido inicializando esa marca con `DateTime.Now` (hora local), comparando como
+  corresponde: local contra local, igual que el resto del sistema. Campo renombrado de
+  `_realTimeSinceUtc` a `_realTimeSinceDeviceLocal` para no perpetuar el nombre engañoso
+  que costó encontrar el bug.
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Navegación completa de la UI (Fase 3 del diseño visual — Sucursales, Empleados,

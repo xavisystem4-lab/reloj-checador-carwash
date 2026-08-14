@@ -56,7 +56,25 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
     private dynamic? _zk;
     private bool _isConnected;
     private Timer? _realTimeTimer;
-    private DateTime _realTimeSinceUtc;
+
+    // Nombrado "DeviceLocal", no "Utc" — BUG REAL encontrado y corregido aquí (reportado
+    // por el usuario: "hice una marcación... y no me aparece", el monitoreo en tiempo real
+    // nunca funcionó). RawAttendanceRecord.TimestampUtc, pese al nombre, en realidad
+    // contiene la hora LOCAL cruda del reloj sin convertir — documentado a propósito en
+    // SetDeviceTimeAsync ("el reloj no aplica ninguna conversión de zona horaria") y
+    // consistente con el resto del sistema, que NUNCA hace conversión real de huso horario
+    // (ver AttendanceViewModel/PayrollViewModel: arman sus rangos con DateTime.Now +
+    // DateTime.SpecifyKind(..., DateTimeKind.Utc), sin sumar ningún offset — es una
+    // simplificación deliberada para un negocio de una sola sucursal/huso horario). Esta
+    // variable, antes, se inicializaba con DateTime.UtcNow (hora UTC REAL) — la única
+    // fuga de esa convención en todo el proyecto. Con Mexicali en UTC-7/UTC-8, la hora
+    // local del dispositivo para una marcación nueva SIEMPRE queda numéricamente por
+    // detrás de un DateTime.UtcNow real, así que "r.TimestampUtc > _realTimeSinceUtc" en
+    // PollForNewPunchesAsync nunca era cierto para NINGUNA marcación nueva — el monitoreo
+    // en tiempo real estaba roto por completo, silenciosamente, desde siempre. Se
+    // inicializa con DateTime.Now (hora local de esta PC) para comparar como corresponde:
+    // local contra local, igual que todo lo demás en el sistema.
+    private DateTime _realTimeSinceDeviceLocal;
     private readonly SemaphoreSlim _logAccessLock = new(1, 1);
 
     public string Brand => "ZKTeco";
@@ -712,7 +730,9 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
 
         // Solo se reportan marcaciones desde este momento en adelante — el histórico se
         // consulta aparte con DownloadAttendanceLogsAsync, no se reproduce por este medio.
-        _realTimeSinceUtc = DateTime.UtcNow;
+        // DateTime.Now (hora LOCAL), no UtcNow — ver el comentario del campo, comparar
+        // contra la hora cruda del dispositivo exige el mismo tipo de valor en ambos lados.
+        _realTimeSinceDeviceLocal = DateTime.Now;
         _realTimeTimer = new Timer(_ => _ = PollForNewPunchesAsync(), null, TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(3));
         return Task.FromResult(Result.Success());
     }
@@ -740,13 +760,13 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
         try
         {
             var records = ReadAllGeneralLogEntries();
-            var newOnes = records.Where(r => r.TimestampUtc > _realTimeSinceUtc).OrderBy(r => r.TimestampUtc).ToList();
+            var newOnes = records.Where(r => r.TimestampUtc > _realTimeSinceDeviceLocal).OrderBy(r => r.TimestampUtc).ToList();
             if (newOnes.Count == 0)
             {
                 return;
             }
 
-            _realTimeSinceUtc = newOnes[^1].TimestampUtc;
+            _realTimeSinceDeviceLocal = newOnes[^1].TimestampUtc;
             foreach (var record in newOnes)
             {
                 AttendancePunchReceived?.Invoke(this, record);
