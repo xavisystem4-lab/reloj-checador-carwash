@@ -10,6 +10,7 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
@@ -28,9 +29,22 @@
             <Button Content="⬇ Exportar CSV" Click="OnExportCsvClick" />
         </StackPanel>
 
-        <TextBlock Grid.Row="3" Text="{Binding StatusMessage}" FontSize="14" Foreground="{DynamicResource BrushTextSecondary}" Margin="0,0,0,12" />
+        <!-- Filtros — mismo criterio que Empleados: en memoria sobre lo ya calculado para
+             la semana actual, sin volver a recalcular la nómina por escribir en el
+             buscador o cambiar la sucursal (ver PayrollViewModel.ApplyFilter). -->
+        <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,0,0,12">
+            <TextBlock Text="Buscar:" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource BrushTextSecondary}" />
+            <TextBox Width="220" VerticalContentAlignment="Center" Margin="0,0,16,0"
+                     Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+            <TextBlock Text="Sucursal:" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource BrushTextSecondary}" />
+            <ComboBox Width="200"
+                      ItemsSource="{Binding BranchFilterOptions}"
+                      SelectedItem="{Binding SelectedBranchFilter, Mode=TwoWay}" />
+        </StackPanel>
 
-        <DataGrid Grid.Row="4" ItemsSource="{Binding PayrollRows}" AutoGenerateColumns="False" IsReadOnly="True"
+        <TextBlock Grid.Row="4" Text="{Binding StatusMessage}" FontSize="14" Foreground="{DynamicResource BrushTextSecondary}" Margin="0,0,0,12" />
+
+        <DataGrid Grid.Row="5" ItemsSource="{Binding PayrollRows}" AutoGenerateColumns="False" IsReadOnly="True"
                   CanUserAddRows="False" GridLinesVisibility="Horizontal" HeadersVisibility="Column">
             <DataGrid.Columns>
                 <DataGridTextColumn Header="Empleado" Binding="{Binding EmployeeName}" Width="*" />

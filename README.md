@@ -317,6 +317,12 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   memoria sobre la lista ya cargada (`ApplyVisibilityFilter`) — instantáneo, sin volver a
   tocar la base de datos por cada letra escrita. El combo de sucursal solo lista las
   sucursales que de verdad tienen empleados (nunca una vacía como opción inútil).
+- **Filtros en Reportes** (búsqueda por nombre/número + sucursal), a pedido explícito del
+  usuario ("el filtro lo quiero... en reportes"). Mismo criterio que Empleados: se filtra
+  en memoria sobre lo ya calculado para la semana actual (`PayrollViewModel.ApplyFilter`),
+  nunca vuelve a recalcular la nómina por escribir en el buscador o cambiar de sucursal.
+  El combo de sucursal se reconstruye cada vez que cambia la semana, listando solo las
+  sucursales que tienen alguna fila esa semana.
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Navegación completa de la UI (Fase 3 del diseño visual — Sucursales, Empleados,

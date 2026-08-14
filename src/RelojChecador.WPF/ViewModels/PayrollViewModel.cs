@@ -31,7 +31,8 @@ public sealed record PayrollDeductionValues(decimal IsrAmount, decimal ImssAmoun
 /// para un empleado, con su nombre y sucursal ya resueltos, más las deducciones (ISR/IMSS/
 /// otro) capturadas manualmente para esa semana — ver comentario de clase de
 /// <see cref="PayrollDeduction"/> sobre por qué el sistema nunca las calcula.</summary>
-public sealed record PayrollRow(WeeklyPayrollSummary Summary, string EmployeeName, string BranchName, PayrollDeductionValues Deductions)
+public sealed record PayrollRow(
+    WeeklyPayrollSummary Summary, string EmployeeNumber, string EmployeeName, string BranchName, PayrollDeductionValues Deductions)
 {
     public bool HasWarnings => Summary.Warnings.Count > 0;
     public string WarningsText => string.Join(" | ", Summary.Warnings);
@@ -81,13 +82,34 @@ public sealed partial class PayrollViewModel : ObservableObject
     private readonly IPayrollDeductionRepository _deductionRepository;
     private readonly IUnitOfWork _unitOfWork;
 
+    private const string AllBranchesOption = "Todas las sucursales";
+
     private DateOnly _weekStart;
+
+    /// <summary>Todas las filas calculadas para la semana actual, antes de aplicar
+    /// SearchText/SelectedBranchFilter — mismo criterio que EmployeesViewModel._allRows:
+    /// los filtros nunca vuelven a tocar la base de datos, solo se aplican en memoria
+    /// sobre lo que ya se calculó (ver ApplyFilter).</summary>
+    private List<PayrollRow> _allRows = [];
 
     [ObservableProperty]
     private string _statusMessage = "Cargando...";
 
     [ObservableProperty]
     private string _weekRangeText = "";
+
+    /// <summary>Búsqueda por nombre o número de empleado, pedido explícito del usuario
+    /// ("el filtro lo quiero... en reportes") para navegar la nómina del catálogo real de
+    /// 54+ empleados sin desplazarse a mano.</summary>
+    [ObservableProperty]
+    private string _searchText = "";
+
+    /// <summary>Solo lista sucursales que de verdad tienen empleados en la semana actual —
+    /// mismo criterio que EmployeesViewModel.BranchFilterOptions.</summary>
+    public ObservableCollection<string> BranchFilterOptions { get; } = [AllBranchesOption];
+
+    [ObservableProperty]
+    private string _selectedBranchFilter = AllBranchesOption;
 
     public ObservableCollection<PayrollRow> PayrollRows { get; } = [];
 
@@ -193,25 +215,77 @@ public sealed partial class PayrollViewModel : ObservableObject
                 var summary = WorkedHoursCalculator.CalculateWeek(employee, _weekStart, employeeAttendances);
                 var branchName = branchNamesById.TryGetValue(employee.BranchId, out var name) ? name : "(sucursal desconocida)";
                 var deductionValues = deductionsByEmployeeId.TryGetValue(employee.Id, out var dv) ? dv : PayrollDeductionValues.Empty;
-                rows.Add(new PayrollRow(summary, employee.FullName, branchName, deductionValues));
+                rows.Add(new PayrollRow(summary, employee.Number.Value, employee.FullName, branchName, deductionValues));
             }
 
-            PayrollRows.Clear();
-            foreach (var row in rows)
+            _allRows = rows;
+
+            // Reconstruye las opciones de sucursal a partir de quién tiene fila esta
+            // semana — mismo criterio que EmployeesViewModel.ReloadAsync: nunca ofrecer
+            // como filtro una sucursal que no aporta ninguna fila.
+            var branchNamesWithRows = rows.Select(r => r.BranchName).Distinct().OrderBy(n => n).ToList();
+            BranchFilterOptions.Clear();
+            BranchFilterOptions.Add(AllBranchesOption);
+            foreach (var name in branchNamesWithRows)
             {
-                PayrollRows.Add(row);
+                BranchFilterOptions.Add(name);
             }
 
-            var warningCount = rows.Count(r => r.HasWarnings);
-            StatusMessage = warningCount > 0
-                ? $"{rows.Count} empleado(s) — {warningCount} con advertencias en su cálculo de horas (ver columna \"Advertencias\")."
-                : $"{rows.Count} empleado(s).";
+            if (!BranchFilterOptions.Contains(SelectedBranchFilter))
+            {
+                SelectedBranchFilter = AllBranchesOption;
+            }
+
+            ApplyFilter();
         }
         catch (Exception ex)
         {
             Log.Error(ex, "No se pudo calcular la nómina de la semana ({WeekStart}).", _weekStart);
             StatusMessage = "No se pudo calcular la nómina. Revisa el registro de errores.";
         }
+    }
+
+    partial void OnSearchTextChanged(string value) => ApplyFilter();
+    partial void OnSelectedBranchFilterChanged(string value) => ApplyFilter();
+
+    /// <summary>Aplica SearchText + SelectedBranchFilter sobre _allRows, en memoria — igual
+    /// criterio que EmployeesViewModel.ApplyVisibilityFilter, nunca vuelve a calcular la
+    /// nómina por escribir en el buscador o cambiar la sucursal.</summary>
+    private void ApplyFilter()
+    {
+        IEnumerable<PayrollRow> visible = _allRows;
+
+        if (!string.IsNullOrWhiteSpace(SearchText))
+        {
+            var term = SearchText.Trim();
+            visible = visible.Where(row =>
+                row.EmployeeName.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                row.EmployeeNumber.Contains(term, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (SelectedBranchFilter != AllBranchesOption)
+        {
+            visible = visible.Where(row => row.BranchName == SelectedBranchFilter);
+        }
+
+        var visibleList = visible.ToList();
+
+        PayrollRows.Clear();
+        foreach (var row in visibleList)
+        {
+            PayrollRows.Add(row);
+        }
+
+        var warningCount = visibleList.Count(r => r.HasWarnings);
+        var hiddenCount = _allRows.Count - visibleList.Count;
+
+        StatusMessage = (warningCount > 0, hiddenCount > 0) switch
+        {
+            (true, true) => $"{visibleList.Count} de {_allRows.Count} empleado(s) — {warningCount} con advertencias, {hiddenCount} oculto(s) por los filtros.",
+            (true, false) => $"{visibleList.Count} empleado(s) — {warningCount} con advertencias en su cálculo de horas (ver columna \"Advertencias\").",
+            (false, true) => $"{visibleList.Count} de {_allRows.Count} empleado(s) — {hiddenCount} oculto(s) por los filtros aplicados.",
+            (false, false) => $"{visibleList.Count} empleado(s).",
+        };
     }
 
     private static Dictionary<Guid, List<Attendance>> GroupByResolvedEmployee(
