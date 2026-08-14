@@ -9,6 +9,7 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
@@ -26,9 +27,27 @@
                       IsChecked="{Binding ShowTerminatedEmployees, Mode=TwoWay}" />
         </StackPanel>
 
+        <!-- Filtros — pedido explícito del usuario para poder navegar el catálogo real
+             (54+ empleados) sin desplazarse a mano por todo el DataGrid. Los tres se
+             combinan entre sí y con "Mostrar dados de baja" de arriba (ver
+             EmployeesViewModel.ApplyVisibilityFilter). -->
+        <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,0,0,12">
+            <TextBlock Text="Buscar:" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource BrushTextSecondary}" />
+            <TextBox Width="220" VerticalContentAlignment="Center" Margin="0,0,16,0"
+                     Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+            <TextBlock Text="Sucursal:" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource BrushTextSecondary}" />
+            <ComboBox Width="200" Margin="0,0,16,0"
+                      ItemsSource="{Binding BranchFilterOptions}"
+                      SelectedItem="{Binding SelectedBranchFilter, Mode=TwoWay}" />
+            <TextBlock Text="Estatus:" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource BrushTextSecondary}" />
+            <ComboBox Width="160"
+                      ItemsSource="{Binding StatusFilterOptions}"
+                      SelectedItem="{Binding SelectedStatusFilter, Mode=TwoWay}" />
+        </StackPanel>
+
         <!-- Bindea a EmployeeRow (Employee + BranchName ya resuelto), no a Employee
              directo — Employee solo guarda BranchId, sin navegación a Branch. -->
-        <DataGrid Grid.Row="3" ItemsSource="{Binding Employees}" AutoGenerateColumns="False" IsReadOnly="True"
+        <DataGrid Grid.Row="4" ItemsSource="{Binding Employees}" AutoGenerateColumns="False" IsReadOnly="True"
                   CanUserAddRows="False" GridLinesVisibility="Horizontal" HeadersVisibility="Column">
             <DataGrid.Columns>
                 <DataGridTextColumn Header="Número" Binding="{Binding Employee.Number}" Width="90" />

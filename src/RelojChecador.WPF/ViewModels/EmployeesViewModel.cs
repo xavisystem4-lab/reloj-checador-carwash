@@ -74,6 +74,30 @@ public sealed partial class EmployeesViewModel : ObservableObject
     [ObservableProperty]
     private bool _showTerminatedEmployees;
 
+    /// <summary>Texto libre de búsqueda (nombre o número de empleado), pedido para poder
+    /// navegar el catálogo real de 54+ empleados sin desplazarse a mano por todo el
+    /// DataGrid — filtra en memoria sobre _allRows, igual criterio que ShowTerminatedEmployees.</summary>
+    [ObservableProperty]
+    private string _searchText = "";
+
+    /// <summary>"Todas las sucursales" siempre es la primera opción — se reconstruye en
+    /// cada ReloadAsync a partir de las sucursales que realmente tienen empleados, nunca
+    /// de la lista completa de Sucursales (evitaría mostrar una sucursal vacía como
+    /// filtro útil).</summary>
+    public ObservableCollection<string> BranchFilterOptions { get; } = [AllBranchesOption];
+
+    [ObservableProperty]
+    private string _selectedBranchFilter = AllBranchesOption;
+
+    public static readonly string[] StatusFilterOptions =
+        [AllStatusesOption, "Activo", "De permiso", "Inactivo", "Baja"];
+
+    [ObservableProperty]
+    private string _selectedStatusFilter = AllStatusesOption;
+
+    private const string AllBranchesOption = "Todas las sucursales";
+    private const string AllStatusesOption = "Todos los estatus";
+
     public ObservableCollection<EmployeeRow> Employees { get; } = [];
 
     public EmployeesViewModel(
@@ -119,26 +143,81 @@ public sealed partial class EmployeesViewModel : ObservableObject
         var deviceNamesById = devices.ToDictionary(d => d.Id, d => d.Name);
 
         _allRows = employees.Select(employee => BuildRow(employee, branchNamesById, deviceNamesById, mappings)).ToList();
+
+        // Reconstruye las opciones de sucursal a partir de quién tiene empleados de
+        // verdad — si la sucursal seleccionada ya no existe entre ellas (p. ej. tras
+        // borrar la única persona que tenía), vuelve sola a "Todas las sucursales" en vez
+        // de quedar apuntando a un filtro que ya no aplica a nadie.
+        var branchNamesWithEmployees = _allRows.Select(row => row.BranchName).Distinct().OrderBy(name => name).ToList();
+        BranchFilterOptions.Clear();
+        BranchFilterOptions.Add(AllBranchesOption);
+        foreach (var name in branchNamesWithEmployees)
+        {
+            BranchFilterOptions.Add(name);
+        }
+
+        if (!BranchFilterOptions.Contains(SelectedBranchFilter))
+        {
+            SelectedBranchFilter = AllBranchesOption;
+        }
+
         ApplyVisibilityFilter();
     }
 
     partial void OnShowTerminatedEmployeesChanged(bool value) => ApplyVisibilityFilter();
+    partial void OnSearchTextChanged(string value) => ApplyVisibilityFilter();
+    partial void OnSelectedBranchFilterChanged(string value) => ApplyVisibilityFilter();
+    partial void OnSelectedStatusFilterChanged(string value) => ApplyVisibilityFilter();
 
+    /// <summary>Aplica en cadena los cuatro filtros disponibles (dados de baja, búsqueda de
+    /// texto, sucursal, estatus) sobre _allRows — todos en memoria, sin volver a tocar la
+    /// base de datos, para que escribir en el buscador o cambiar un combo se sienta
+    /// instantáneo.</summary>
     private void ApplyVisibilityFilter()
     {
-        var visible = ShowTerminatedEmployees
+        IEnumerable<EmployeeRow> visible = ShowTerminatedEmployees
             ? _allRows
-            : _allRows.Where(row => row.Employee.Status != EmploymentStatus.Terminated).ToList();
+            : _allRows.Where(row => row.Employee.Status != EmploymentStatus.Terminated);
+
+        if (!string.IsNullOrWhiteSpace(SearchText))
+        {
+            var term = SearchText.Trim();
+            visible = visible.Where(row =>
+                row.Employee.FullName.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                row.Employee.Number.Value.Contains(term, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (SelectedBranchFilter != AllBranchesOption)
+        {
+            visible = visible.Where(row => row.BranchName == SelectedBranchFilter);
+        }
+
+        if (SelectedStatusFilter != AllStatusesOption)
+        {
+            var status = MapStatusFilter(SelectedStatusFilter);
+            visible = visible.Where(row => row.Employee.Status == status);
+        }
+
+        var visibleList = visible.ToList();
 
         Employees.Clear();
-        foreach (var row in visible)
+        foreach (var row in visibleList)
         {
             Employees.Add(row);
         }
 
-        var hiddenCount = _allRows.Count - visible.Count;
+        var hiddenCount = _allRows.Count - visibleList.Count;
         RefreshStatusMessage(hiddenCount);
     }
+
+    private static EmploymentStatus MapStatusFilter(string label) => label switch
+    {
+        "Activo" => EmploymentStatus.Active,
+        "De permiso" => EmploymentStatus.OnLeave,
+        "Inactivo" => EmploymentStatus.Inactive,
+        "Baja" => EmploymentStatus.Terminated,
+        _ => EmploymentStatus.Active,
+    };
 
     private static EmployeeRow BuildRow(
         Employee employee, Dictionary<Guid, string> branchNamesById, Dictionary<Guid, string> deviceNamesById,
@@ -419,16 +498,20 @@ public sealed partial class EmployeesViewModel : ObservableObject
         }
     }
 
+    /// <summary>hiddenCount ahora puede venir tanto de "Mostrar dados de baja" como de
+    /// cualquiera de los tres filtros nuevos (búsqueda, sucursal, estatus) — el mensaje ya
+    /// no distingue la causa específica, solo deja claro que el total real es mayor al que
+    /// se ve, para no dar a entender que esos empleados desaparecieron.</summary>
     private void RefreshStatusMessage(int hiddenCount)
     {
-        if (Employees.Count == 0 && hiddenCount == 0)
+        if (_allRows.Count == 0)
         {
             StatusMessage = "Aún no hay empleados registrados.";
             return;
         }
 
         StatusMessage = hiddenCount > 0
-            ? $"{Employees.Count} empleado(s) registrado(s) en la base local ({hiddenCount} dado(s) de baja oculto(s))."
+            ? $"{Employees.Count} de {_allRows.Count} empleado(s) — {hiddenCount} oculto(s) por los filtros aplicados."
             : $"{Employees.Count} empleado(s) registrado(s) en la base local.";
     }
 

@@ -310,6 +310,13 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   - Solo prepara el PIN + nombre para que la persona pueda enrolar su huella físicamente
     en el reloj — nunca sube huellas ni hace ese paso por sí solo. Reporta en la bitácora
     cuántos se enviaron y cuáles fallaron, sin detener el lote por un solo error.
+- **Filtros en Empleados** (búsqueda por nombre/número + sucursal + estatus), a pedido
+  explícito del usuario ("aplícale filtro a empleados") para poder navegar el catálogo
+  real de 54+ empleados sin desplazarse a mano por todo el `DataGrid`. Los tres filtros se
+  combinan entre sí y con el checkbox "Mostrar dados de baja" ya existente, todo en
+  memoria sobre la lista ya cargada (`ApplyVisibilityFilter`) — instantáneo, sin volver a
+  tocar la base de datos por cada letra escrita. El combo de sucursal solo lista las
+  sucursales que de verdad tienen empleados (nunca una vacía como opción inútil).
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Navegación completa de la UI (Fase 3 del diseño visual — Sucursales, Empleados,
