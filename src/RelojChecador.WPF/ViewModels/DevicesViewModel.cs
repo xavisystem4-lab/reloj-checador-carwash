@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.EntityFrameworkCore;
@@ -36,6 +37,16 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
     private readonly IAttendanceRepository _attendanceRepository;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IAttendanceDeviceAdapter _deviceAdapter;
+
+    // Reconexión automática (reportado por el usuario: "hasta que no le doy conectar...
+    // no se actualiza" — sin esto, cualquier corte de red/reinicio del reloj dejaba de
+    // subir marcaciones nuevas hasta que alguien entrara a Dispositivos y presionara
+    // "Conectar" a mano). Este ViewModel es Scoped a un único scope que vive toda la
+    // sesión de la app (ver App.xaml.cs, _mainWindowScope) — el timer sigue corriendo sin
+    // importar en qué pestaña esté el usuario, no solo mientras ve Dispositivos.
+    private readonly DispatcherTimer _autoReconnectTimer;
+    private bool _autoReconnectSuspended;
+    private bool _isConnecting;
 
     [ObservableProperty]
     private string _statusMessage = "Cargando dispositivos...";
@@ -87,9 +98,33 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         // desuscribirse explícitamente en Dispose(), o cada ventana nueva dejaría un
         // manejador colgado apuntando a un ViewModel ya descartado.
         _deviceAdapter.AttendancePunchReceived += OnAttendancePunchReceived;
+
+        _autoReconnectTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(15) };
+        _autoReconnectTimer.Tick += async (_, _) => await TryAutoReconnectAsync();
+        _autoReconnectTimer.Start();
     }
 
-    public void Dispose() => _deviceAdapter.AttendancePunchReceived -= OnAttendancePunchReceived;
+    public void Dispose()
+    {
+        _deviceAdapter.AttendancePunchReceived -= OnAttendancePunchReceived;
+        _autoReconnectTimer.Stop();
+    }
+
+    /// <summary>Se ejecuta cada 15s (ver _autoReconnectTimer) y también una vez al cargar
+    /// la pantalla (ver InitializeAsync). No hace nada si ya está conectado, si no hay
+    /// dispositivo seleccionado, si el usuario desconectó a propósito con "Desconectar"
+    /// (ver DisconnectAsync — se respeta esa decisión hasta que vuelva a presionar
+    /// "Conectar"), o si ya hay un intento de conexión en curso.</summary>
+    private async Task TryAutoReconnectAsync()
+    {
+        if (SelectedDevice is null || IsConnected || _autoReconnectSuspended || _isConnecting)
+        {
+            return;
+        }
+
+        AppendLog("🔄 Reintentando conectar automáticamente...");
+        await ConnectAsync();
+    }
 
     /// <summary>Se invoca desde el hilo del adaptador (background), nunca desde el de UI —
     /// por eso todo lo que toca las ObservableCollection/propiedades se reenvía al
@@ -199,6 +234,11 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
 
             RefreshStatusMessage();
             SelectedDevice = Devices.FirstOrDefault();
+
+            // Primer intento inmediato al abrir la app — sin esto, el usuario tendría que
+            // esperar hasta 15s (el intervalo de _autoReconnectTimer) para la primera
+            // conexión automática, en vez de verla arrancar de inmediato.
+            await TryAutoReconnectAsync();
         }
         catch (Exception ex)
         {
@@ -267,6 +307,10 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         InfoUserCount = null;
         InfoAttendanceLogCount = null;
         AttendanceRecords.Clear();
+
+        // El dispositivo recién seleccionado empieza sin suspensión — un "Desconectar"
+        // sobre el dispositivo ANTERIOR no debe impedir que este nuevo se autoconecte.
+        _autoReconnectSuspended = false;
     }
 
     [RelayCommand]
@@ -312,39 +356,51 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private async Task ConnectAsync()
     {
-        if (SelectedDevice is null) return;
+        if (SelectedDevice is null || _isConnecting) return;
 
-        var connectionInfo = new DeviceConnectionInfo(SelectedDevice.IpAddress, SelectedDevice.TcpPort);
-        var result = await _deviceAdapter.ConnectAsync(connectionInfo);
-
-        if (result.IsFailure)
+        // Presionar "Conectar" (a mano o vía el reintento automático) siempre reactiva el
+        // auto-reconnect, incluso si venía suspendido por un "Desconectar" manual previo —
+        // es la forma natural de decirle a la app "vuelve a intentar mantenerte conectado".
+        _autoReconnectSuspended = false;
+        _isConnecting = true;
+        try
         {
-            ProtocolResult = "No verificado";
-            AuthResult = "❌ " + result.Error.Message;
-            IsConnected = false;
-            AppendLog($"Conexión fallida: {result.Error.Message}");
+            var connectionInfo = new DeviceConnectionInfo(SelectedDevice.IpAddress, SelectedDevice.TcpPort);
+            var result = await _deviceAdapter.ConnectAsync(connectionInfo);
 
-            // Se registra el intento fallido igual que el éxito de abajo — así el estado
-            // "Conectado"/"Desconectado" que ve el Dashboard (basado en LastCommunicationAtUtc
-            // y Status, sincronizados a Supabase en cada ciclo) refleja la realidad en vez de
-            // quedarse pegado en el último éxito para siempre.
-            await TryPersistCommunicationResultAsync(succeeded: false);
-            return;
+            if (result.IsFailure)
+            {
+                ProtocolResult = "No verificado";
+                AuthResult = "❌ " + result.Error.Message;
+                IsConnected = false;
+                AppendLog($"Conexión fallida: {result.Error.Message}");
+
+                // Se registra el intento fallido igual que el éxito de abajo — así el estado
+                // "Conectado"/"Desconectado" que ve el Dashboard (basado en LastCommunicationAtUtc
+                // y Status, sincronizados a Supabase en cada ciclo) refleja la realidad en vez de
+                // quedarse pegado en el último éxito para siempre.
+                await TryPersistCommunicationResultAsync(succeeded: false);
+                return;
+            }
+
+            ProtocolResult = "✅ Protocolo reconocido";
+            AuthResult = "✅ Autenticación correcta";
+            IsConnected = true;
+            AppendLog("Comunicación completa establecida con el dispositivo.");
+            await TryPersistCommunicationResultAsync(succeeded: true);
+
+            // Al conectar, arranca solo el monitoreo en vivo — no hay que presionar nada
+            // aparte para que una marcación aparezca en la lista casi al instante.
+            var monitorResult = await _deviceAdapter.StartRealTimeMonitoringAsync();
+            IsMonitoringRealTime = monitorResult.IsSuccess;
+            AppendLog(monitorResult.IsSuccess
+                ? "Monitoreo en tiempo real activo: las marcaciones nuevas aparecerán solas."
+                : $"No se pudo activar el monitoreo en tiempo real: {monitorResult.Error.Message}");
         }
-
-        ProtocolResult = "✅ Protocolo reconocido";
-        AuthResult = "✅ Autenticación correcta";
-        IsConnected = true;
-        AppendLog("Comunicación completa establecida con el dispositivo.");
-        await TryPersistCommunicationResultAsync(succeeded: true);
-
-        // Al conectar, arranca solo el monitoreo en vivo — no hay que presionar nada
-        // aparte para que una marcación aparezca en la lista casi al instante.
-        var monitorResult = await _deviceAdapter.StartRealTimeMonitoringAsync();
-        IsMonitoringRealTime = monitorResult.IsSuccess;
-        AppendLog(monitorResult.IsSuccess
-            ? "Monitoreo en tiempo real activo: las marcaciones nuevas aparecerán solas."
-            : $"No se pudo activar el monitoreo en tiempo real: {monitorResult.Error.Message}");
+        finally
+        {
+            _isConnecting = false;
+        }
     }
 
     /// <summary>Deja constancia en el dispositivo local (Device.RecordSuccessfulCommunication/
@@ -384,6 +440,10 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private async Task DisconnectAsync()
     {
+        // Se respeta la decisión explícita del usuario: el auto-reconnect (cada 15s, ver
+        // _autoReconnectTimer) queda suspendido hasta que vuelva a presionar "Conectar" —
+        // si no, este botón no serviría para nada, el timer reconectaría solo segundos después.
+        _autoReconnectSuspended = true;
         await _deviceAdapter.StopRealTimeMonitoringAsync();
         IsMonitoringRealTime = false;
         await _deviceAdapter.DisconnectAsync();

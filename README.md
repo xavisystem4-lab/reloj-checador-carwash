@@ -181,6 +181,12 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   de huso horario al mostrarlo (`toLocaleString`), restándole el offset una segunda vez.
   Ver `dashboard/README.md` para el detalle completo y el badge nuevo de "Conectado" en el
   header (visible también en móvil)
+- Reconexión automática al reloj checador (`DevicesViewModel`, `_autoReconnectTimer`, cada
+  15s): antes, cualquier corte de red o reinicio del dispositivo dejaba de subir
+  marcaciones nuevas hasta que alguien entraba a Dispositivos y presionaba "Conectar" a
+  mano — reportado por el usuario como que la nube "no se actualiza" hasta hacerlo. Se
+  respeta un "Desconectar" manual explícito (no reconecta solo hasta que el usuario vuelva
+  a presionar "Conectar")
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Confirmar el login real del Dashboard (requiere que el usuario cree su primera cuenta
