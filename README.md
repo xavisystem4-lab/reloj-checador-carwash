@@ -450,6 +450,23 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   corresponde: local contra local, igual que el resto del sistema. Campo renombrado de
   `_realTimeSinceUtc` a `_realTimeSinceDeviceLocal` para no perpetuar el nombre engañoso
   que costó encontrar el bug.
+- **"Usuarios del reloj"** (Dispositivos → botón nuevo junto a "Consultar información"), a
+  pedido explícito del usuario tras preguntar "¿cuántos empleados están dados de alta en
+  el reloj checador?" — antes solo se veía el conteo total (`InfoUserCount`); ahora hay una
+  pantalla completa con el detalle real (PIN, nombre, privilegio, habilitado) leído
+  directo de la memoria del dispositivo (`DownloadUsersAsync`), con:
+  - **Editar** — corrige nombre/habilitado de un usuario ya existente (`CreateOrUpdateUserAsync`,
+    mismo método usado por "Enviar empleados al reloj"). El PIN no se edita aquí: el SDK lo
+    usa como identificador de a cuál usuario escribir, no se puede "renombrar" con esa
+    llamada.
+  - **Eliminar** individual y **selección masiva** ("Seleccionar todos" + "Eliminar
+    seleccionados") — ambos caminos pasan por el mismo método (`DeleteDeviceUsersAsync`),
+    un fallo en un PIN no detiene el resto del lote, se reportan todos los fallos juntos al
+    final. Deliberadamente NO borra `EmployeeDeviceMapping` en la base local — el historial
+    de asistencia ya guardado no se pierde, y si se vuelve a dar de alta con el mismo PIN el
+    vínculo local sigue siendo válido.
+  - Confirmación explícita antes de eliminar (individual o en lote), dejando claro que es
+    irreversible en el dispositivo pero no afecta el historial ya guardado.
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Navegación completa de la UI (Fase 3 del diseño visual — Sucursales, Empleados,

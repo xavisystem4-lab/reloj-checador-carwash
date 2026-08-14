@@ -21,6 +21,35 @@ using Serilog;
 
 namespace RelojChecador.WPF.ViewModels;
 
+/// <summary>Una fila de la lista "Usuarios del reloj" (DeviceUsersDialog) — envuelve
+/// <see cref="DeviceUserRecord"/> (inmutable) agregando <see cref="IsSelected"/> para el
+/// checkbox de selección masiva, que sí necesita notificar cambios a la UI.</summary>
+public sealed partial class DeviceUserRow : ObservableObject
+{
+    [ObservableProperty]
+    private bool _isSelected;
+
+    public string DeviceUserPin { get; }
+    public string Name { get; }
+    public int PrivilegeLevel { get; }
+    public bool IsEnabled { get; }
+
+    /// <summary>Etiqueta best-effort — igual que el resto del mapeo de códigos del SDK de
+    /// ZKTeco en este proyecto (ver ZKTecoDeviceAdapter.MapVerifyMode), la convención más
+    /// citada usa 0 = usuario común y valores mayores (14 = Super Admin es el más común)
+    /// para privilegios especiales; no confirmada contra hardware real.</summary>
+    public string PrivilegeLabel => PrivilegeLevel == 0 ? "Usuario" : "Administrador";
+    public string EnabledLabel => IsEnabled ? "Sí" : "No";
+
+    public DeviceUserRow(DeviceUserRecord record)
+    {
+        DeviceUserPin = record.DeviceUserPin;
+        Name = record.Name;
+        PrivilegeLevel = record.PrivilegeLevel;
+        IsEnabled = record.IsEnabled;
+    }
+}
+
 /// <summary>
 /// ViewModel de la pantalla de Dispositivos: alta de relojes checadores y diagnóstico
 /// progresivo de conexión (5 niveles — nunca se colapsa "ping" con "conectado de verdad").
@@ -1068,6 +1097,140 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         {
             _isSendingEmployees = false;
         }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Usuarios del reloj (ver quién está dado de alta directamente en la memoria
+    // del dispositivo, editar/eliminar uno o varios) — pedido explícito del usuario
+    // tras "Consultar información" (que solo mostraba el conteo).
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public ObservableCollection<DeviceUserRow> DeviceUsers { get; } = [];
+
+    [ObservableProperty]
+    private string _deviceUsersStatusMessage = "";
+
+    private bool _isLoadingDeviceUsers;
+
+    /// <summary>Descarga la lista real de usuarios del dispositivo (PIN + nombre +
+    /// privilegio + habilitado tal cual vive en su memoria, vía DownloadUsersAsync — el
+    /// mismo método ya usado para el conteo de "Consultar información" y para evitar
+    /// choques de PIN en "Enviar empleados al reloj") y refresca <see cref="DeviceUsers"/>.
+    /// Guardia de reentrancia simple: no tiene sentido superponer dos descargas de la
+    /// misma lista.</summary>
+    public async Task LoadDeviceUsersAsync()
+    {
+        if (SelectedDevice is null || !IsConnected)
+        {
+            DeviceUsersStatusMessage = "Conecta primero con el dispositivo para ver sus usuarios.";
+            return;
+        }
+
+        if (_isLoadingDeviceUsers)
+        {
+            return;
+        }
+
+        _isLoadingDeviceUsers = true;
+        DeviceUsersStatusMessage = "Consultando usuarios del dispositivo...";
+        try
+        {
+            var result = await _deviceAdapter.DownloadUsersAsync();
+            if (result.IsFailure)
+            {
+                DeviceUsersStatusMessage = $"No se pudo consultar la lista: {result.Error.Message}";
+                return;
+            }
+
+            DeviceUsers.Clear();
+            foreach (var record in result.Value.OrderBy(u => int.TryParse(u.DeviceUserPin, out var n) ? n : int.MaxValue))
+            {
+                DeviceUsers.Add(new DeviceUserRow(record));
+            }
+
+            DeviceUsersStatusMessage = DeviceUsers.Count == 0
+                ? "El dispositivo no tiene ningún usuario dado de alta."
+                : $"{DeviceUsers.Count} usuario(s) dado(s) de alta en el dispositivo.";
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Error inesperado al consultar los usuarios del dispositivo {DeviceId}", SelectedDevice.Id);
+            DeviceUsersStatusMessage = "Ocurrió un error inesperado al consultar. Revisa el registro de errores.";
+        }
+        finally
+        {
+            _isLoadingDeviceUsers = false;
+        }
+    }
+
+    /// <summary>Corrige el nombre y/o el estatus habilitado de un usuario ya existente en
+    /// el dispositivo — el PIN nunca se edita aquí (SSR_SetUserInfo lo usa como
+    /// identificador de A CUÁL usuario escribir, no se puede "renombrar" un PIN con esta
+    /// llamada; cambiarlo de verdad exigiría borrar y volver a crear, fuera de alcance
+    /// para esta pantalla). El privilegio se conserva tal cual estaba.</summary>
+    /// <returns>Un mensaje de error comprensible si algo salió mal, o null si se guardó correctamente.</returns>
+    public async Task<string?> UpdateDeviceUserAsync(DeviceUserRow row, string newName, bool newIsEnabled)
+    {
+        try
+        {
+            var updated = new DeviceUserRecord(row.DeviceUserPin, newName, row.PrivilegeLevel, newIsEnabled);
+            var result = await _deviceAdapter.CreateOrUpdateUserAsync(updated);
+            if (result.IsFailure)
+            {
+                return result.Error.Message;
+            }
+
+            AppendLog($"✏️ Usuario del reloj actualizado: PIN {row.DeviceUserPin} — {newName}.");
+            await LoadDeviceUsersAsync();
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Error inesperado al actualizar el usuario del dispositivo (PIN={Pin})", row.DeviceUserPin);
+            return "Ocurrió un error inesperado al guardar. Revisa el registro de errores.";
+        }
+    }
+
+    /// <summary>Elimina uno o varios usuarios del dispositivo (mismo método tanto para
+    /// "Eliminar" individual como para la selección masiva — un solo camino, sin duplicar
+    /// lógica). Un fallo en un PIN no detiene el resto del lote; se reportan todos los
+    /// fallos juntos al final. Deliberadamente NO toca EmployeeDeviceMapping en la base
+    /// local — borrar a alguien del reloj no borra su historial de asistencia ya
+    /// guardado, y si se vuelve a dar de alta con el mismo PIN el vínculo local sigue
+    /// siendo válido.</summary>
+    /// <returns>(cuántos se eliminaron con éxito, nombres de los que fallaron con su motivo)</returns>
+    public async Task<(int Deleted, IReadOnlyList<string> Failed)> DeleteDeviceUsersAsync(IReadOnlyList<DeviceUserRow> rows)
+    {
+        var deleted = 0;
+        var failed = new List<string>();
+
+        foreach (var row in rows)
+        {
+            try
+            {
+                var result = await _deviceAdapter.DeleteUserAsync(row.DeviceUserPin);
+                if (result.IsFailure)
+                {
+                    failed.Add($"PIN {row.DeviceUserPin} ({row.Name}): {result.Error.Message}");
+                    continue;
+                }
+
+                deleted++;
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Error inesperado al eliminar el usuario del dispositivo (PIN={Pin})", row.DeviceUserPin);
+                failed.Add($"PIN {row.DeviceUserPin} ({row.Name}): error inesperado — {ex.Message}");
+            }
+        }
+
+        if (deleted > 0)
+        {
+            AppendLog($"🗑️ {deleted} usuario(s) eliminado(s) del reloj.");
+        }
+
+        await LoadDeviceUsersAsync();
+        return (deleted, failed);
     }
 
     private void AppendLog(string message) =>

@@ -69,4 +69,21 @@ public partial class DevicesView : UserControl
             MessageBox.Show(Window.GetWindow(this), error, "No se pudo actualizar el dispositivo", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
+
+    private void OnDeviceUsersClick(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not DevicesViewModel viewModel || viewModel.SelectedDevice is null)
+        {
+            MessageBox.Show(
+                Window.GetWindow(this),
+                "Selecciona primero un dispositivo.",
+                "Sin dispositivo seleccionado",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+
+        var dialog = new DeviceUsersDialog(viewModel) { Owner = Window.GetWindow(this) };
+        dialog.ShowDialog();
+    }
 }
