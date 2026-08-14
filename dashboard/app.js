@@ -64,6 +64,8 @@ const kpiUnlinked = document.getElementById('kpi-unlinked');
 const tableStatus = document.getElementById('table-status');
 const tableBody = document.getElementById('attendance-tbody');
 const devicesStatusRow = document.getElementById('devices-status-row');
+const connectionBadge = document.getElementById('connection-badge');
+const connectionBadgeText = document.getElementById('connection-badge-text');
 
 let autoRefreshTimer = null;
 let lastLoadedRows = []; // guarda la última carga ya enriquecida, para exportar sin repetir el fetch
@@ -374,15 +376,18 @@ async function loadDevicesStatus() {
 
   if (!data || data.length === 0) {
     devicesStatusRow.innerHTML = '<div class="devices-status-empty">Sin relojes checadores registrados.</div>';
+    setConnectionBadge(false, 'Sin relojes registrados');
     return;
   }
 
   const now = Date.now();
   devicesStatusRow.innerHTML = '';
+  let anyOnline = false;
   for (const device of data) {
     const lastCommMs = device.last_communication_at_utc ? new Date(device.last_communication_at_utc).getTime() : null;
     const minutesAgo = lastCommMs ? (now - lastCommMs) / 60_000 : null;
     const isOnline = minutesAgo !== null && minutesAgo <= DEVICE_ONLINE_THRESHOLD_MINUTES;
+    if (isOnline) anyOnline = true;
 
     const pill = document.createElement('div');
     pill.className = 'device-status-pill';
@@ -393,6 +398,18 @@ async function loadDevicesStatus() {
     `;
     devicesStatusRow.appendChild(pill);
   }
+
+  // Badge agregado del header (ver connection-badge en index.html): "Conectado" en verde
+  // si AL MENOS un reloj checador está en vivo, para que se note de inmediato arriba —
+  // sobre todo en móvil, donde la fila de pills por dispositivo puede quedar más abajo.
+  setConnectionBadge(anyOnline, data.length === 1 ? data[0].name : `${data.length} relojes`);
+}
+
+function setConnectionBadge(isOnline, detail) {
+  connectionBadge.classList.toggle('online', isOnline);
+  connectionBadge.classList.toggle('offline', !isOnline);
+  connectionBadgeText.textContent = isOnline ? 'Conectado' : 'Desconectado';
+  connectionBadge.title = detail ?? '';
 }
 
 function describeOffline(minutesAgo) {
@@ -410,8 +427,14 @@ function describeOffline(minutesAgo) {
 async function loadReport() {
   tableStatus.textContent = 'Cargando…';
 
-  const fromUtc = new Date(fromInput.value + 'T00:00:00').toISOString();
-  const toUtc = new Date(toInput.value + 'T23:59:59.999').toISOString();
+  // A propósito NO se usa `new Date(...).toISOString()` aquí: eso interpretaría
+  // fromInput.value/toInput.value como hora LOCAL DEL NAVEGADOR y los convertiría a UTC
+  // real, pero timestamp_utc en la base NO es UTC real (ver formatAttendanceDateTime más
+  // abajo) — es la hora de pared del reloj checador, sin convertir. Construir el string
+  // directo con sufijo "Z" evita esa conversión y compara contra el valor tal cual está
+  // guardado.
+  const fromUtc = `${fromInput.value}T00:00:00.000Z`;
+  const toUtc = `${toInput.value}T23:59:59.999Z`;
 
   let query = supabase
     .from('attendances')
@@ -548,7 +571,7 @@ function renderTable(rows) {
         : '—';
 
     tr.innerHTML = `
-      <td>${formatDateTime(row.timestamp_utc)}</td>
+      <td>${formatAttendanceDateTime(row.timestamp_utc)}</td>
       <td>${employeeCell}</td>
       <td>${escapeHtml(row.branchName)}</td>
       <td>${escapeHtml(row.deviceName)}</td>
@@ -572,6 +595,19 @@ function mapVerifyMethod(method) {
 
 function formatDateTime(isoUtc) {
   return new Date(isoUtc).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+/// Formatea SOLO marcaciones (attendances.timestamp_utc). A diferencia de formatDateTime
+/// (que sí convierte de UTC real a la hora del navegador — correcto para last_sign_in_at,
+/// que es UTC genuino de Supabase Auth), este valor NO es UTC real: el reloj checador
+/// entrega su propia hora local (Mexicali) y todo el sistema la guarda tal cual, solo
+/// etiquetada como UTC, sin convertirla (ver Attendance.Create en el repo principal — "todo
+/// el negocio opera en una sola zona horaria, no hay conversión real"). timeZone: 'UTC'
+/// fuerza a que se muestren los componentes crudos del valor guardado, ignorando el huso
+/// horario del navegador — así coincide con lo que muestra la app de escritorio y con la
+/// hora real del reloj, en vez de restarle el offset dos veces.
+function formatAttendanceDateTime(isoUtc) {
+  return new Date(isoUtc).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' });
 }
 
 function toDateInputValue(date) {
@@ -607,7 +643,7 @@ function onExportClick() {
 
   const header = ['Fecha y hora', 'Empleado', 'PIN', 'Sucursal', 'Dispositivo', 'Método', 'Tipo'];
   const csvRows = [header, ...rows.map(r => [
-    formatDateTime(r.timestamp_utc),
+    formatAttendanceDateTime(r.timestamp_utc),
     r.employeeName ?? '(sin vincular)',
     r.device_user_pin,
     r.branchName,

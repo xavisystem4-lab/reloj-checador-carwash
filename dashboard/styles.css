@@ -159,6 +159,22 @@ body {
 }
 .user-name-button:hover { background: var(--accent-soft); color: var(--accent); }
 
+.connection-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 700;
+  background: var(--row-border);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.connection-badge-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+.connection-badge.online { background: var(--green-soft); color: var(--green); }
+.connection-badge.offline { background: var(--red-soft); color: var(--red); }
+
 .btn {
   padding: 9px 16px;
   border-radius: 9px;

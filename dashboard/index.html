@@ -40,6 +40,15 @@
           <div class="topbar-subtitle">Reportes de asistencia</div>
         </div>
       </div>
+      <!-- Estado agregado de conexión (¿al menos un reloj checador está "en vivo"?) — a
+           diferencia de devices-status-row (que lista cada dispositivo por separado, más
+           abajo), este badge va arriba en el header para que se note de inmediato al
+           abrir el Dashboard, sobre todo en la versión móvil donde el header es lo primero
+           visible sin necesidad de hacer scroll. -->
+      <div id="connection-badge" class="connection-badge">
+        <span class="connection-badge-dot"></span>
+        <span id="connection-badge-text">Verificando…</span>
+      </div>
       <div class="topbar-actions">
         <button id="user-name-button" class="user-name-button" type="button" title="Editar mi nombre"></button>
         <button id="users-button" class="btn btn-outline" type="button">👤 Usuarios</button>
@@ -116,8 +125,9 @@
         </table>
       </div>
       <div class="table-note">
-        Hora mostrada en la zona horaria de tu navegador. Los datos los sube la app de
-        escritorio de cada sucursal — pueden tardar unos segundos en aparecer aquí.
+        Hora tal como la marca el reloj checador de la sucursal (hora local del negocio,
+        sin conversión de huso horario). Los datos los sube la app de escritorio de cada
+        sucursal — pueden tardar unos segundos en aparecer aquí.
       </div>
     </section>
   </div>
