@@ -169,6 +169,18 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   motor de sync es push-only por upsert, nunca hace `DELETE` remoto — eliminar un vínculo
   local dejaría un huérfano en Supabase para siempre, así que esa función queda fuera de
   alcance por ahora)
+- Corregido: el `ComboBox` cerrado (Sucursal, Estatus, etc.) se veía con fondo claro y
+  texto ilegible en modo oscuro — a diferencia del fix anterior (solo `ComboBoxItem`, el
+  desplegable abierto), el propio control cerrado no tenía `ControlTemplate` propio y el
+  chrome nativo de Windows (Aero2) ignoraba el `Background`/`Foreground` asignados en la
+  práctica. Ahora tiene plantilla completa (Border + ToggleButton + Popup propios, mismo
+  patrón que `TextBox`/`ComboBoxItem`)
+- Corregido: doble desfase de zona horaria (~7h) en el Dashboard web — `timestamp_utc` de
+  las marcaciones NO es UTC real (el reloj checador entrega su hora local de Mexicali sin
+  convertir, ver `Attendance.Create`), pero el Dashboard sí le aplicaba una conversión real
+  de huso horario al mostrarlo (`toLocaleString`), restándole el offset una segunda vez.
+  Ver `dashboard/README.md` para el detalle completo y el badge nuevo de "Conectado" en el
+  header (visible también en móvil)
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Confirmar el login real del Dashboard (requiere que el usuario cree su primera cuenta

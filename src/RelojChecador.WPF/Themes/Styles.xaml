@@ -271,18 +271,86 @@
         </Setter>
     </Style>
 
-    <!-- ComboBox (selector de "Sucursal" en "Nuevo dispositivo"): a propósito solo
-         colores, SIN reescribir el ControlTemplate completo — el chrome interno de
-         ComboBox (Popup, ToggleButton, flecha) es notoriamente delicado de reconstruir a
-         mano sin poder probarlo contra Windows real, y romperlo dejaría el desplegable sin
-         abrir. El tema por defecto de Windows 10/11 (Aero2) sí respeta Background/
-         Foreground/BorderBrush en un ComboBox sin plantilla propia, así que esto alcanza
-         para que no se vea un cuadro blanco desentonando en modo oscuro. -->
+    <!-- ComboBox (selector de "Sucursal", "Estatus", etc.): antes solo se fijaban colores
+         SIN ControlTemplate propio, confiando en que el tema Aero2 de Windows respetara
+         Background/Foreground de un ComboBox sin plantilla — en la práctica NO es así: el
+         área cerrada (ToggleButton/chrome interno) ignora el Background asignado y se
+         queda con el gris claro de sistema, así que en modo oscuro el campo se veía claro
+         con texto que no contrastaba (reportado por el usuario: "con la letra oscura para
+         que se anote en los campos" — el fondo quedaba claro pero el texto usaba
+         BrushText, claro también en modo oscuro). ControlTemplate completo, mismo patrón
+         ya usado en TextBox/ComboBoxItem: Border propio + ToggleButton transparente que
+         solo alterna IsDropDownOpen + Popup con el desplegable. Los bindings dentro del
+         Popup usan RelativeSource TemplatedParent en vez de TemplateBinding a propósito:
+         TemplateBinding no atraviesa el árbol visual separado que crea un Popup. -->
     <Style TargetType="ComboBox">
         <Setter Property="Background" Value="{DynamicResource BrushSurface}" />
         <Setter Property="Foreground" Value="{DynamicResource BrushText}" />
         <Setter Property="BorderBrush" Value="{DynamicResource BrushBorderStrong}" />
+        <Setter Property="BorderThickness" Value="1" />
         <Setter Property="Padding" Value="8,6" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ComboBox">
+                    <Grid>
+                        <Border x:Name="Bd"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="5" SnapsToDevicePixels="True" />
+
+                        <ToggleButton x:Name="ToggleButton" Background="Transparent" BorderThickness="0"
+                                      Focusable="False" ClickMode="Press"
+                                      IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+                            <ToggleButton.Template>
+                                <ControlTemplate TargetType="ToggleButton">
+                                    <Border Background="{TemplateBinding Background}" />
+                                </ControlTemplate>
+                            </ToggleButton.Template>
+                        </ToggleButton>
+
+                        <ContentPresenter x:Name="ContentSite" IsHitTestVisible="False"
+                                          Margin="8,6,26,6"
+                                          HorizontalAlignment="Left" VerticalAlignment="Center"
+                                          Content="{TemplateBinding SelectionBoxItem}"
+                                          ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                          ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}" />
+
+                        <Path x:Name="Arrow" Data="M0,0 L8,0 L4,5 Z" Fill="{DynamicResource BrushTextSecondary}"
+                              Margin="0,0,10,0" HorizontalAlignment="Right" VerticalAlignment="Center"
+                              IsHitTestVisible="False" />
+
+                        <Popup x:Name="PART_Popup" AllowsTransparency="True" Focusable="False"
+                               Placement="Bottom" PlacementTarget="{Binding ElementName=Bd}"
+                               PopupAnimation="Slide"
+                               IsOpen="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+                            <Border x:Name="PopupBorder"
+                                    MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}"
+                                    MaxHeight="{Binding MaxDropDownHeight, RelativeSource={RelativeSource TemplatedParent}}"
+                                    Background="{DynamicResource BrushSurface}"
+                                    BorderBrush="{DynamicResource BrushBorderStrong}" BorderThickness="1"
+                                    CornerRadius="5" SnapsToDevicePixels="True" Margin="0,2,0,0">
+                                <ScrollViewer SnapsToDevicePixels="True" Margin="0,2">
+                                    <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained" />
+                                </ScrollViewer>
+                            </Border>
+                        </Popup>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource BrushAccent}" />
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource BrushAccent}" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BrushDisabled}" />
+                            <Setter Property="Foreground" Value="{DynamicResource BrushDisabledText}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 
     <!-- ComboBoxItem SÍ necesita su propio ControlTemplate (a diferencia del ComboBox de
