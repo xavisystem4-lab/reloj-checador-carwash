@@ -378,11 +378,28 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
 - **Ícono de marca "GalaCheck"** en el `.exe`/accesos directos/taskbar (`ApplicationIcon`
   en el `.csproj`, generado como `.ico` multi-resolución desde el PNG cuadrado
   proporcionado) y personalización del instalador (Inno Setup `SetupIconFile` +
-  `WizardImageFile`/`WizardSmallImageFile`, compuestos sobre un fondo azul marino que
-  combina con el degradado del ícono) — pedido explícito del usuario. **No verificable
-  visualmente desde macOS** (a diferencia de la app, el asistente de instalación de Inno
-  Setup no se captura en el screenshot del CI): confirmar aspecto real la próxima vez que
-  se instale en Windows.
+  `WizardImageFile`/`WizardSmallImageFile`) — pedido explícito del usuario. **No
+  verificable visualmente desde macOS** (a diferencia de la app, el asistente de
+  instalación de Inno Setup no se captura en el screenshot del CI).
+- **Fix: el logotipo del instalador "no se apreciaba"** (reportado por el usuario tras
+  probar v1.18.0). Causa real: `WizardImageFile` se compuso sobre un fondo azul marino
+  oscuro, pero el logotipo "GalaCheck" es en tonos azul marino/cian sobre transparencia —
+  colores oscuros sobre fondo oscuro, contraste casi nulo (confirmado muestreando los
+  píxeles reales del PNG: el texto "Gala" es `#001338`, casi idéntico al fondo elegido).
+  Recompuesto sobre fondo blanco — contraste fuerte con ambos tonos del logo.
+- **Fix: `Device.LastCommunicationAtUtc` se quedaba congelado durante horas pese a que el
+  dispositivo seguía conectado en vivo** — la causa real de "Desconectado (hace 8h)"
+  persistente en el Dashboard, confirmado consultando Supabase directamente
+  (`last_communication_at_utc` sin moverse en las 4 tablas principales durante 8+ horas
+  seguidas, mientras la app mostraba "Conectado (hace 0s)" — ese texto es el estado del
+  *ciclo de sincronización con Supabase*, `UpdateViewModel.CloudSyncShortStatus`, NO el
+  del dispositivo físico; son dos cosas distintas). Ese campo solo se tocaba en dos
+  eventos puntuales — un Conectar/Desconectar, o una marcación real — así que si el reloj
+  se queda conectado sin que nadie poncher durante varias horas (de madrugada, por
+  ejemplo), nunca se refrescaba, aunque la conexión siguiera perfectamente sana. Ahora
+  `TryAutoDownloadAsync` (cada 10s mientras está conectado) trata una descarga exitosa
+  —aunque traiga 0 marcaciones nuevas— como prueba real de comunicación viva y refresca el
+  campo + lo empuja a Supabase de inmediato.
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Navegación completa de la UI (Fase 3 del diseño visual — Sucursales, Empleados,

@@ -178,7 +178,22 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
     /// "Descargar asistencias", sin que nadie tenga que presionarlo. Deliberadamente
     /// silenciosa cuando no hay nada nuevo (no deja rastro en la bitácora cada 10s aunque
     /// no haya pasado nada) — solo se registra cuando de verdad hay marcaciones nuevas o
-    /// algo salió mal, igual que el resto de los timers automáticos de este ViewModel.</summary>
+    /// algo salió mal, igual que el resto de los timers automáticos de este ViewModel.
+    ///
+    /// CAUSA REAL de "Desconectado (hace Xh)" persistente en el Dashboard pese a que la
+    /// app mostraba "Conectado" (reportado por el usuario, confirmado directamente contra
+    /// Supabase: last_communication_at_utc congelado desde hacía horas en TODAS las
+    /// tablas): Device.LastCommunicationAtUtc solo se tocaba en dos eventos puntuales —
+    /// un Conectar/Desconectar, o una marcación real (ver PersistAttendanceAsync). Si el
+    /// dispositivo se queda conectado en vivo pero nadie poncha durante varias horas
+    /// (de madrugada, por ejemplo), ese campo nunca se refresca — aunque el reloj siga
+    /// perfectamente conectado y "Conectado (hace 0s)" en la barra superior sea real (ese
+    /// texto es el ciclo de sincronización con Supabase, que sí corre cada 10s — ver
+    /// UpdateViewModel.CloudSyncShortStatus, NO el estado del dispositivo físico: son dos
+    /// cosas distintas). Una descarga automática EXITOSA (aunque traiga 0 marcaciones
+    /// nuevas) ya es prueba real de que el dispositivo respondió ahora mismo, así que
+    /// sirve como "heartbeat": refresca LastCommunicationAtUtc y lo empuja a Supabase de
+    /// inmediato (TryPersistCommunicationResultAsync ya hace ambas cosas).</summary>
     private async Task TryAutoDownloadAsync()
     {
         if (!IsConnected)
@@ -195,10 +210,11 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
             return;
         }
 
+        await TryPersistCommunicationResultAsync(succeeded: true);
+
         if (savedCount > 0)
         {
             AppendLog($"🔄 Descarga automática: {savedCount} marcación(es) nueva(s) de {totalRead} leída(s).");
-            await _syncService.TriggerSyncNowAsync();
         }
     }
 
