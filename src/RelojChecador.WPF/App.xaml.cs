@@ -118,6 +118,19 @@ public partial class App : System.Windows.Application
                 dbContext.Database.Migrate();
             }
 
+            // CRÍTICO — sin esto, ningún IHostedService (hoy: SupabaseSyncBackgroundService,
+            // el único registrado en toda la solución) arranca su ExecuteAsync. Bug real
+            // encontrado al diseñar la sincronización remota: Host.CreateDefaultBuilder().Build()
+            // solo CONSTRUYE el host, nunca lo arranca — eso requiere Start()/StartAsync()
+            // explícito, que nunca se llamaba aquí. En la práctica esto significaba que el
+            // ciclo automático cada 10s (IntervalSeconds) NUNCA corrió por sí solo: todo lo
+            // que parecía sincronizar "solo" ocurría por llamadas directas a
+            // TriggerSyncNowAsync() (el botón "Conectar con nube", y los triggers atados a
+            // marcaciones agregados en v1.10.13) — cualquier cambio que no pasara por esos
+            // triggers puntuales (editar un empleado, una sucursal, un vínculo) dependía 100%
+            // de que alguien presionara "Conectar con nube" a mano.
+            _host.Start();
+
             Log.Information("RelojChecador iniciando. Base de datos local: {DatabasePath}", databasePath);
 
             // Se aplica el tema guardado ANTES de crear la ventana principal — así abre
@@ -191,6 +204,20 @@ public partial class App : System.Windows.Application
         Log.Information("RelojChecador cerrando.");
         Log.CloseAndFlush();
         _mainWindowScope?.Dispose();
+
+        try
+        {
+            // Contraparte de _host.Start() en OnStartup — para ordenadamente los
+            // IHostedService (les da hasta 5s para terminar su ciclo actual) antes de
+            // liberar el host. Envuelto en try/catch: cerrar la app nunca debe fallar por
+            // esto, en el peor caso Dispose() de abajo corta lo que quede.
+            _host?.StopAsync(TimeSpan.FromSeconds(5)).GetAwaiter().GetResult();
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "No se pudo detener el host de forma ordenada al cerrar.");
+        }
+
         _host?.Dispose();
         base.OnExit(e);
     }

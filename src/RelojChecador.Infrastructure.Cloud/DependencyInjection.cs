@@ -28,6 +28,15 @@ public static class DependencyInjection
         // automático, en vez de crear una instancia aparte que nunca arranca.
         services.AddSingleton<SupabaseSyncBackgroundService>();
         services.AddHostedService(sp => sp.GetRequiredService<SupabaseSyncBackgroundService>());
+
+        // RemoteSyncRequestCoordinator: siempre Singleton (igual que SupabaseSyncStatus) —
+        // se autoprotege revisando IsConfigured en cada método, así que es seguro
+        // inyectarlo en DevicesViewModel sin importar si esta instalación tiene Supabase
+        // configurado o no. RemoteSyncRequestPollingService es quien realmente lo llama
+        // cada IntervalSeconds — mismo patrón Singleton+AddHostedService de arriba.
+        services.AddSingleton<RemoteSyncRequestCoordinator>();
+        services.AddSingleton<RemoteSyncRequestPollingService>();
+        services.AddHostedService(sp => sp.GetRequiredService<RemoteSyncRequestPollingService>());
         return services;
     }
 }

@@ -70,25 +70,31 @@ public sealed class SupabaseSyncBackgroundService(
     }
 
     /// <summary>Dispara un ciclo de sincronización de inmediato, sin esperar al siguiente
-    /// tick automático. Dos llamadores: el botón "Conectar con nube" de la barra superior
+    /// tick automático. Tres llamadores: el botón "Conectar con nube" de la barra superior
     /// (ver MainWindow/UpdateViewModel), para poder probar en el momento en vez de esperar
-    /// hasta 10s (IntervalSeconds); y DevicesViewModel, cada vez que se guarda una
-    /// marcación nueva (tiempo real o descarga manual) — así el Dashboard la ve casi al
-    /// instante en vez de esperar el próximo ciclo automático. Si la sincronización no
-    /// está configurada, deja constancia de eso en <see cref="SupabaseSyncStatus"/> igual
-    /// que el ciclo automático, en vez de lanzar una excepción — nunca debe tumbar la UI.</summary>
-    public async Task TriggerSyncNowAsync(CancellationToken cancellationToken = default)
+    /// hasta 10s (IntervalSeconds); DevicesViewModel, cada vez que se guarda una marcación
+    /// nueva (tiempo real o descarga manual) — así el Dashboard la ve casi al instante en
+    /// vez de esperar el próximo ciclo automático; y DevicesViewModel de nuevo al procesar
+    /// una solicitud de sincronización remota (ver RemoteSyncRequestCoordinator), que
+    /// necesita saber si el push realmente funcionó para reportar la solicitud como
+    /// completada o fallida — de ahí que devuelva bool en vez de Task simple. Si la
+    /// sincronización no está configurada, deja constancia de eso en
+    /// <see cref="SupabaseSyncStatus"/> igual que el ciclo automático, en vez de lanzar una
+    /// excepción — nunca debe tumbar la UI.</summary>
+    public async Task<bool> TriggerSyncNowAsync(CancellationToken cancellationToken = default)
     {
         if (!options.IsConfigured)
         {
             status.MarkDisabled();
-            return;
+            return false;
         }
 
-        await RunCycleAsync(cancellationToken);
+        return await RunCycleAsync(cancellationToken);
     }
 
-    private async Task RunCycleAsync(CancellationToken cancellationToken)
+    /// <returns>true si el ciclo completo (todas las tablas) subió sin errores; false si
+    /// algo falló — ver <see cref="SupabaseSyncStatus.LastError"/> para el detalle.</returns>
+    private async Task<bool> RunCycleAsync(CancellationToken cancellationToken)
     {
         await _runLock.WaitAsync(cancellationToken);
         try
@@ -98,6 +104,7 @@ public sealed class SupabaseSyncBackgroundService(
             {
                 await RunOnceAsync(cancellationToken);
                 status.MarkSuccess();
+                return true;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -111,6 +118,7 @@ public sealed class SupabaseSyncBackgroundService(
                     "error real de configuración/credenciales). Se reintenta en el siguiente ciclo, " +
                     "nada se pierde localmente.");
                 status.MarkFailure(ex.Message);
+                return false;
             }
         }
         finally

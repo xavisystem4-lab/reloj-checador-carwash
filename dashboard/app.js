@@ -55,6 +55,8 @@ const toInput = document.getElementById('to-input');
 const searchInput = document.getElementById('search-input');
 const refreshButton = document.getElementById('refresh-button');
 const exportButton = document.getElementById('export-button');
+const syncRequestButton = document.getElementById('sync-request-button');
+const syncRequestStatusEl = document.getElementById('sync-request-status');
 
 const kpiTotal = document.getElementById('kpi-total');
 const kpiEmployees = document.getElementById('kpi-employees');
@@ -91,6 +93,7 @@ async function init() {
   logoutButton.addEventListener('click', onLogoutClick);
   refreshButton.addEventListener('click', () => { loadReport(); loadDevicesStatus(); });
   exportButton.addEventListener('click', onExportClick);
+  syncRequestButton.addEventListener('click', onSyncRequestClick);
   branchSelect.addEventListener('change', () => loadReport());
   fromInput.addEventListener('change', () => loadReport());
   toInput.addEventListener('change', () => loadReport());
@@ -116,7 +119,9 @@ function applySessionState(session) {
     startAutoRefresh();
     loadBranches().then(() => loadReport());
     loadDevicesStatus();
+    resumeActiveSyncRequestIfAny();
   } else {
+    stopPollingSyncRequest();
     loginScreen.hidden = false;
     dashboardScreen.hidden = true;
     stopAutoRefresh();
@@ -421,6 +426,136 @@ function describeOffline(minutesAgo) {
   }
   const hoursAgo = Math.round(minutesAgo / 60);
   return `Desconectado (hace ${hoursAgo} h)`;
+}
+
+// ---- "Actualizar asistencias" (sincronización remota) ----
+// Flujo: este botón INSERTA una fila en sync_requests (permitido por RLS solo para
+// INSERT/SELECT, ver supabase/migrations/20260814060000_add_sync_requests.sql) — nunca
+// llama directo a la PC del negocio, no hay ninguna conexión entrante hacia allá. La app
+// de escritorio de la sucursal CONSULTA esta tabla periódicamente (cada ~10s, ver
+// RemoteSyncRequestPollingService en el repo principal) y actualiza el estado; aquí solo
+// se hace polling de esa misma fila cada 3s para reflejarlo en pantalla. Si la PC está
+// apagada, la fila simplemente se queda "pending" hasta que la app vuelva a estar en
+// línea — nada especial que manejar aparte de seguir mostrando ese estado con paciencia.
+const SYNC_REQUEST_POLL_MS = 3_000;
+const SYNC_REQUEST_SLOW_WARNING_MS = 120_000; // 2 min
+let activeSyncRequestId = null;
+let syncRequestPollTimer = null;
+let syncRequestStartedAt = null;
+
+async function onSyncRequestClick() {
+  const active = await findActiveSyncRequest();
+  if (active) {
+    trackSyncRequest(active.id);
+    return;
+  }
+
+  syncRequestButton.disabled = true;
+  setSyncRequestStatus('Enviando solicitud…', 'pending');
+
+  const { data, error } = await supabase
+    .from('sync_requests')
+    .insert({
+      requested_by_user_id: currentSession.user.id,
+      requested_by_email: currentSession.user.email,
+    })
+    .select('id')
+    .single();
+
+  if (error) {
+    // 23505 = chocó con el índice único parcial (ya había una solicitud activa creada
+    // justo antes — carrera entre dos clics o dos pestañas abiertas a la vez). Se
+    // recupera y se engancha a esa en vez de mostrar un error real al usuario.
+    if (error.code === '23505') {
+      const winner = await findActiveSyncRequest();
+      if (winner) {
+        trackSyncRequest(winner.id);
+        return;
+      }
+    }
+    setSyncRequestStatus('No se pudo enviar la solicitud: ' + error.message, 'error');
+    syncRequestButton.disabled = false;
+    return;
+  }
+
+  trackSyncRequest(data.id);
+}
+
+async function findActiveSyncRequest() {
+  const { data } = await supabase
+    .from('sync_requests')
+    .select('id, status')
+    .in('status', ['pending', 'in_progress'])
+    .order('requested_at_utc', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return data ?? null;
+}
+
+/// Se llama tanto tras crear/enganchar una solicitud como al cargar la página — así, si
+/// alguien cerró la pestaña con una solicitud todavía pendiente (o la disparó otra
+/// persona desde otra sesión), el estado se retoma solo sin tener que volver a hacer clic.
+async function resumeActiveSyncRequestIfAny() {
+  const active = await findActiveSyncRequest();
+  if (active) {
+    trackSyncRequest(active.id);
+  }
+}
+
+function trackSyncRequest(id) {
+  activeSyncRequestId = id;
+  syncRequestStartedAt = Date.now();
+  syncRequestButton.disabled = true;
+  setSyncRequestStatus('Solicitud enviada — esperando al sistema local…', 'pending');
+  pollSyncRequest();
+}
+
+function pollSyncRequest() {
+  clearInterval(syncRequestPollTimer);
+  syncRequestPollTimer = setInterval(async () => {
+    const { data, error } = await supabase
+      .from('sync_requests')
+      .select('status, result_summary, error_message')
+      .eq('id', activeSyncRequestId)
+      .single();
+
+    if (error || !data) {
+      return; // hipo de red — se reintenta en el siguiente tick, no se trata como error
+    }
+
+    if (data.status === 'in_progress') {
+      setSyncRequestStatus('Sincronizando con el reloj checador…', 'syncing');
+    } else if (data.status === 'completed') {
+      setSyncRequestStatus('✅ ' + (data.result_summary ?? 'Completado.'), 'completed');
+      stopPollingSyncRequest();
+      loadReport();
+      loadDevicesStatus();
+    } else if (data.status === 'failed') {
+      setSyncRequestStatus('❌ ' + (data.error_message ?? 'Ocurrió un error.'), 'error');
+      stopPollingSyncRequest();
+    } else if (syncRequestStartedAt && Date.now() - syncRequestStartedAt > SYNC_REQUEST_SLOW_WARNING_MS) {
+      // Sigue "pending" después de un buen rato — no es un error (puede que la PC del
+      // negocio esté apagada), pero vale la pena avisar en vez de dejar el mensaje
+      // genérico indefinidamente.
+      setSyncRequestStatus(
+        'Solicitud enviada — esto está tardando más de lo normal. Revisa que la computadora del negocio esté encendida y conectada.',
+        'pending');
+    }
+  }, SYNC_REQUEST_POLL_MS);
+}
+
+function stopPollingSyncRequest() {
+  clearInterval(syncRequestPollTimer);
+  syncRequestPollTimer = null;
+  activeSyncRequestId = null;
+  syncRequestStartedAt = null;
+  syncRequestButton.disabled = false;
+}
+
+function setSyncRequestStatus(text, kind) {
+  syncRequestStatusEl.textContent = text;
+  syncRequestStatusEl.className = `sync-request-status ${kind}`;
+  syncRequestStatusEl.hidden = false;
 }
 
 // ---- Carga del reporte principal ----

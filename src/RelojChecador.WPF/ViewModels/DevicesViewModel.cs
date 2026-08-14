@@ -39,6 +39,7 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
     private readonly IUnitOfWork _unitOfWork;
     private readonly IAttendanceDeviceAdapter _deviceAdapter;
     private readonly SupabaseSyncBackgroundService _syncService;
+    private readonly RemoteSyncRequestCoordinator _remoteSyncCoordinator;
 
     // Reconexión automática (reportado por el usuario: "hasta que no le doy conectar...
     // no se actualiza" — sin esto, cualquier corte de red/reinicio del reloj dejaba de
@@ -88,7 +89,8 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         IAttendanceRepository attendanceRepository,
         IUnitOfWork unitOfWork,
         IAttendanceDeviceAdapter deviceAdapter,
-        SupabaseSyncBackgroundService syncService)
+        SupabaseSyncBackgroundService syncService,
+        RemoteSyncRequestCoordinator remoteSyncCoordinator)
     {
         _deviceRepository = deviceRepository;
         _branchRepository = branchRepository;
@@ -96,6 +98,7 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         _unitOfWork = unitOfWork;
         _deviceAdapter = deviceAdapter;
         _syncService = syncService;
+        _remoteSyncCoordinator = remoteSyncCoordinator;
 
         // El adaptador es Singleton (una sola instancia para toda la app — ver comentario de
         // clase) pero este ViewModel es Scoped (una instancia por ventana); por eso hay que
@@ -106,11 +109,20 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         _autoReconnectTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(15) };
         _autoReconnectTimer.Tick += async (_, _) => await TryAutoReconnectAsync();
         _autoReconnectTimer.Start();
+
+        // Igual que _deviceAdapter.AttendancePunchReceived: se dispara en el hilo del
+        // RemoteSyncRequestPollingService, no en el de UI — el handler hace su propio
+        // marshaling (ver OnRemoteSyncRequested). RemoteSyncRequestCoordinator es
+        // Singleton, así que hay que desuscribirse en Dispose() por la misma razón que el
+        // adaptador: este ViewModel es Scoped, un ViewModel nuevo por ventana no debe
+        // dejar un manejador colgado apuntando a uno ya descartado.
+        _remoteSyncCoordinator.SyncRequested += OnRemoteSyncRequested;
     }
 
     public void Dispose()
     {
         _deviceAdapter.AttendancePunchReceived -= OnAttendancePunchReceived;
+        _remoteSyncCoordinator.SyncRequested -= OnRemoteSyncRequested;
         _autoReconnectTimer.Stop();
     }
 
@@ -494,11 +506,39 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private async Task DownloadAttendanceAsync()
     {
+        var (success, error, totalRead, savedCount) = await DownloadAttendanceCoreAsync();
+        if (!success)
+        {
+            AppendLog($"No se pudo descargar asistencias: {error}");
+            return;
+        }
+
+        AppendLog($"Descarga completa: {totalRead} registro(s) leído(s) desde el dispositivo " +
+                   $"({savedCount} nuevo(s) guardado(s) en la base local, el resto ya existía).");
+
+        // Un solo ciclo de sync al final del lote (no uno por registro, a diferencia de
+        // PersistAndTriggerSyncAsync para tiempo real) — una descarga manual puede traer
+        // cientos de registros de golpe, y TriggerSyncNowAsync ya sube TODO lo pendiente
+        // en un ciclo (ver PushAttendancesIncrementalAsync), así que repetirlo por cada
+        // fila no adelantaría nada, solo generaría llamadas redundantes a Supabase.
+        if (savedCount > 0)
+        {
+            await _syncService.TriggerSyncNowAsync();
+        }
+    }
+
+    /// <summary>Núcleo reutilizable de "Descargar asistencias": lee del dispositivo,
+    /// refresca <see cref="AttendanceRecords"/> y persiste cada registro nuevo en la base
+    /// local. Reutilizado tanto por el <c>[RelayCommand]</c> de arriba (botón "Descargar
+    /// asistencias") como por <see cref="ProcessRemoteSyncRequestAsync"/> (solicitud
+    /// remota "Actualizar asistencias" disparada desde el Dashboard) — ninguno de los dos
+    /// duplica esta lógica.</summary>
+    private async Task<(bool Success, string? Error, int TotalRead, int SavedCount)> DownloadAttendanceCoreAsync()
+    {
         var result = await _deviceAdapter.DownloadAttendanceLogsAsync();
         if (result.IsFailure)
         {
-            AppendLog($"No se pudo descargar asistencias: {result.Error.Message}");
-            return;
+            return (false, result.Error.Message, 0, 0);
         }
 
         AttendanceRecords.Clear();
@@ -516,17 +556,78 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
             }
         }
 
-        AppendLog($"Descarga completa: {result.Value.Count} registro(s) leído(s) desde el dispositivo " +
-                   $"({savedCount} nuevo(s) guardado(s) en la base local, el resto ya existía).");
+        return (true, null, result.Value.Count, savedCount);
+    }
 
-        // Un solo ciclo de sync al final del lote (no uno por registro, a diferencia de
-        // PersistAndTriggerSyncAsync para tiempo real) — una descarga manual puede traer
-        // cientos de registros de golpe, y TriggerSyncNowAsync ya sube TODO lo pendiente
-        // en un ciclo (ver PushAttendancesIncrementalAsync), así que repetirlo por cada
-        // fila no adelantaría nada, solo generaría llamadas redundantes a Supabase.
-        if (savedCount > 0)
+    /// <summary>Se dispara cuando <see cref="RemoteSyncRequestCoordinator"/> detecta una
+    /// solicitud "Actualizar asistencias" pendiente desde el Dashboard — evento de hilo de
+    /// fondo (ver su comentario), se marshaliza al Dispatcher antes de tocar LogEntries,
+    /// igual que <see cref="OnAttendancePunchReceived"/>.</summary>
+    private void OnRemoteSyncRequested(object? sender, RemoteSyncRequest request)
+    {
+        System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+            AppendLog("📥 Solicitud de sincronización remota recibida desde el Dashboard" +
+                (string.IsNullOrWhiteSpace(request.RequestedByEmail) ? "" : $" ({request.RequestedByEmail})") + "…"));
+
+        // Fire-and-forget deliberado, mismo motivo que PersistAndTriggerSyncAsync: el
+        // evento del coordinador es síncrono, no se puede "esperar" aquí sin bloquear su
+        // hilo de sondeo.
+        _ = ProcessRemoteSyncRequestAsync(request);
+    }
+
+    /// <summary>Procesa una solicitud remota reutilizando exactamente los mismos pasos que
+    /// "Conectar" + "Descargar asistencias" harían a mano (nunca duplica esa lógica — ver
+    /// <see cref="ConnectAsync"/>/<see cref="DownloadAttendanceCoreAsync"/>), y reporta el
+    /// resultado de vuelta con <see cref="RemoteSyncRequestCoordinator.CompleteAsync"/> —
+    /// así el Dashboard pasa de "Sincronizando…" a "Completado"/"Error" con un mensaje
+    /// claro en cualquiera de los puntos donde puede fallar.</summary>
+    private async Task ProcessRemoteSyncRequestAsync(RemoteSyncRequest request)
+    {
+        if (SelectedDevice is null)
         {
-            await _syncService.TriggerSyncNowAsync();
+            AppendLog("⚠️ Solicitud remota rechazada: no hay ningún dispositivo seleccionado en esta PC.");
+            await _remoteSyncCoordinator.CompleteAsync(
+                request.Id, success: false, "No hay ningún dispositivo seleccionado en esta PC.", CancellationToken.None);
+            return;
+        }
+
+        if (!IsConnected)
+        {
+            // Reutiliza el mismo comando que el botón "Conectar" — incluye su propio
+            // guardia de reentrancia (_isConnecting) y reactiva el auto-reconnect si
+            // estaba suspendido por un "Desconectar" manual previo.
+            await ConnectAsync();
+        }
+
+        if (!IsConnected)
+        {
+            AppendLog("⚠️ Solicitud remota fallida: no se pudo conectar con el reloj checador.");
+            await _remoteSyncCoordinator.CompleteAsync(
+                request.Id, success: false, "No se pudo conectar con el reloj checador desde esta PC.", CancellationToken.None);
+            return;
+        }
+
+        var (success, error, totalRead, savedCount) = await DownloadAttendanceCoreAsync();
+        if (!success)
+        {
+            AppendLog($"⚠️ Solicitud remota fallida: no se pudo descargar del dispositivo ({error}).");
+            await _remoteSyncCoordinator.CompleteAsync(
+                request.Id, success: false, $"No se pudo descargar del dispositivo: {error}", CancellationToken.None);
+            return;
+        }
+
+        var pushOk = await _syncService.TriggerSyncNowAsync();
+        if (pushOk)
+        {
+            var summary = $"{savedCount} marcación(es) nueva(s) de {totalRead} leída(s) del dispositivo, sincronizada(s) con la nube.";
+            AppendLog($"✅ Solicitud remota completada: {summary}");
+            await _remoteSyncCoordinator.CompleteAsync(request.Id, success: true, summary, CancellationToken.None);
+        }
+        else
+        {
+            const string message = "Se descargaron las marcaciones del dispositivo, pero falló la subida a la nube. Se reintentará solo en el siguiente ciclo.";
+            AppendLog($"⚠️ Solicitud remota: {message}");
+            await _remoteSyncCoordinator.CompleteAsync(request.Id, success: false, message, CancellationToken.None);
         }
     }
 

@@ -97,6 +97,37 @@ Con esto, solo las cuentas que tú crees manualmente (paso anterior) pueden entr
   nueva dispara su propia sincronización inmediata sin esperar ese ciclo, ver
   `DevicesViewModel.PersistAndTriggerSyncAsync`).
 
+### "🔄 Actualizar asistencias" — sincronización remota bajo demanda
+
+Botón junto a "Actualizar"/"Exportar CSV" que le pide al sistema local de la sucursal que
+se conecte al reloj checador AHORA MISMO, descargue lo más reciente y lo suba, en vez de
+esperar el próximo ciclo automático. Nunca hay una conexión directa de este sitio hacia la
+PC del negocio — sería exponerla a Internet, justo lo que este diseño evita — el flujo es
+100% mediante una tabla intermedia en Supabase que ambos lados consultan/escriben, cada
+uno saliendo hacia afuera, nunca recibiendo conexiones entrantes:
+
+1. Este botón inserta una fila en `public.sync_requests` (permitido por RLS solo para
+   `INSERT`/`SELECT` de `authenticated` — la primera tabla del esquema donde el navegador
+   puede escribir algo, ver la migración `20260814060000_add_sync_requests.sql` para el
+   razonamiento completo).
+2. La app de escritorio de la sucursal la CONSULTA periódicamente (cada ~10s, ver
+   `RemoteSyncRequestPollingService` en el repo principal) — nunca al revés. Si la PC está
+   apagada o sin internet, la fila simplemente se queda `pending` hasta que vuelva a estar
+   en línea y la recoja sola, sin que nadie tenga que reintentar nada a mano.
+3. Al recogerla, la marca `in_progress`, conecta con el reloj (reutiliza exactamente los
+   mismos pasos que los botones "Conectar"/"Descargar asistencias" de la app), sube lo
+   nuevo a Supabase, y termina marcándola `completed` (con un resumen) o `failed` (con el
+   motivo) — solo `service_role` (la app de escritorio) puede escribir esos campos, el
+   navegador nunca puede auto-marcarse "completado".
+4. Este archivo hace polling de esa misma fila cada 3s mientras está activa, mostrando
+   "Solicitud enviada…" → "Sincronizando…" → "✅ resumen" / "❌ error", y al completarse
+   refresca la lista y los KPIs solo — no hace falta recargar la página.
+
+Duplicados: como mucho una solicitud `pending`/`in_progress` a la vez en toda la tabla
+(índice único parcial en Postgres) — un segundo clic (o una segunda pestaña) se engancha a
+la que ya está en curso en vez de crear otra. Si se cierra la pestaña con una solicitud
+todavía activa, al volver a abrir el Dashboard se retoma sola.
+
 ### Zona horaria de `attendances.timestamp_utc` — IMPORTANTE, no es UTC real
 
 A pesar del nombre de la columna, `timestamp_utc` **no** es un instante UTC real: el

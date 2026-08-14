@@ -78,6 +78,13 @@
       <div class="filter-actions">
         <button id="refresh-button" class="btn btn-primary" type="button">Actualizar</button>
         <button id="export-button" class="btn btn-outline" type="button">⬇ Exportar CSV</button>
+        <!-- Dispara una sincronización remota: la app de escritorio de la sucursal (que
+             consulta esto periódicamente, nunca al revés — ver dashboard/README.md,
+             "Actualizar asistencias") se conecta al reloj checador, descarga lo más
+             reciente y lo sube aquí. Si la PC está apagada, la solicitud queda "pendiente"
+             y se completa sola en cuanto vuelva a estar en línea. -->
+        <button id="sync-request-button" class="btn btn-outline" type="button">🔄 Actualizar asistencias</button>
+        <span id="sync-request-status" class="sync-request-status" hidden></span>
       </div>
     </section>
 

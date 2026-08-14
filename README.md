@@ -194,6 +194,44 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   dispara su propio ciclo de sincronización de inmediato en vez de esperar el próximo tick
   — ver `DevicesViewModel.PersistAndTriggerSyncAsync`, que reutiliza el mismo
   `SupabaseSyncBackgroundService.TriggerSyncNowAsync` del botón "Conectar con nube"
+- **Bug crítico corregido: el `IHost` nunca se arrancaba.** `App.xaml.cs` construía el host
+  (`Host.CreateDefaultBuilder().Build()`) pero jamás llamaba `Start()`/`StartAsync()` — sin
+  eso, ningún `IHostedService` (`SupabaseSyncBackgroundService`, el único registrado en toda
+  la solución) ejecuta su ciclo automático. En la práctica, el intervalo periódico nunca
+  corrió por sí solo: todo lo que parecía sincronizar "solo" venía de llamadas directas a
+  `TriggerSyncNowAsync()` (el botón "Conectar con nube", y los triggers atados a
+  marcaciones). Cambios que no pasaban por esos triggers puntuales (editar un empleado, una
+  sucursal, un vínculo) dependían 100% de presionar "Conectar con nube" a mano. Corregido
+  con `_host.Start()` en `OnStartup` y `_host.StopAsync(...)` ordenado en `OnExit`
+- **Sincronización remota "Actualizar asistencias"** (Dashboard → sistema local → nube, a
+  pedido explícito del usuario, con requisitos de seguridad detallados): nuevo botón en el
+  Dashboard que le pide al sistema local de la sucursal que se conecte al reloj checador y
+  suba lo más reciente de inmediato, sin esperar el próximo ciclo. Arquitectura 100%
+  saliente en ambos sentidos (nunca hay conexión entrante hacia la PC del negocio) vía una
+  nueva tabla intermedia `public.sync_requests` en Supabase:
+  - El Dashboard solo puede `INSERT` (crear la solicitud, con su propio `user_id`) y
+    `SELECT` (ver el estado) — nunca `UPDATE`/`DELETE`; excepción acotada y explícita a la
+    regla general del esquema ("todo lo que escribe pasa por la app de escritorio"), ver la
+    migración `20260814060000_add_sync_requests.sql`.
+  - El sistema local (`RemoteSyncRequestPollingService`, nuevo `BackgroundService`) la
+    consulta cada `IntervalSeconds` (10s) — nunca al revés. Si la PC está apagada, la
+    solicitud queda `pending` y se completa sola al reconectar, sin nada especial que
+    implementar aparte de que el polling sea confiable (de ahí el fix del `IHost` de
+    arriba, requisito real para esta función).
+  - `RemoteSyncRequestCoordinator` (Infrastructure.Cloud) detecta la solicitud, la marca
+    `in_progress` y avisa vía evento — nunca toca dispositivos directamente, mantiene la
+    separación de capas. `DevicesViewModel` (WPF) la procesa reutilizando tal cual
+    `ConnectAsync`/`DownloadAttendanceCoreAsync`/`TriggerSyncNowAsync` (sin duplicar
+    lógica) y reporta `completed`/`failed` con un mensaje legible.
+  - Duplicados: índice único parcial en Postgres (como mucho una solicitud
+    `pending`/`in_progress` a la vez en toda la tabla) + el Dashboard se engancha a una
+    activa existente en vez de crear otra.
+  - Estados visibles en el Dashboard: "Solicitud enviada…" → "Sincronizando…" →
+    "✅ resumen" / "❌ error"; al completarse, la lista y los KPIs se refrescan solos.
+  - 12 tests nuevos (`tests/RelojChecador.Infrastructure.Tests/Cloud/`) cubriendo
+    `SupabaseRestClient.GetAsync/PatchAsync` y todo el ciclo de
+    `RemoteSyncRequestCoordinator` (detección, guardia contra duplicados, éxito/fallo) con
+    un `HttpMessageHandler` falso — sin tocar la red real.
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Confirmar el login real del Dashboard (requiere que el usuario cree su primera cuenta

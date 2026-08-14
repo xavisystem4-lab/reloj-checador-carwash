@@ -58,4 +58,44 @@ public sealed class SupabaseRestClient
                 $"Supabase rechazó el upsert a '{table}' ({(int)response.StatusCode} {response.StatusCode}): {body}");
         }
     }
+
+    /// <summary>Lee filas de una tabla con un filtro PostgREST crudo (ej.
+    /// "status=eq.pending&amp;order=requested_at_utc.asc&amp;limit=1") — usado por
+    /// <see cref="RemoteSyncRequestCoordinator"/> para consultar solicitudes de
+    /// sincronización remota pendientes. Deliberadamente simple (un solo table+query, sin
+    /// builder): es el único consumidor de GET hoy, y un query crudo es más fácil de
+    /// auditar que una capa de abstracción para un solo caso de uso.</summary>
+    public async Task<List<T>> GetAsync<T>(string table, string query, CancellationToken cancellationToken)
+    {
+        using var response = await _httpClient.GetAsync($"{table}?{query}", cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            throw new HttpRequestException(
+                $"Supabase rechazó el GET a '{table}' ({(int)response.StatusCode} {response.StatusCode}): {body}");
+        }
+
+        return await response.Content.ReadFromJsonAsync<List<T>>(JsonOptions, cancellationToken) ?? [];
+    }
+
+    /// <summary>Actualiza parcialmente las filas que cumplan el filtro (ej.
+    /// "id=eq.&lt;uuid&gt;") con los campos de <paramref name="body"/> — el resto de
+    /// columnas no se toca. Usado por <see cref="RemoteSyncRequestCoordinator"/> para
+    /// avanzar el estado de una solicitud de sincronización remota.</summary>
+    public async Task PatchAsync(string table, string filter, object body, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Patch, $"{table}?{filter}")
+        {
+            Content = JsonContent.Create(body, options: JsonOptions),
+        };
+        request.Headers.Add("Prefer", "return=minimal");
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            throw new HttpRequestException(
+                $"Supabase rechazó el PATCH a '{table}' ({(int)response.StatusCode} {response.StatusCode}): {responseBody}");
+        }
+    }
 }
