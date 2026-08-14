@@ -1,15 +1,18 @@
 using System.Globalization;
 using System.Windows;
 using RelojChecador.Domain.Branches;
+using RelojChecador.Domain.Devices;
 
 namespace RelojChecador.WPF.Views;
 
 /// <summary>
-/// Diálogo mínimo para capturar los datos de un nuevo empleado. La validación real de
-/// negocio (número/nombre requeridos, longitud máxima, duplicados) la hace el dominio
-/// (Employee.Create + índice único en la base) cuando el llamador intenta guardar; aquí
-/// solo se evita mandar campos obviamente vacíos o una fecha ilegible, para no abrir un
-/// viaje a la base de datos innecesario.
+/// Diálogo para capturar los datos de un nuevo empleado, con vínculo a dispositivo
+/// opcional en el mismo formulario (checkbox "Vincular a un reloj checador ahora") — evita
+/// el paso aparte de "Vincular a dispositivo" en la lista de Empleados cuando el alta y el
+/// PIN se conocen al mismo tiempo. La validación real de negocio (número/nombre
+/// requeridos, longitud máxima, duplicados, PIN duplicado en el dispositivo) la hace el
+/// dominio/base al guardar; aquí solo se evita mandar campos obviamente vacíos o una fecha
+/// ilegible, para no abrir un viaje a la base de datos innecesario.
 /// </summary>
 public partial class AddEmployeeDialog : Window
 {
@@ -22,7 +25,14 @@ public partial class AddEmployeeDialog : Window
     public string? Department => string.IsNullOrWhiteSpace(DepartmentTextBox.Text) ? null : DepartmentTextBox.Text.Trim();
     public string? Position => string.IsNullOrWhiteSpace(PositionTextBox.Text) ? null : PositionTextBox.Text.Trim();
 
-    public AddEmployeeDialog(IReadOnlyList<Branch> branches)
+    /// <summary>Null si el checkbox "Vincular a un reloj checador ahora" no está marcado —
+    /// vincular al dar de alta es opcional.</summary>
+    public Device? SelectedDevice => LinkDeviceCheckBox.IsChecked == true ? DeviceComboBox.SelectedItem as Device : null;
+    public string? DeviceUserPin => LinkDeviceCheckBox.IsChecked == true && !string.IsNullOrWhiteSpace(DevicePinTextBox.Text)
+        ? DevicePinTextBox.Text.Trim()
+        : null;
+
+    public AddEmployeeDialog(IReadOnlyList<Branch> branches, IReadOnlyList<Device> devices)
     {
         InitializeComponent();
         BranchComboBox.ItemsSource = branches;
@@ -31,7 +41,18 @@ public partial class AddEmployeeDialog : Window
             BranchComboBox.SelectedIndex = 0;
         }
 
+        DeviceComboBox.ItemsSource = devices;
+        if (devices.Count > 0)
+        {
+            DeviceComboBox.SelectedIndex = 0;
+        }
+
         HireDateTextBox.Text = DateTime.Now.ToString(HireDateFormat, CultureInfo.InvariantCulture);
+    }
+
+    private void OnLinkDeviceCheckedChanged(object sender, RoutedEventArgs e)
+    {
+        LinkDevicePanel.Visibility = LinkDeviceCheckBox.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void OnCancelClick(object sender, RoutedEventArgs e)
@@ -52,6 +73,12 @@ public partial class AddEmployeeDialog : Window
                 DateTimeStyles.None, out var hireDate))
         {
             ShowError("La fecha de alta debe tener el formato dd/mm/aaaa.");
+            return;
+        }
+
+        if (LinkDeviceCheckBox.IsChecked == true && (SelectedDevice is null || string.IsNullOrWhiteSpace(DeviceUserPin)))
+        {
+            ShowError("Para vincular a un dispositivo ahora, elige el reloj y escribe el PIN.");
             return;
         }
 

@@ -1,7 +1,7 @@
-<Window x:Class="RelojChecador.WPF.Views.AddEmployeeDialog"
+<Window x:Class="RelojChecador.WPF.Views.EditEmployeeDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Nuevo empleado" Height="700" Width="420"
+        Title="Editar empleado" Height="700" Width="420"
         WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
         ShowInTaskbar="False">
     <Grid Margin="20">
@@ -18,9 +18,12 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
+        <!-- Número y fecha de alta NO son editables aquí a propósito: Number es la clave de
+             negocio (índice único, no tiene setter en el dominio tras Employee.Create) y
+             HireDate tampoco expone un método de actualización — ver Employee.cs. -->
         <StackPanel Grid.Row="0" Margin="0,0,0,10">
-            <TextBlock Text="Número de empleado *" FontWeight="SemiBold" Margin="0,0,0,2" />
-            <TextBox x:Name="NumberTextBox" MaxLength="20" Padding="4" />
+            <TextBlock Text="Número de empleado" FontWeight="SemiBold" Margin="0,0,0,2" />
+            <TextBlock x:Name="NumberTextBlock" Padding="4" Foreground="{DynamicResource BrushTextSecondary}" />
         </StackPanel>
 
         <StackPanel Grid.Row="1" Margin="0,0,0,10">
@@ -34,11 +37,8 @@
         </StackPanel>
 
         <StackPanel Grid.Row="3" Margin="0,0,0,10">
-            <TextBlock Text="Fecha de alta * (dd/mm/aaaa)" FontWeight="SemiBold" Margin="0,0,0,2" />
-            <!-- Se precarga con la fecha de hoy desde el code-behind (no un binding XAML a
-                 DateTime.Now, que no es una propiedad realmente estática) — el usuario la
-                 sobreescribe si el alta es retroactiva. -->
-            <TextBox x:Name="HireDateTextBox" Padding="4" />
+            <TextBlock Text="Estatus *" FontWeight="SemiBold" Margin="0,0,0,2" />
+            <ComboBox x:Name="StatusComboBox" Padding="4" />
         </StackPanel>
 
         <Grid Grid.Row="4" Margin="0,0,0,10">
@@ -57,22 +57,21 @@
             </StackPanel>
         </Grid>
 
-        <StackPanel Grid.Row="5" Margin="0,0,0,6">
-            <CheckBox x:Name="LinkDeviceCheckBox" Content="Vincular a un reloj checador ahora"
-                      Checked="OnLinkDeviceCheckedChanged" Unchecked="OnLinkDeviceCheckedChanged" />
-        </StackPanel>
-
-        <!-- Colapsado hasta marcar el checkbox de arriba — vincular es opcional al dar de
-             alta: se puede hacer después desde "Vincular a dispositivo" en la lista de
-             Empleados. El PIN se escribe a mano (se ve en la pantalla del reloj o en
-             "Consultar información" de Dispositivos), no se descarga del dispositivo
-             conectado — ver EmployeesViewModel. -->
-        <StackPanel Grid.Row="6" x:Name="LinkDevicePanel" Visibility="Collapsed" Margin="0,0,0,10">
-            <TextBlock Text="Dispositivo *" FontWeight="SemiBold" Margin="0,0,0,2" />
-            <ComboBox x:Name="DeviceComboBox" Padding="4" DisplayMemberPath="Name" Margin="0,0,0,8" />
-            <TextBlock Text="PIN en el dispositivo *" FontWeight="SemiBold" Margin="0,0,0,2" />
-            <TextBox x:Name="DevicePinTextBox" MaxLength="50" Padding="4" />
-        </StackPanel>
+        <Grid Grid.Row="5" Margin="0,0,0,10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="10" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0">
+                <TextBlock Text="Teléfono" FontWeight="SemiBold" Margin="0,0,0,2" />
+                <TextBox x:Name="PhoneTextBox" Padding="4" />
+            </StackPanel>
+            <StackPanel Grid.Column="2">
+                <TextBlock Text="Correo" FontWeight="SemiBold" Margin="0,0,0,2" />
+                <TextBox x:Name="EmailTextBox" Padding="4" />
+            </StackPanel>
+        </Grid>
 
         <TextBlock Grid.Row="7" x:Name="ErrorTextBlock" Foreground="{DynamicResource BrushDanger}" TextWrapping="Wrap"
                     Visibility="Collapsed" Margin="0,0,0,10" />

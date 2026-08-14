@@ -25,12 +25,21 @@ namespace RelojChecador.WPF.ViewModels;
 public sealed record EmployeeRow(Employee Employee, string BranchName, string LinkedDevicesSummary);
 
 /// <summary>
-/// ViewModel de la pantalla de Empleados: alta y listado (Fase 3), más el vínculo
+/// ViewModel de la pantalla de Empleados: alta, edición y listado (Fase 3), más el vínculo
 /// Empleado↔Dispositivo (EmployeeDeviceMapping) — asocia el PIN interno que cada reloj usa
 /// para reconocer a un empleado, prerequisito para que una futura pantalla de Asistencia
 /// pueda mostrar nombres en vez de PINs crudos. El PIN se captura a mano en el diálogo
 /// (LinkEmployeeDeviceDialog), no se descarga del dispositivo conectado — decisión de
 /// alcance explícita para esta entrega.
+///
+/// Tras cualquier alta/edición/vínculo, se recarga la lista COMPLETA desde la base local
+/// (ReloadAsync) en vez de mutar Employees a mano (Add/reemplazo puntual, como se hacía
+/// antes) — se reporta un caso real en Windows donde el DataGrid no reflejaba la fila
+/// recién agregada hasta reiniciar la app (los datos sí quedaban guardados y sincronizados
+/// a Supabase correctamente; era un problema de refresco de la vista, no de persistencia).
+/// Recargar todo es más lento en teoría, pero con el volumen de un negocio de una sola
+/// sucursal-tipo es instantáneo, y elimina de raíz cualquier posible desincronización
+/// entre el estado en memoria y la base de datos real.
 /// </summary>
 public sealed partial class EmployeesViewModel : ObservableObject
 {
@@ -60,31 +69,38 @@ public sealed partial class EmployeesViewModel : ObservableObject
     {
         try
         {
-            // Las cuatro listas se cargan completas (sin paginación, igual que
-            // Sucursales/Dispositivos) y se cruzan en memoria: ni Employee tiene
-            // navegación a Branch, ni hay una vía directa de Employee a sus dispositivos
-            // vinculados — ambas se resuelven aquí, no en la vista.
-            var employees = await _employeeRepository.ListAsync();
-            var branches = await _branchRepository.ListAsync();
-            var devices = await _deviceRepository.ListAsync();
-            var mappings = await _mappingRepository.ListAsync();
-
-            var branchNamesById = branches.ToDictionary(b => b.Id, b => b.Name);
-            var deviceNamesById = devices.ToDictionary(d => d.Id, d => d.Name);
-
-            Employees.Clear();
-            foreach (var employee in employees)
-            {
-                Employees.Add(BuildRow(employee, branchNamesById, deviceNamesById, mappings));
-            }
-
-            RefreshStatusMessage();
+            await ReloadAsync();
         }
         catch (Exception ex)
         {
             Log.Error(ex, "No se pudo cargar la lista de empleados.");
             StatusMessage = "No se pudo cargar la información local. Revisa el registro de errores.";
         }
+    }
+
+    /// <summary>Recarga Employees completo desde la base local — ver comentario de clase
+    /// sobre por qué esto reemplazó la mutación puntual (Add/reemplazo por índice).</summary>
+    private async Task ReloadAsync()
+    {
+        // Las cuatro listas se cargan completas (sin paginación, igual que
+        // Sucursales/Dispositivos) y se cruzan en memoria: ni Employee tiene navegación a
+        // Branch, ni hay una vía directa de Employee a sus dispositivos vinculados — ambas
+        // se resuelven aquí, no en la vista.
+        var employees = await _employeeRepository.ListAsync();
+        var branches = await _branchRepository.ListAsync();
+        var devices = await _deviceRepository.ListAsync();
+        var mappings = await _mappingRepository.ListAsync();
+
+        var branchNamesById = branches.ToDictionary(b => b.Id, b => b.Name);
+        var deviceNamesById = devices.ToDictionary(d => d.Id, d => d.Name);
+
+        Employees.Clear();
+        foreach (var employee in employees)
+        {
+            Employees.Add(BuildRow(employee, branchNamesById, deviceNamesById, mappings));
+        }
+
+        RefreshStatusMessage();
     }
 
     private static EmployeeRow BuildRow(
@@ -117,20 +133,29 @@ public sealed partial class EmployeesViewModel : ObservableObject
 
     public async Task<IReadOnlyList<Device>> GetDevicesAsync() => await _deviceRepository.ListAsync();
 
+    /// <param name="deviceId">Dispositivo a vincular en la misma operación, o null para
+    /// no vincular ahora (se puede hacer después con "Vincular a dispositivo").</param>
+    /// <param name="deviceUserPin">Requerido si <paramref name="deviceId"/> no es null.</param>
     /// <returns>Un mensaje de error comprensible si algo salió mal, o null si se guardó correctamente.</returns>
     public async Task<string?> CreateEmployeeAsync(
-        string number, string fullName, Guid branchId, DateOnly hireDate, string? department, string? position)
+        string number, string fullName, Guid branchId, DateOnly hireDate, string? department, string? position,
+        Guid? deviceId = null, string? deviceUserPin = null)
     {
         try
         {
             var employee = Employee.Create(EmployeeNumber.Create(number), fullName, branchId, hireDate, department, position);
             await _employeeRepository.AddAsync(employee);
-            await _unitOfWork.SaveChangesAsync();
 
-            var branches = await _branchRepository.ListAsync();
-            var branchName = branches.FirstOrDefault(b => b.Id == branchId)?.Name ?? "(sucursal desconocida)";
-            Employees.Add(new EmployeeRow(employee, branchName, "Sin vincular"));
-            RefreshStatusMessage();
+            // Alta + vínculo en la misma transacción (un solo SaveChangesAsync más abajo):
+            // si el PIN ya está en uso, ninguno de los dos queda a medias.
+            if (deviceId is not null && !string.IsNullOrWhiteSpace(deviceUserPin))
+            {
+                var mapping = EmployeeDeviceMapping.Create(employee.Id, deviceId.Value, deviceUserPin);
+                await _mappingRepository.AddAsync(mapping);
+            }
+
+            await _unitOfWork.SaveChangesAsync();
+            await ReloadAsync();
             return null;
         }
         catch (DomainException ex)
@@ -140,15 +165,61 @@ public sealed partial class EmployeesViewModel : ObservableObject
         }
         catch (DbUpdateException ex)
         {
-            // El índice único de Employee.Number (ver EfEmployeeRepository/EmployeeConfiguration)
-            // es lo que normalmente dispara esto — se interpreta como duplicado sin inspeccionar
-            // el texto del error nativo de SQLite, que no es estable entre versiones.
-            Log.Warning(ex, "No se pudo guardar el empleado, probablemente por número duplicado (Number={Number})", number);
-            return "Ya existe un empleado con ese número.";
+            // Índice único de Employee.Number, o (si se vinculó a un dispositivo en la
+            // misma operación) alguno de los dos índices únicos de EmployeeDeviceMapping
+            // (ver EmployeeConfiguration/EmployeeDeviceMappingConfiguration) — se interpreta
+            // sin inspeccionar el texto nativo del error de SQLite, que no es estable entre
+            // versiones.
+            Log.Warning(ex, "No se pudo guardar el empleado (Number={Number}, DeviceId={DeviceId})", number, deviceId);
+            return deviceId is not null
+                ? "No se pudo guardar: el número de empleado ya existe, o ese PIN ya está en uso en el dispositivo elegido."
+                : "Ya existe un empleado con ese número.";
         }
         catch (Exception ex)
         {
             Log.Error(ex, "Error inesperado al crear un empleado (Number={Number})", number);
+            return "Ocurrió un error inesperado al guardar. Revisa el registro de errores.";
+        }
+    }
+
+    /// <returns>Un mensaje de error comprensible si algo salió mal, o null si se guardó correctamente.</returns>
+    public async Task<string?> UpdateEmployeeAsync(
+        Guid employeeId, string fullName, Guid branchId, string? department, string? position,
+        string? phone, string? email, EmploymentStatus status)
+    {
+        try
+        {
+            var employee = await _employeeRepository.GetByIdAsync(employeeId);
+            if (employee is null)
+            {
+                // No debería pasar en uso normal (la fila viene de una lista ya cargada de
+                // la misma base), pero cubre la carrera de que alguien más lo haya borrado
+                // — hoy imposible desde la UI (no hay eliminar empleados), pero defensivo.
+                return "No se encontró el empleado — puede que la lista esté desactualizada. Cierra y vuelve a abrir esta pantalla.";
+            }
+
+            employee.UpdatePersonalInfo(fullName, department, position);
+            employee.UpdateContact(phone, email);
+            if (employee.BranchId != branchId)
+            {
+                employee.TransferToBranch(branchId);
+            }
+            if (employee.Status != status)
+            {
+                employee.ChangeStatus(status);
+            }
+
+            await _unitOfWork.SaveChangesAsync();
+            await ReloadAsync();
+            return null;
+        }
+        catch (DomainException ex)
+        {
+            return ex.Message;
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Error inesperado al editar un empleado (EmployeeId={EmployeeId})", employeeId);
             return "Ocurrió un error inesperado al guardar. Revisa el registro de errores.";
         }
     }
@@ -161,20 +232,7 @@ public sealed partial class EmployeesViewModel : ObservableObject
             var mapping = EmployeeDeviceMapping.Create(employeeId, deviceId, deviceUserPin);
             await _mappingRepository.AddAsync(mapping);
             await _unitOfWork.SaveChangesAsync();
-
-            // Se reemplaza la fila entera (EmployeeRow es un record inmutable) para que el
-            // DataGrid refresque la columna "Dispositivos vinculados" de ese empleado vía
-            // INotifyCollectionChanged — mutar un campo no dispararía el binding.
-            var index = Employees.ToList().FindIndex(row => row.Employee.Id == employeeId);
-            if (index >= 0)
-            {
-                var devices = await _deviceRepository.ListAsync();
-                var deviceNamesById = devices.ToDictionary(d => d.Id, d => d.Name);
-                var mappings = await _mappingRepository.ListAsync();
-                var current = Employees[index];
-                Employees[index] = current with { LinkedDevicesSummary = BuildLinkedDevicesSummary(employeeId, deviceNamesById, mappings) };
-            }
-
+            await ReloadAsync();
             return null;
         }
         catch (DomainException ex)

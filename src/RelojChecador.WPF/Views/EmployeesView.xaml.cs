@@ -27,18 +27,48 @@ public partial class EmployeesView : UserControl
             return;
         }
 
-        var dialog = new AddEmployeeDialog(branches) { Owner = Window.GetWindow(this) };
+        // Se pasan también los dispositivos (aunque puedan venir vacíos) para que el
+        // diálogo permita vincular al reloj checador en la misma alta — ver
+        // AddEmployeeDialog, checkbox "Vincular a un reloj checador ahora".
+        var devices = await viewModel.GetDevicesAsync();
+
+        var dialog = new AddEmployeeDialog(branches, devices) { Owner = Window.GetWindow(this) };
         if (dialog.ShowDialog() != true || dialog.SelectedBranch is null)
         {
             return;
         }
 
         var error = await viewModel.CreateEmployeeAsync(
-            dialog.Number, dialog.FullName, dialog.SelectedBranch.Id, dialog.HireDate, dialog.Department, dialog.Position);
+            dialog.Number, dialog.FullName, dialog.SelectedBranch.Id, dialog.HireDate, dialog.Department, dialog.Position,
+            dialog.SelectedDevice?.Id, dialog.DeviceUserPin);
 
         if (error is not null)
         {
             MessageBox.Show(Window.GetWindow(this), error, "No se pudo crear el empleado", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private async void OnEditEmployeeClick(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not EmployeesViewModel viewModel || (sender as FrameworkElement)?.DataContext is not EmployeeRow row)
+        {
+            return;
+        }
+
+        var branches = await viewModel.GetBranchesAsync();
+        var dialog = new EditEmployeeDialog(row.Employee, branches) { Owner = Window.GetWindow(this) };
+        if (dialog.ShowDialog() != true || dialog.SelectedBranch is null)
+        {
+            return;
+        }
+
+        var error = await viewModel.UpdateEmployeeAsync(
+            row.Employee.Id, dialog.FullName, dialog.SelectedBranch.Id, dialog.Department, dialog.Position,
+            dialog.Phone, dialog.Email, dialog.SelectedStatus);
+
+        if (error is not null)
+        {
+            MessageBox.Show(Window.GetWindow(this), error, "No se pudo editar el empleado", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
 

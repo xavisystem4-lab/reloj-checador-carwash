@@ -106,13 +106,20 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
 - Modo oscuro en la app de escritorio (barra superior) y en el Dashboard
 - Panel de usuarios del Dashboard (invitar/quitar acceso), mostrando nombre en vez de
   correo — ver `dashboard/README.md`
-- Pantalla de Empleados (alta + listado): mismo patrón MVVM que Sucursales/Dispositivos,
-  primer tramo de la Fase 3 (navegación completa de la UI)
+- Pantalla de Empleados: alta, edición y listado — mismo patrón MVVM que
+  Sucursales/Dispositivos, tramo principal de la Fase 3 (navegación completa de la UI). El
+  alta permite vincular a un reloj checador (dispositivo + PIN) en el mismo formulario, sin
+  paso aparte
 - Vincular Empleado↔Dispositivo (`EmployeeDeviceMapping`): desde la pantalla de Empleados,
   botón "Vincular a dispositivo" por fila (PIN capturado a mano, no descargado del
   dispositivo — ver decisión de alcance en `EmployeesViewModel`); columna "Dispositivos
   vinculados" muestra el resumen. Prerequisito de una futura pantalla de Asistencia que
-  muestre nombres en vez de PINs crudos.
+  muestre nombres en vez de PINs crudos
+- Motor de sincronización: cada tabla se sube de forma aislada (un fallo puntual en una no
+  bloquea a las demás en el mismo ciclo — antes si podía pasar) y la pantalla de Empleados
+  recarga la lista completa desde la base local tras cada alta/edición/vínculo en vez de
+  mutar la vista a mano, para eliminar de raíz un caso real donde el DataGrid no reflejaba
+  una fila recién guardada hasta reiniciar la app (el dato en sí nunca se perdía)
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Confirmar el login real del Dashboard (requiere que el usuario cree su primera cuenta
@@ -122,7 +129,7 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   Dispositivos ya existen; faltan Asistencia, Reportes y el resto de secciones finales) —
   **en curso**
 - Pantalla de Asistencia (consultar marcaciones ya guardadas localmente, ahora resolubles a
-  nombre de empleado gracias al vínculo Empleado↔Dispositivo) y editar/eliminar empleados —
+  nombre de empleado gracias al vínculo Empleado↔Dispositivo) y eliminar empleados —
   siguiente tramo de Fase 3
 - Reportes, auditoría, incidencias, nómina (Fases 5-6)
 - Razón social real y logotipo/icono para el instalador y la app

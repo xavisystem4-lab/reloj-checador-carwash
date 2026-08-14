@@ -123,72 +123,111 @@ public sealed class SupabaseSyncBackgroundService(
         var services = scope.ServiceProvider;
         var restClient = services.GetRequiredService<SupabaseRestClient>();
 
+        // Cada tabla se sube de forma AISLADA (try/catch propio dentro de PushFullTableAsync
+        // y PushAttendancesIncrementalAsync) — antes, un fallo en cualquier tabla (p. ej.
+        // "employees" por un dato problemático) lanzaba una excepción que abortaba TODO el
+        // resto del ciclo, dejando congeladas para siempre las tablas que venían después en
+        // este mismo orden (devices, employee_device_mappings, app_users, attendances),
+        // aunque su propio push hubiera funcionado perfectamente. Ahora un fallo puntual en
+        // una tabla se registra y se reporta (ver failures más abajo), pero no le quita la
+        // oportunidad a las demás de sincronizar en el mismo ciclo.
+        var failures = new List<string>();
+
         await PushFullTableAsync(restClient, "branches",
             (await services.GetRequiredService<IBranchRepository>().ListAsync(cancellationToken))
-                .Select(BranchDto.FromDomain).ToList(), cancellationToken);
+                .Select(BranchDto.FromDomain).ToList(), failures, cancellationToken);
 
         await PushFullTableAsync(restClient, "employees",
             (await services.GetRequiredService<IEmployeeRepository>().ListAsync(cancellationToken))
-                .Select(EmployeeDto.FromDomain).ToList(), cancellationToken);
+                .Select(EmployeeDto.FromDomain).ToList(), failures, cancellationToken);
 
         await PushFullTableAsync(restClient, "devices",
             (await services.GetRequiredService<IDeviceRepository>().ListAsync(cancellationToken))
-                .Select(DeviceDto.FromDomain).ToList(), cancellationToken);
+                .Select(DeviceDto.FromDomain).ToList(), failures, cancellationToken);
 
         await PushFullTableAsync(restClient, "employee_device_mappings",
             (await services.GetRequiredService<IEmployeeDeviceMappingRepository>().ListAsync(cancellationToken))
-                .Select(EmployeeDeviceMappingDto.FromDomain).ToList(), cancellationToken);
+                .Select(EmployeeDeviceMappingDto.FromDomain).ToList(), failures, cancellationToken);
 
         await PushFullTableAsync(restClient, "app_users",
             (await services.GetRequiredService<IUserRepository>().ListAsync(cancellationToken))
-                .Select(AppUserDto.FromDomain).ToList(), cancellationToken);
+                .Select(AppUserDto.FromDomain).ToList(), failures, cancellationToken);
 
-        await PushAttendancesIncrementalAsync(restClient, services, cancellationToken);
+        await PushAttendancesIncrementalAsync(restClient, services, failures, cancellationToken);
+
+        if (failures.Count > 0)
+        {
+            // Se lanza al final (no antes) para que RunCycleAsync siga marcando el ciclo
+            // como fallido en SupabaseSyncStatus (el punto rojo/tooltip sigue siendo
+            // confiable como señal de "algo está mal"), pero solo DESPUÉS de que todas las
+            // tablas ya tuvieron su oportunidad de subir.
+            throw new InvalidOperationException(string.Join(" | ", failures));
+        }
     }
 
     private async Task PushFullTableAsync<T>(
-        SupabaseRestClient restClient, string table, IReadOnlyCollection<T> rows, CancellationToken cancellationToken)
+        SupabaseRestClient restClient, string table, IReadOnlyCollection<T> rows, List<string> failures,
+        CancellationToken cancellationToken)
     {
         if (rows.Count == 0)
         {
             return;
         }
 
-        await restClient.UpsertBatchAsync(table, rows, cancellationToken);
-        logger.LogDebug("Sincronizadas {Count} fila(s) de '{Table}'.", rows.Count, table);
+        try
+        {
+            await restClient.UpsertBatchAsync(table, rows, cancellationToken);
+            logger.LogDebug("Sincronizadas {Count} fila(s) de '{Table}'.", rows.Count, table);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "No se pudo sincronizar la tabla '{Table}' — se continúa con las demás.", table);
+            failures.Add($"{table}: {ex.Message}");
+        }
     }
 
     private async Task PushAttendancesIncrementalAsync(
-        SupabaseRestClient restClient, IServiceProvider services, CancellationToken cancellationToken)
+        SupabaseRestClient restClient, IServiceProvider services, List<string> failures, CancellationToken cancellationToken)
     {
         var attendanceRepository = services.GetRequiredService<IAttendanceRepository>();
         var cursorStore = services.GetRequiredService<ISyncCursorStore>();
         var cursor = await cursorStore.GetCursorAsync(AttendanceCursorKey, cancellationToken);
         var totalPushed = 0;
 
-        // Se drena en lotes dentro del mismo ciclo (no solo un lote por tick) para que,
-        // tras una temporada sin internet, la cola pendiente no tarde horas en ponerse al
-        // día — cada vuelta reevalúa el cursor ya avanzado, así que nunca reprocesa lo
-        // recién enviado.
-        while (true)
+        try
         {
-            var pending = await attendanceRepository.ListChangedSinceAsync(cursor, AttendanceBatchSize, cancellationToken);
-            if (pending.Count == 0)
+            // Se drena en lotes dentro del mismo ciclo (no solo un lote por tick) para que,
+            // tras una temporada sin internet, la cola pendiente no tarde horas en ponerse
+            // al día — cada vuelta reevalúa el cursor ya avanzado, así que nunca reprocesa
+            // lo recién enviado.
+            while (true)
             {
-                break;
+                var pending = await attendanceRepository.ListChangedSinceAsync(cursor, AttendanceBatchSize, cancellationToken);
+                if (pending.Count == 0)
+                {
+                    break;
+                }
+
+                var dtos = pending.Select(AttendanceDto.FromDomain).ToList();
+                await restClient.UpsertBatchAsync("attendances", dtos, cancellationToken);
+
+                cursor = pending[^1].UpdatedAtUtc;
+                await cursorStore.SetCursorAsync(AttendanceCursorKey, cursor, cancellationToken);
+                totalPushed += pending.Count;
+
+                if (pending.Count < AttendanceBatchSize)
+                {
+                    break; // ya no queda nada pendiente
+                }
             }
-
-            var dtos = pending.Select(AttendanceDto.FromDomain).ToList();
-            await restClient.UpsertBatchAsync("attendances", dtos, cancellationToken);
-
-            cursor = pending[^1].UpdatedAtUtc;
-            await cursorStore.SetCursorAsync(AttendanceCursorKey, cursor, cancellationToken);
-            totalPushed += pending.Count;
-
-            if (pending.Count < AttendanceBatchSize)
-            {
-                break; // ya no queda nada pendiente
-            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // El cursor solo avanza tras un upsert exitoso (ver arriba), así que un fallo a
+            // mitad de un lote no pierde ni reordena nada: el siguiente ciclo retoma desde
+            // el último cursor confirmado.
+            logger.LogWarning(ex, "No se pudo sincronizar asistencias — se continúa con las demás tablas.");
+            failures.Add($"attendances: {ex.Message}");
         }
 
         if (totalPushed > 0)
