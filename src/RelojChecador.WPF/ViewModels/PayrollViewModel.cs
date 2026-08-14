@@ -41,6 +41,11 @@ public sealed record PayrollRow(WeeklyPayrollSummary Summary, string EmployeeNam
     public string RegularTimeText => FormatHoursAndMinutes(Summary.TotalRegularTime);
     public string OvertimeTimeText => FormatHoursAndMinutes(Summary.TotalOvertimeTime);
 
+    /// <summary>"Pendiente" en vez de "$0.00" cuando el sueldo todavía no se capturó —
+    /// StringFormat de WPF sobre un decimal? nulo se vería en blanco, no como una alerta
+    /// clara; esto deja explícito que falta el dato, sin inventarlo como cero.</summary>
+    public string WeeklySalaryText => Summary.WeeklySalary is { } salary ? salary.ToString("C") : "Pendiente";
+
     /// <summary>Bruto (Summary.TotalPay) menos las tres deducciones capturadas a mano —
     /// nunca se impide que salga negativo: el usuario capturó los montos, no hay nada que
     /// la app deba "corregir" aquí.</summary>
@@ -253,7 +258,7 @@ public sealed partial class PayrollViewModel : ObservableObject
                 row.BranchName,
                 row.RegularTimeText,
                 row.OvertimeTimeText,
-                row.Summary.WeeklySalary.ToString("0.00"),
+                row.Summary.WeeklySalary?.ToString("0.00") ?? "Pendiente",
                 row.Summary.OvertimePay.ToString("0.00"),
                 row.Summary.TotalPay.ToString("0.00"),
                 row.Deductions.IsrAmount.ToString("0.00"),

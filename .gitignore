@@ -38,3 +38,4 @@ appsettings.Local.json
 ## Netlify CLI (estado local del deploy del Dashboard — no es secreto, pero es
 ## generado por la herramienta en cada máquina, no código fuente)
 dashboard/.netlify/
+empleados_catalogo_importacion.csv

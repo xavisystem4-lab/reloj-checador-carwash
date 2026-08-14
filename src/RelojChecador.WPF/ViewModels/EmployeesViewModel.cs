@@ -193,13 +193,17 @@ public sealed partial class EmployeesViewModel : ObservableObject
     /// <param name="deviceUserPin">Requerido si <paramref name="deviceId"/> no es null.</param>
     /// <returns>Un mensaje de error comprensible si algo salió mal, o null si se guardó correctamente.</returns>
     public async Task<string?> CreateEmployeeAsync(
-        string number, string fullName, Guid branchId, DateOnly hireDate, decimal weeklySalary, string? department, string? position,
-        decimal? overtimeHourlyRate = null, Guid? deviceId = null, string? deviceUserPin = null)
+        string number, string fullName, Guid branchId, DateOnly hireDate, decimal? weeklySalary, string? department, string? position,
+        decimal? overtimeHourlyRate = null, Guid? deviceId = null, string? deviceUserPin = null, string? notes = null)
     {
         try
         {
             var employee = Employee.Create(
                 EmployeeNumber.Create(number), fullName, branchId, hireDate, weeklySalary, department, position, overtimeHourlyRate);
+            if (!string.IsNullOrWhiteSpace(notes))
+            {
+                employee.UpdateNotes(notes);
+            }
             await _employeeRepository.AddAsync(employee);
 
             // Alta + vínculo en la misma transacción (un solo SaveChangesAsync más abajo):
@@ -249,8 +253,8 @@ public sealed partial class EmployeesViewModel : ObservableObject
     /// <returns>Un mensaje de error comprensible si algo salió mal, o null si se guardó correctamente.</returns>
     public async Task<string?> UpdateEmployeeAsync(
         Guid employeeId, string number, string fullName, Guid branchId, string? department, string? position,
-        string? phone, string? email, EmploymentStatus status, decimal weeklySalary, decimal? overtimeHourlyRate = null,
-        Guid? deviceId = null, string? deviceUserPin = null)
+        string? phone, string? email, EmploymentStatus status, decimal? weeklySalary, decimal? overtimeHourlyRate = null,
+        Guid? deviceId = null, string? deviceUserPin = null, string? notes = null)
     {
         try
         {
@@ -271,6 +275,7 @@ public sealed partial class EmployeesViewModel : ObservableObject
             employee.UpdatePersonalInfo(fullName, department, position);
             employee.UpdateContact(phone, email);
             employee.UpdateCompensation(weeklySalary, overtimeHourlyRate);
+            employee.UpdateNotes(notes);
             if (employee.BranchId != branchId)
             {
                 employee.TransferToBranch(branchId);
@@ -449,6 +454,147 @@ public sealed partial class EmployeesViewModel : ObservableObject
         {
             Log.Error(ex, "Error inesperado al dar de baja un empleado (EmployeeId={EmployeeId})", employeeId);
             return "Ocurrió un error inesperado al guardar. Revisa el registro de errores.";
+        }
+    }
+
+    /// <summary>Una fila ya parseada (EmployeeImportRow) cruzada contra la base local
+    /// real: si su sucursal existe o hay que crearla, si su número ya está en uso. Forma
+    /// de UI — <see cref="RelojChecador.Application.Employees.EmployeeImportRow"/> es
+    /// puramente del parseo del archivo, sin saber nada de la base de datos.</summary>
+    public sealed record EmployeeImportPreviewRow(EmployeeImportRow Row, bool BranchExists, bool IsDuplicate)
+    {
+        /// <summary>Nunca se sobreescribe un empleado existente durante una importación
+        /// masiva (regla explícita del usuario) — un número duplicado simplemente se
+        /// omite, nunca actualiza al que ya estaba.</summary>
+        public bool WillImport => !IsDuplicate;
+
+        public IReadOnlyList<string> AllAlerts =>
+        [
+            .. Row.Alerts,
+            .. BranchExists ? [] : (string[]) [$"Se creará la sucursal \"{Row.Area}\"."],
+            .. IsDuplicate ? (string[]) ["Ya existe un empleado con este número — se omite."] : [],
+        ];
+
+        public string AlertsText => string.Join(" · ", AllAlerts);
+    }
+
+    public sealed record EmployeeImportPreview(
+        IReadOnlyList<EmployeeImportPreviewRow> Rows, IReadOnlyList<string> ParseErrors, IReadOnlyList<string> BranchesToCreate)
+    {
+        public int TotalRows => Rows.Count;
+        public int ToImport => Rows.Count(r => r.WillImport);
+        public int Duplicates => Rows.Count(r => r.IsDuplicate);
+        public int WithAlerts => Rows.Count(r => r.AllAlerts.Count > 0);
+        public int WeeklySalaryPending => Rows.Count(r => r.Row.WeeklySalary is null);
+    }
+
+    /// <summary>Parsea el CSV y lo cruza contra la base local real (sucursales/números ya
+    /// existentes) para armar la vista previa completa — no toca la base de datos, solo
+    /// la consulta. Ver <see cref="ImportEmployeesAsync"/> para la ejecución real.</summary>
+    public async Task<EmployeeImportPreview> PrepareImportPreviewAsync(IReadOnlyList<string> csvLines)
+    {
+        var parseResult = EmployeeImportParser.Parse(csvLines);
+
+        var existingBranchNames = (await _branchRepository.ListAsync())
+            .Select(b => b.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var existingNumbers = _allRows
+            .Select(r => r.Employee.Number.Value)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var seenNumbersInFile = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var previewRows = new List<EmployeeImportPreviewRow>();
+        var branchesToCreate = new List<string>();
+
+        foreach (var row in parseResult.Rows)
+        {
+            // Duplicado contra la base O contra otra fila anterior del MISMO archivo —
+            // dos empleados con el mismo número en un solo CSV nunca deberían coexistir.
+            var isDuplicate = existingNumbers.Contains(row.Number) || !seenNumbersInFile.Add(row.Number);
+            var branchExists = existingBranchNames.Contains(row.Area);
+            if (!branchExists && !branchesToCreate.Contains(row.Area, StringComparer.OrdinalIgnoreCase))
+            {
+                branchesToCreate.Add(row.Area);
+            }
+
+            previewRows.Add(new EmployeeImportPreviewRow(row, branchExists, isDuplicate));
+        }
+
+        return new EmployeeImportPreview(previewRows, parseResult.Errors, branchesToCreate);
+    }
+
+    /// <summary>Resultado de <see cref="ImportEmployeesAsync"/> — <see cref="Error"/> nulo
+    /// significa éxito (async no admite parámetros <c>out</c>, de ahí el record en vez de
+    /// una tupla con salida doble).</summary>
+    public sealed record EmployeeImportOutcome(int Created, IReadOnlyList<string> BranchesCreated, string? Error)
+    {
+        public bool Success => Error is null;
+    }
+
+    /// <summary>Ejecuta la importación real: crea primero las sucursales que hagan falta
+    /// (mismo <see cref="Branch.Create"/> que usa "+ Nueva sucursal"), luego los
+    /// empleados nuevos (nunca los duplicados, ver <see cref="EmployeeImportPreviewRow.WillImport"/>)
+    /// — todo en un solo <see cref="IUnitOfWork.SaveChangesAsync"/>, así que si algo falla
+    /// a mitad de camino no queda nada a medias.</summary>
+    public async Task<EmployeeImportOutcome> ImportEmployeesAsync(EmployeeImportPreview preview)
+    {
+        try
+        {
+            var branchIdsByName = (await _branchRepository.ListAsync())
+                .ToDictionary(b => b.Name, b => b.Id, StringComparer.OrdinalIgnoreCase);
+
+            var branchesCreated = new List<string>();
+            foreach (var areaName in preview.BranchesToCreate)
+            {
+                if (branchIdsByName.ContainsKey(areaName))
+                {
+                    continue; // ya se creó como parte de esta misma corrida (dos filas con la misma área nueva)
+                }
+
+                // Código derivado del nombre (sin espacios, mayúsculas) — solo necesita
+                // ser único, no tiene un significado de negocio propio. Mismo huso horario
+                // que la sucursal ya existente (un solo negocio en Mexicali).
+                var code = new string(areaName.Where(char.IsLetterOrDigit).ToArray()).ToUpperInvariant();
+                var branch = Branch.Create(code, areaName, "America/Tijuana", legalEntityName: null, address: null);
+                await _branchRepository.AddAsync(branch);
+                branchIdsByName[areaName] = branch.Id;
+                branchesCreated.Add(areaName);
+            }
+
+            var createdCount = 0;
+            var today = DateOnly.FromDateTime(DateTime.Now);
+            foreach (var previewRow in preview.Rows.Where(r => r.WillImport))
+            {
+                var row = previewRow.Row;
+                var employee = Employee.Create(
+                    EmployeeNumber.Create(row.Number), row.FullName, branchIdsByName[row.Area], today,
+                    row.WeeklySalary, department: null, position: row.Position, row.OvertimeHourlyRate);
+                if (!string.IsNullOrWhiteSpace(row.Notes))
+                {
+                    employee.UpdateNotes(row.Notes);
+                }
+                await _employeeRepository.AddAsync(employee);
+                createdCount++;
+            }
+
+            await _unitOfWork.SaveChangesAsync();
+            await ReloadAsync();
+            return new EmployeeImportOutcome(createdCount, branchesCreated, Error: null);
+        }
+        catch (DomainException ex)
+        {
+            return new EmployeeImportOutcome(0, [], ex.Message);
+        }
+        catch (DbUpdateException ex)
+        {
+            Log.Warning(ex, "No se pudo completar la importación masiva de empleados.");
+            return new EmployeeImportOutcome(0, [],
+                "No se pudo guardar la importación — revisa que no haya números de empleado duplicados dentro del mismo archivo.");
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Error inesperado durante la importación masiva de empleados.");
+            return new EmployeeImportOutcome(0, [], "Ocurrió un error inesperado al importar. Revisa el registro de errores.");
         }
     }
 }

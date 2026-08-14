@@ -134,4 +134,49 @@ public class EmployeeTests
 
         Assert.Throws<DomainException>(() => employee.UpdateCompensation(-1m, null));
     }
+
+    // --- Sueldo pendiente de captura (weeklySalary: null) — caso real que motivó volver
+    // el campo nullable: importación de un catálogo de empleados donde el sueldo no
+    // estaba disponible en ninguna fuente para varios de ellos. null NUNCA debe
+    // confundirse con 0. ---
+
+    [Fact]
+    public void Create_ConSueldoSemanalNulo_QuedaComoPendiente()
+    {
+        var employee = Employee.Create(
+            EmployeeNumber.Create("0114"), "Ana Torres", Guid.NewGuid(), new DateOnly(2024, 3, 1), weeklySalary: null);
+
+        Assert.Null(employee.WeeklySalary);
+    }
+
+    [Fact]
+    public void UpdateCompensation_ConSueldoNulo_LoDejaComoPendiente()
+    {
+        var employee = CreateSampleEmployee();
+
+        employee.UpdateCompensation(null, null);
+
+        Assert.Null(employee.WeeklySalary);
+    }
+
+    [Fact]
+    public void UpdateNotes_GuardaElTextoRecortado()
+    {
+        var employee = CreateSampleEmployee();
+
+        employee.UpdateNotes("  Descanso contradictorio: revisar con RH.  ");
+
+        Assert.Equal("Descanso contradictorio: revisar con RH.", employee.Notes);
+    }
+
+    [Fact]
+    public void UpdateNotes_ConTextoEnBlanco_LoDejaEnNull()
+    {
+        var employee = CreateSampleEmployee();
+        employee.UpdateNotes("algo");
+
+        employee.UpdateNotes("   ");
+
+        Assert.Null(employee.Notes);
+    }
 }

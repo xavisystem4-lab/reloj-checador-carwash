@@ -28,11 +28,15 @@ public sealed class EmployeeConfiguration : IEntityTypeConfiguration<Employee>
         builder.Property(e => e.Rfc).HasMaxLength(13);
         builder.Property(e => e.Curp).HasMaxLength(18);
         builder.Property(e => e.Nss).HasMaxLength(11);
+        builder.Property(e => e.Notes).HasMaxLength(1000);
 
         // Insumo de nómina sin cálculo fiscal (ver comentario de clase de Employee) —
         // HasPrecision documenta el rango esperado; SQLite no lo fuerza estrictamente,
         // pero Postgres (Supabase) sí, así que ambos lados quedan consistentes.
-        builder.Property(e => e.WeeklySalary).HasPrecision(10, 2).IsRequired();
+        // WeeklySalary YA NO es .IsRequired(): null = sueldo pendiente de captura, un
+        // estado real distinto de "$0" (caso real: importación de catálogo con sueldos
+        // desconocidos en algunas fuentes — nunca se debe inventar el valor).
+        builder.Property(e => e.WeeklySalary).HasPrecision(10, 2);
         builder.Property(e => e.OvertimeHourlyRate).HasPrecision(10, 2);
 
         builder.HasIndex(e => e.BranchId);

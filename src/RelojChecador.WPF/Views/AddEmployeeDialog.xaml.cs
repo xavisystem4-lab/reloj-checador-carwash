@@ -26,8 +26,9 @@ public partial class AddEmployeeDialog : Window
     public DateOnly HireDate { get; private set; }
     public string? Department => string.IsNullOrWhiteSpace(DepartmentTextBox.Text) ? null : DepartmentTextBox.Text.Trim();
     public string? Position => string.IsNullOrWhiteSpace(PositionTextBox.Text) ? null : PositionTextBox.Text.Trim();
-    public decimal WeeklySalary { get; private set; }
+    public decimal? WeeklySalary { get; private set; }
     public decimal? OvertimeHourlyRate { get; private set; }
+    public string? Notes => string.IsNullOrWhiteSpace(NotesTextBox.Text) ? null : NotesTextBox.Text.Trim();
 
     /// <summary>Null si el checkbox "Vincular a un reloj checador ahora" no está marcado —
     /// vincular al dar de alta es opcional.</summary>
@@ -80,11 +81,17 @@ public partial class AddEmployeeDialog : Window
             return;
         }
 
-        if (!decimal.TryParse(WeeklySalaryTextBox.Text.Trim(), NumberStyles.Number, CultureInfo.InvariantCulture, out var weeklySalary)
-            || weeklySalary < 0)
+        // Vacío = sueldo pendiente de captura (null) — nunca se asume $0 en su lugar.
+        decimal? weeklySalary = null;
+        if (!string.IsNullOrWhiteSpace(WeeklySalaryTextBox.Text))
         {
-            ShowError("El sueldo semanal debe ser un número mayor o igual a 0.");
-            return;
+            if (!decimal.TryParse(WeeklySalaryTextBox.Text.Trim(), NumberStyles.Number, CultureInfo.InvariantCulture, out var salary)
+                || salary < 0)
+            {
+                ShowError("El sueldo semanal debe ser un número mayor o igual a 0 (o déjalo vacío si aún no se sabe).");
+                return;
+            }
+            weeklySalary = salary;
         }
 
         decimal? overtimeHourlyRate = null;

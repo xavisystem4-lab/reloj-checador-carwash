@@ -27,12 +27,24 @@ public sealed class Employee : AuditableEntity
     public string? Curp { get; private set; }
     public string? Nss { get; private set; }
 
+    /// <summary>Observaciones libres sobre el empleado — pensado originalmente para
+    /// conservar el origen/las excepciones detectadas al importar un catálogo desde una
+    /// fuente externa (Excel, WhatsApp, etc.) para auditoría futura, pero sirve para
+    /// cualquier nota administrativa.</summary>
+    public string? Notes { get; private set; }
+
     /// <summary>Sueldo fijo por semana completa (lunes a domingo, ver
     /// RelojChecador.Application.Payroll.WeekBoundary) — insumo de nómina sin ningún
     /// cálculo fiscal (ISR/IMSS), a pedido explícito del usuario. No se prorratea por
     /// faltas: eso queda fuera de alcance hasta que existan horarios esperados por
-    /// empleado.</summary>
-    public decimal WeeklySalary { get; private set; }
+    /// empleado.
+    ///
+    /// Nullable a propósito: `null` significa "sueldo todavía no capturado/pendiente de
+    /// confirmar" — NUNCA se asume `0` en su lugar (caso real: importación de un catálogo
+    /// donde varios empleados no tenían el dato disponible en ninguna fuente). Ver
+    /// WorkedHoursCalculator.CalculateWeek para cómo se refleja esto en el cálculo de
+    /// nómina (no se suma como si fuera $0, se advierte explícitamente).</summary>
+    public decimal? WeeklySalary { get; private set; }
 
     /// <summary>Tarifa fija en pesos por hora extra — null si el empleado no tiene horas
     /// extra o el usuario todavía no la capturó. Deliberadamente NO aplica la regla de
@@ -50,7 +62,7 @@ public sealed class Employee : AuditableEntity
         string fullName,
         Guid branchId,
         DateOnly hireDate,
-        decimal weeklySalary,
+        decimal? weeklySalary,
         string? department = null,
         string? position = null,
         decimal? overtimeHourlyRate = null)
@@ -58,7 +70,12 @@ public sealed class Employee : AuditableEntity
         ArgumentNullException.ThrowIfNull(number);
         Guard.AgainstNullOrWhiteSpace(fullName, nameof(fullName));
         Guard.AgainstEmptyGuid(branchId, nameof(branchId));
-        Guard.AgainstNegative(weeklySalary, nameof(weeklySalary));
+        // Guard solo corre si SÍ se capturó un valor — null significa "pendiente", no es
+        // un valor inválido que rechazar (ver comentario de WeeklySalary).
+        if (weeklySalary is not null)
+        {
+            Guard.AgainstNegative(weeklySalary.Value, nameof(weeklySalary));
+        }
         if (overtimeHourlyRate is not null)
         {
             Guard.AgainstNegative(overtimeHourlyRate.Value, nameof(overtimeHourlyRate));
@@ -105,9 +122,12 @@ public sealed class Employee : AuditableEntity
         Touch();
     }
 
-    public void UpdateCompensation(decimal weeklySalary, decimal? overtimeHourlyRate)
+    public void UpdateCompensation(decimal? weeklySalary, decimal? overtimeHourlyRate)
     {
-        Guard.AgainstNegative(weeklySalary, nameof(weeklySalary));
+        if (weeklySalary is not null)
+        {
+            Guard.AgainstNegative(weeklySalary.Value, nameof(weeklySalary));
+        }
         if (overtimeHourlyRate is not null)
         {
             Guard.AgainstNegative(overtimeHourlyRate.Value, nameof(overtimeHourlyRate));
@@ -115,6 +135,15 @@ public sealed class Employee : AuditableEntity
 
         WeeklySalary = weeklySalary;
         OvertimeHourlyRate = overtimeHourlyRate;
+        Touch();
+    }
+
+    /// <summary>Reemplaza las observaciones libres — texto vacío se guarda como
+    /// <c>null</c> (mismo criterio que el resto de campos opcionales de texto, ver
+    /// UpdateFiscalInfo).</summary>
+    public void UpdateNotes(string? notes)
+    {
+        Notes = string.IsNullOrWhiteSpace(notes) ? null : notes.Trim();
         Touch();
     }
 

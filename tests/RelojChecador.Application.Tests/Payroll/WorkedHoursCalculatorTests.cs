@@ -13,7 +13,7 @@ public class WorkedHoursCalculatorTests
         Attendance.Create(
             DeviceId, BranchId, "7", timestampUtc, AttendanceVerifyMethod.Fingerprint, punchType, "raw");
 
-    private static Employee CreateSampleEmployee(decimal weeklySalary = 2500m, decimal? overtimeHourlyRate = null) =>
+    private static Employee CreateSampleEmployee(decimal? weeklySalary = 2500m, decimal? overtimeHourlyRate = null) =>
         Employee.Create(
             EmployeeNumber.Create("0114"), "Ana Torres", Guid.NewGuid(), new DateOnly(2024, 3, 1), weeklySalary,
             overtimeHourlyRate: overtimeHourlyRate);
@@ -234,5 +234,38 @@ public class WorkedHoursCalculatorTests
 
         Assert.Equal(new DateOnly(2026, 8, 10), summary.WeekStart);
         Assert.Equal(new DateOnly(2026, 8, 16), summary.WeekEnd); // domingo
+    }
+
+    // --- Sueldo pendiente de captura (WeeklySalary: null) — caso real que motivó volver
+    // el campo nullable: nunca se debe tratar como $0 en el cálculo de nómina. ---
+
+    [Fact]
+    public void CalculateWeek_ConSueldoSemanalNulo_AdviertaYNoLoSumaComoCero()
+    {
+        var employee = CreateSampleEmployee(weeklySalary: null);
+        var weekStart = new DateOnly(2026, 8, 10);
+
+        var summary = WorkedHoursCalculator.CalculateWeek(employee, weekStart, []);
+
+        Assert.Null(summary.WeeklySalary);
+        Assert.Equal(0m, summary.TotalPay);
+        Assert.Contains(summary.Warnings, w => w.Contains("pendiente de captura"));
+    }
+
+    [Fact]
+    public void CalculateWeek_ConSueldoNuloYHorasExtraConTarifa_TotalPaySoloIncluyeLasHorasExtra()
+    {
+        var employee = CreateSampleEmployee(weeklySalary: null, overtimeHourlyRate: 100m);
+        var weekStart = new DateOnly(2026, 8, 10); // lunes
+        var attendances = new[]
+        {
+            CreateAttendance(new DateTime(2026, 8, 10, 17, 0, 0, DateTimeKind.Utc), punchType: 4),
+            CreateAttendance(new DateTime(2026, 8, 10, 19, 0, 0, DateTimeKind.Utc), punchType: 5),
+        };
+
+        var summary = WorkedHoursCalculator.CalculateWeek(employee, weekStart, attendances);
+
+        Assert.Equal(200m, summary.OvertimePay); // 2h * 100
+        Assert.Equal(200m, summary.TotalPay); // sin sueldo base, solo horas extra
     }
 }

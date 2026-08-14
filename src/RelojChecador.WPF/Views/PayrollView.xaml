@@ -37,7 +37,7 @@
                 <DataGridTextColumn Header="Sucursal" Binding="{Binding BranchName}" Width="120" />
                 <DataGridTextColumn Header="Horas normales" Binding="{Binding RegularTimeText}" Width="100" />
                 <DataGridTextColumn Header="Horas extra" Binding="{Binding OvertimeTimeText}" Width="90" />
-                <DataGridTextColumn Header="Sueldo semanal" Binding="{Binding Summary.WeeklySalary, StringFormat='{}{0:C}'}" Width="110" />
+                <DataGridTextColumn Header="Sueldo semanal" Binding="{Binding WeeklySalaryText}" Width="110" />
                 <DataGridTextColumn Header="Pago horas extra" Binding="{Binding Summary.OvertimePay, StringFormat='{}{0:C}'}" Width="120" />
                 <DataGridTextColumn Header="Total a pagar" Binding="{Binding Summary.TotalPay, StringFormat='{}{0:C}'}" Width="110" />
                 <!-- ISR/IMSS/Otro: capturados a mano (ver "Editar deducciones" más abajo),

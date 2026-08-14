@@ -86,7 +86,19 @@ public static class WorkedHoursCalculator
             }
         }
 
-        var totalPay = employee.WeeklySalary + overtimePay;
+        // Sueldo pendiente de captura (null): NUNCA se trata como $0 — se advierte
+        // explícitamente y el total refleja solo lo que sí se conoce (horas extra), en
+        // vez de disfrazar un dato faltante como si fuera un pago real.
+        decimal totalPay;
+        if (employee.WeeklySalary is null)
+        {
+            warnings.Add("Sueldo semanal pendiente de captura — no se incluyó en el total.");
+            totalPay = overtimePay;
+        }
+        else
+        {
+            totalPay = employee.WeeklySalary.Value + overtimePay;
+        }
 
         return new WeeklyPayrollSummary(
             employee.Id, weekStart, weekStart.AddDays(6), totalRegular, totalOvertime,

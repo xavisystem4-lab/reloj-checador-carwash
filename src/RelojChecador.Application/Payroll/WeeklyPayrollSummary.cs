@@ -11,7 +11,7 @@ public sealed record WeeklyPayrollSummary(
     DateOnly WeekEnd,
     TimeSpan TotalRegularTime,
     TimeSpan TotalOvertimeTime,
-    decimal WeeklySalary,
+    decimal? WeeklySalary,
     decimal? OvertimeHourlyRate,
     decimal OvertimePay,
     decimal TotalPay,

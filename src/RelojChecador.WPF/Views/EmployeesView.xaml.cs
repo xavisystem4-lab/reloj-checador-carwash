@@ -40,12 +40,25 @@ public partial class EmployeesView : UserControl
 
         var error = await viewModel.CreateEmployeeAsync(
             dialog.Number, dialog.FullName, dialog.SelectedBranch.Id, dialog.HireDate, dialog.WeeklySalary, dialog.Department, dialog.Position,
-            dialog.OvertimeHourlyRate, dialog.SelectedDevice?.Id, dialog.DeviceUserPin);
+            dialog.OvertimeHourlyRate, dialog.SelectedDevice?.Id, dialog.DeviceUserPin, dialog.Notes);
 
         if (error is not null)
         {
             MessageBox.Show(Window.GetWindow(this), error, "No se pudo crear el empleado", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
+    }
+
+    private void OnImportEmployeesClick(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not EmployeesViewModel viewModel)
+        {
+            return;
+        }
+
+        // A diferencia de los demás diálogos de esta pantalla, este SÍ recibe el
+        // ViewModel directo — ver comentario de clase de ImportEmployeesDialog.
+        var dialog = new ImportEmployeesDialog(viewModel) { Owner = Window.GetWindow(this) };
+        dialog.ShowDialog();
     }
 
     private async void OnEditEmployeeClick(object sender, RoutedEventArgs e)
@@ -66,7 +79,7 @@ public partial class EmployeesView : UserControl
         var error = await viewModel.UpdateEmployeeAsync(
             row.Employee.Id, dialog.Number, dialog.FullName, dialog.SelectedBranch.Id, dialog.Department, dialog.Position,
             dialog.Phone, dialog.Email, dialog.SelectedStatus, dialog.WeeklySalary, dialog.OvertimeHourlyRate,
-            dialog.SelectedDevice?.Id, dialog.DeviceUserPin);
+            dialog.SelectedDevice?.Id, dialog.DeviceUserPin, dialog.Notes);
 
         if (error is not null)
         {

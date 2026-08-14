@@ -17,7 +17,8 @@
         <TextBlock Grid.Row="1" Text="{Binding StatusMessage}" FontSize="14" Foreground="{DynamicResource BrushTextSecondary}" Margin="0,0,0,12" />
 
         <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,12">
-            <Button Content="+ Nuevo empleado" Style="{StaticResource PrimaryButton}" Click="OnAddEmployeeClick" Margin="0,0,16,0" />
+            <Button Content="+ Nuevo empleado" Style="{StaticResource PrimaryButton}" Click="OnAddEmployeeClick" Margin="0,0,8,0" />
+            <Button Content="⬆ Importar desde CSV" Click="OnImportEmployeesClick" Margin="0,0,16,0" />
             <!-- "Eliminar" es baja lógica (ver EmployeesViewModel.DeleteEmployeeAsync): el
                  empleado se oculta de la lista por defecto, no se borra — este checkbox
                  los vuelve a mostrar sin recargar la base de datos. -->

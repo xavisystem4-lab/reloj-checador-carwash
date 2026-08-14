@@ -278,6 +278,24 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
     confirmado con una consulta a Supabase que la cuenta sí tenía `full_name` guardado)
     se confundía visualmente con "👤 Usuarios" de al lado — ahora muestra "👤 {nombre}"
     explícito y el de administración se renombra a "⚙️ Administrar usuarios".
+- **Importación masiva de empleados desde CSV**, a pedido del usuario tras compartir un
+  catálogo real de 54 empleados (Excel). Análisis previo detectó un límite real del
+  sistema (nunca existió un empleado con sueldo desconocido) y se resolvió volviendo
+  `Employee.WeeklySalary` `decimal?` de verdad en TODO el sistema (dominio, EF, Supabase,
+  `WorkedHoursCalculator`, UI) — `null` significa "pendiente de captura", nunca se suma
+  como `$0`. Nueva propiedad `Employee.Notes` (texto libre) para conservar observaciones
+  de origen en importaciones futuras, para auditoría.
+  - `EmployeeImportParser` (Application, lógica pura sin infraestructura, igual criterio
+    que `WorkedHoursCalculator`): parsea CSV, nunca inventa puesto/sueldo faltante, genera
+    alertas (sueldo pendiente, "SIN PUESTO").
+  - Botón "⬆ Importar desde CSV" en Empleados abre `ImportEmployeesDialog`: vista previa
+    completa (con alertas) antes de cualquier cambio real, resumen de conteos, sucursales
+    nuevas que se crearían — solo entonces se habilita "Importar". Nunca sobreescribe un
+    empleado existente (número duplicado = se omite y se reporta), nunca vincula a un
+    dispositivo (el CSV no trae esa información, se hace después individualmente).
+  - `AddEmployeeDialog`/`EditEmployeeDialog` ganan campo "Notas" y el sueldo semanal pasa
+    a ser opcional (antes obligatorio) — consistentes con la vía masiva.
+  - 20 tests nuevos/actualizados (Domain + Application).
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Navegación completa de la UI (Fase 3 del diseño visual — Sucursales, Empleados,
