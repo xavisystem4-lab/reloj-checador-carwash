@@ -80,16 +80,43 @@ Con esto, solo las cuentas que tú crees manualmente (paso anterior) pueden entr
 
 ## Qué muestra
 
+- **Badge de conexión** en el header (arriba, visible también en móvil sin hacer
+  scroll): "Conectado" en verde si al menos un reloj checador está en vivo (mismo
+  criterio de 5 minutos que la fila de pills por dispositivo, más abajo), "Desconectado"
+  si no.
 - **Filtros**: sucursal, rango de fechas, búsqueda por nombre de empleado o PIN.
 - **KPIs**: marcaciones en el rango, empleados distintos, dispositivos activos,
   marcaciones sin vincular a un empleado.
-- **Tabla**: fecha/hora (en la zona horaria de tu navegador), empleado (o "PIN X · sin
-  vincular" si el dispositivo todavía no tiene un `EmployeeDeviceMapping` para ese PIN),
-  sucursal, dispositivo, método de verificación, tipo (entrada/salida).
+- **Tabla**: fecha/hora, empleado (o "PIN X · sin vincular" si el dispositivo todavía no
+  tiene un `EmployeeDeviceMapping` para ese PIN), sucursal, dispositivo, método de
+  verificación, tipo (entrada/salida).
 - **Exportar CSV** del reporte visible (respeta los filtros aplicados).
-- Se actualiza solo cada 5 segundos mientras la pestaña está abierta (la app de
-  escritorio también sube cada ~5s, así que los datos aparecen aquí casi al instante
-  después de la marcación real).
+- Se actualiza solo cada 30 segundos mientras la pestaña está abierta (la app de
+  escritorio también sube cada ~30s, ver `SupabaseSyncOptions.IntervalSeconds` en el
+  repo principal).
+
+### Zona horaria de `attendances.timestamp_utc` — IMPORTANTE, no es UTC real
+
+A pesar del nombre de la columna, `timestamp_utc` **no** es un instante UTC real: el
+reloj checador entrega su propia hora local (Mexicali) y todo el sistema (app de
+escritorio, SQLite, Supabase) la guarda tal cual, solo etiquetada como UTC sin
+convertirla — decisión deliberada documentada en `Attendance.Create` del repo principal
+("todo el negocio opera en una sola zona horaria, no hay conversión real").
+
+Por eso `app.js` usa `formatAttendanceDateTime()` (con `timeZone: 'UTC'` explícito) en
+vez del `formatDateTime()` normal para mostrar marcaciones: fuerza a que el navegador
+muestre los componentes crudos del valor guardado, **sin** restarle además su propio
+huso horario. Usar `toLocaleString()` sin ese parámetro (como se hacía antes de
+corregir este bug) provoca un doble desfase — la hora ya local del reloj se convierte
+una segunda vez, adelantándose o atrasándose por el offset del navegador (en Mexicali,
+~7 horas). El filtro Desde/Hasta de `loadReport()` tiene el mismo cuidado: construye el
+rango con el string tal cual (`${valor}T00:00:00.000Z`) en vez de pasar por
+`new Date(...).toISOString()`, que también reinterpretaría la fecha como hora local del
+navegador.
+
+`formatDateTime()` (sin sufijo) se conserva para `last_sign_in_at` de Supabase Auth —
+ese sí es un timestamp UTC genuino generado por el servidor, y necesita la conversión
+normal a hora local para mostrarse correctamente.
 
 ## Desplegar cambios
 
