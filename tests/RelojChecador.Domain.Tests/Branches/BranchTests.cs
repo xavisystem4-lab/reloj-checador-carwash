@@ -51,4 +51,22 @@ public class BranchTests
         branch.AssignManager(null);
         Assert.Null(branch.ManagerEmployeeId);
     }
+
+    [Fact]
+    public void ChangeCode_ConValorValido_LoNormalizaAMayusculas()
+    {
+        var branch = Branch.Create("norte", "Sucursal Norte", "America/Tijuana");
+
+        branch.ChangeCode("centro");
+
+        Assert.Equal("CENTRO", branch.Code);
+    }
+
+    [Fact]
+    public void ChangeCode_ConValorVacio_LanzaDomainException()
+    {
+        var branch = Branch.Create("norte", "Sucursal Norte", "America/Tijuana");
+
+        Assert.Throws<DomainException>(() => branch.ChangeCode(""));
+    }
 }

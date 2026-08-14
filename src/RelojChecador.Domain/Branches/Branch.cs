@@ -52,6 +52,17 @@ public sealed class Branch : AuditableEntity
         return branch;
     }
 
+    /// <summary>Corrige el código de una sucursal ya existente — mismo criterio que
+    /// Employee.ChangeNumber: se permite corregir un error de captura del alta. El índice
+    /// único (ver BranchConfiguration) es la protección real contra duplicados; aquí solo
+    /// se valida que no venga vacío.</summary>
+    public void ChangeCode(string code)
+    {
+        Guard.AgainstNullOrWhiteSpace(code, nameof(code));
+        Code = code.Trim().ToUpperInvariant();
+        Touch();
+    }
+
     public void Rename(string name)
     {
         Guard.AgainstNullOrWhiteSpace(name, nameof(name));

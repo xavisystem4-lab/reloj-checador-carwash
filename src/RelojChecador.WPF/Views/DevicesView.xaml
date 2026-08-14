@@ -75,6 +75,7 @@
                     </TextBlock>
 
                     <WrapPanel Margin="0,0,0,12">
+                        <Button Style="{StaticResource ActionButton}" Content="✏️ Editar dispositivo" Click="OnEditDeviceClick" />
                         <Button Style="{StaticResource ActionButton}" Content="Hacer ping" Command="{Binding PingCommand}" />
                         <Button Style="{StaticResource ActionButton}" Content="Probar puerto TCP" Command="{Binding TestPortCommand}" />
                         <Button Style="{StaticResource PrimaryButton}" Margin="0,0,8,8" Content="Conectar" Command="{Binding ConnectCommand}" />

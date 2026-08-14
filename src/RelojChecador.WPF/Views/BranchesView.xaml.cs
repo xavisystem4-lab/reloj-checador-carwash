@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Media;
 using Microsoft.Win32;
+using RelojChecador.Domain.Branches;
 using RelojChecador.WPF.ViewModels;
 
 namespace RelojChecador.WPF.Views;
@@ -35,6 +36,28 @@ public partial class BranchesView : UserControl
         if (error is not null)
         {
             MessageBox.Show(Window.GetWindow(this), error, "No se pudo crear la sucursal", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private async void OnEditBranchClick(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MainViewModel viewModel || (sender as FrameworkElement)?.DataContext is not Branch branch)
+        {
+            return;
+        }
+
+        var dialog = new EditBranchDialog(branch) { Owner = Window.GetWindow(this) };
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        var error = await viewModel.UpdateBranchAsync(
+            dialog.BranchId, dialog.Code, dialog.BranchName, dialog.TimeZoneId, dialog.LegalEntityName, dialog.Address, dialog.IsBranchActive);
+
+        if (error is not null)
+        {
+            MessageBox.Show(Window.GetWindow(this), error, "No se pudo actualizar la sucursal", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
 

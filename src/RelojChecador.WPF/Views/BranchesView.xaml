@@ -41,6 +41,16 @@
                      "Un enlace TwoWay u OneWayToSource no puede funcionar en la propiedad de sólo
                      lectura 'IsActive'" reportado la primera vez que corrió en Windows real. -->
                 <DataGridCheckBoxColumn Header="Activa" Binding="{Binding IsActive, Mode=OneWay}" Width="70" />
+                <DataGridTemplateColumn Header="" Width="90">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <!-- DataContext heredado = la Branch de la fila (mismo patrón
+                                 que EmployeesView/PayrollView) — el handler la lee directo
+                                 sin Tag. -->
+                            <Button Content="Editar" Padding="8,4" FontSize="12" Click="OnEditBranchClick" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
             </DataGrid.Columns>
         </DataGrid>
     </Grid>

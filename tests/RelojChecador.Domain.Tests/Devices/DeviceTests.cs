@@ -75,4 +75,39 @@ public class DeviceTests
         Assert.True(device.Capabilities.HasFlag(DeviceCapabilities.SetDeviceTime));
         Assert.False(device.Capabilities.HasFlag(DeviceCapabilities.ManageUsers));
     }
+
+    [Fact]
+    public void UpdateDetails_ConValoresValidos_ActualizaTodosLosCamposCapturablesAlAlta()
+    {
+        var device = CreateSampleDevice();
+        var newBranchId = Guid.NewGuid();
+
+        device.UpdateDetails("Entrada Trasera", "Zkteco", "iClock 880", newBranchId, "America/Mexico_City", "NEWSERIAL", "AA:BB:CC:DD:EE:FF");
+
+        Assert.Equal("Entrada Trasera", device.Name);
+        Assert.Equal("Zkteco", device.Brand);
+        Assert.Equal("iClock 880", device.Model);
+        Assert.Equal(newBranchId, device.BranchId);
+        Assert.Equal("America/Mexico_City", device.TimeZoneId);
+        Assert.Equal("NEWSERIAL", device.SerialNumber);
+        Assert.Equal("AA:BB:CC:DD:EE:FF", device.MacAddress);
+    }
+
+    [Fact]
+    public void UpdateDetails_ConNombreVacio_LanzaDomainException()
+    {
+        var device = CreateSampleDevice();
+
+        Assert.Throws<DomainException>(() =>
+            device.UpdateDetails("", "ZKTeco", "F22/ID", Guid.NewGuid(), "America/Tijuana", null, null));
+    }
+
+    [Fact]
+    public void UpdateDetails_ConSucursalVacia_LanzaDomainException()
+    {
+        var device = CreateSampleDevice();
+
+        Assert.Throws<DomainException>(() =>
+            device.UpdateDetails("Entrada", "ZKTeco", "F22/ID", Guid.Empty, "America/Tijuana", null, null));
+    }
 }

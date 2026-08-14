@@ -74,6 +74,32 @@ public sealed class Device : AuditableEntity
         return device;
     }
 
+    /// <summary>Corrige los datos capturados al dar de alta el dispositivo (nombre, marca,
+    /// modelo, sucursal, zona horaria, número de serie, MAC) — nunca su identidad de red
+    /// (IP/puerto, ver UpdateNetworkSettings, que se llama aparte) ni su estado de
+    /// comunicación. Permite reasignar BranchId (mover el reloj de sucursal), a diferencia
+    /// de Employee.Number/Branch.Code que son claves de negocio: el Id del dispositivo, no
+    /// su sucursal, es lo que lo identifica en el resto del sistema.</summary>
+    public void UpdateDetails(
+        string name, string brand, string model, Guid branchId, string timeZoneId,
+        string? serialNumber, string? macAddress)
+    {
+        Guard.AgainstNullOrWhiteSpace(name, nameof(name));
+        Guard.AgainstNullOrWhiteSpace(brand, nameof(brand));
+        Guard.AgainstNullOrWhiteSpace(model, nameof(model));
+        Guard.AgainstEmptyGuid(branchId, nameof(branchId));
+        Guard.AgainstNullOrWhiteSpace(timeZoneId, nameof(timeZoneId));
+
+        Name = name.Trim();
+        Brand = brand.Trim();
+        Model = model.Trim();
+        BranchId = branchId;
+        TimeZoneId = timeZoneId.Trim();
+        SerialNumber = serialNumber?.Trim();
+        MacAddress = macAddress?.Trim();
+        Touch();
+    }
+
     public void UpdateNetworkSettings(string ipAddress, int tcpPort)
     {
         Guard.AgainstNullOrWhiteSpace(ipAddress, nameof(ipAddress));

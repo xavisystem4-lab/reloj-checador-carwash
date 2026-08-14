@@ -373,6 +373,58 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>Corrige los datos de un dispositivo ya registrado — siempre opera sobre
+    /// <see cref="SelectedDevice"/> (el botón "Editar dispositivo" vive en el panel de
+    /// diagnóstico del dispositivo seleccionado, no en la lista), así que tras guardar se
+    /// recarga la lista completa y se vuelve a seleccionar el mismo dispositivo por Id —
+    /// mismo patrón de recarga completa que EmployeesViewModel.ReloadAsync. Reasignar
+    /// SelectedDevice dispara OnSelectedDeviceChanged, que reinicia el diagnóstico y corta
+    /// cualquier conexión en curso — correcto a propósito: si se editó la IP/puerto, la
+    /// conexión anterior ya no aplica: el auto-reconnect (15s) la retoma sola.</summary>
+    /// <returns>Un mensaje de error comprensible si algo salió mal, o null si se guardó correctamente.</returns>
+    public async Task<string?> UpdateDeviceAsync(
+        Guid deviceId, string name, string brand, string model, string ipAddress, int tcpPort,
+        Guid branchId, string timeZoneId, string? serialNumber, string? macAddress)
+    {
+        try
+        {
+            var device = await _deviceRepository.GetByIdAsync(deviceId);
+            if (device is null)
+            {
+                return "No se encontró el dispositivo — puede que la lista esté desactualizada. Cierra y vuelve a abrir esta pantalla.";
+            }
+
+            device.UpdateDetails(name, brand, model, branchId, timeZoneId, serialNumber, macAddress);
+            device.UpdateNetworkSettings(ipAddress, tcpPort);
+            await _unitOfWork.SaveChangesAsync();
+
+            var devices = await _deviceRepository.ListAsync();
+            Devices.Clear();
+            foreach (var d in devices)
+            {
+                Devices.Add(d);
+            }
+
+            RefreshStatusMessage();
+            SelectedDevice = Devices.FirstOrDefault(d => d.Id == deviceId) ?? Devices.FirstOrDefault();
+            return null;
+        }
+        catch (DomainException ex)
+        {
+            return ex.Message;
+        }
+        catch (DbUpdateException ex)
+        {
+            Log.Warning(ex, "No se pudo actualizar el dispositivo (DeviceId={DeviceId})", deviceId);
+            return "No se pudo guardar el dispositivo. Verifica los datos e intenta de nuevo.";
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Error inesperado al actualizar el dispositivo {DeviceId}", deviceId);
+            return "Ocurrió un error inesperado al guardar. Revisa el registro de errores.";
+        }
+    }
+
     partial void OnSelectedDeviceChanged(Device? value)
     {
         // Cambiar de dispositivo reinicia el diagnóstico — nunca se hereda el resultado

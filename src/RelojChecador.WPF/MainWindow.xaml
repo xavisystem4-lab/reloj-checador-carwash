@@ -69,14 +69,20 @@
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="{Binding CurrentVersionLabel}" VerticalAlignment="Center"
+                <!-- Pedido explícito del usuario: crédito de desarrollo a la izquierda de
+                     la versión, siempre visible sin importar la pestaña activa (misma
+                     barra de abajo que ya muestra versión/actualización). -->
+                <TextBlock Grid.Column="0" Text="Desarrollado por SoftGala" VerticalAlignment="Center"
+                           Foreground="{DynamicResource BrushTextSecondary}" Margin="0,0,18,0" />
+                <TextBlock Grid.Column="1" Text="{Binding CurrentVersionLabel}" VerticalAlignment="Center"
                            FontWeight="SemiBold" Foreground="{DynamicResource BrushTextSecondary}" Margin="0,0,18,0" />
-                <TextBlock Grid.Column="1" Text="{Binding UpdateStatusMessage}" VerticalAlignment="Center"
+                <TextBlock Grid.Column="2" Text="{Binding UpdateStatusMessage}" VerticalAlignment="Center"
                            Foreground="{DynamicResource BrushTextSecondary}" TextTrimming="CharacterEllipsis" />
-                <Button Grid.Column="2" Content="Actualizar versión" Style="{StaticResource PrimaryButton}"
+                <Button Grid.Column="3" Content="Actualizar versión" Style="{StaticResource PrimaryButton}"
                         Command="{Binding CheckForUpdateCommand}" />
             </Grid>
         </Border>

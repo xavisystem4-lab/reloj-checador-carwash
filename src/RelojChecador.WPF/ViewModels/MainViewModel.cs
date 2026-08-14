@@ -97,6 +97,66 @@ public sealed partial class MainViewModel : ObservableObject
         }
     }
 
+    /// <returns>Un mensaje de error comprensible si algo salió mal, o null si se guardó correctamente.</returns>
+    public async Task<string?> UpdateBranchAsync(
+        Guid branchId, string code, string name, string timeZoneId, string? legalEntityName, string? address, bool isActive)
+    {
+        try
+        {
+            var branch = await _branchRepository.GetByIdAsync(branchId);
+            if (branch is null)
+            {
+                return "No se encontró la sucursal — puede que la lista esté desactualizada. Cierra y vuelve a abrir esta pantalla.";
+            }
+
+            // ChangeCode dispara el índice único (ver catch de abajo) — solo se llama si
+            // de verdad cambió, para no arriesgar el mismo choque al re-guardar sin tocar
+            // el código.
+            if (!string.Equals(branch.Code, code.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                branch.ChangeCode(code);
+            }
+
+            branch.Rename(name);
+            branch.UpdateTimeZone(timeZoneId);
+            branch.UpdateLegalInfo(legalEntityName, address);
+            if (isActive)
+            {
+                branch.Activate();
+            }
+            else
+            {
+                branch.Deactivate();
+            }
+
+            await _unitOfWork.SaveChangesAsync();
+
+            var branches = await _branchRepository.ListAsync();
+            Branches.Clear();
+            foreach (var b in branches)
+            {
+                Branches.Add(b);
+            }
+
+            RefreshStatusMessage();
+            return null;
+        }
+        catch (DomainException ex)
+        {
+            return ex.Message;
+        }
+        catch (DbUpdateException ex)
+        {
+            Log.Warning(ex, "No se pudo actualizar la sucursal, probablemente por código duplicado (BranchId={BranchId}, Code={Code})", branchId, code);
+            return "Ya existe una sucursal con ese código.";
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Error inesperado al actualizar la sucursal (BranchId={BranchId})", branchId);
+            return "Ocurrió un error inesperado al guardar. Revisa el registro de errores.";
+        }
+    }
+
     private void RefreshStatusMessage()
     {
         StatusMessage = Branches.Count == 0

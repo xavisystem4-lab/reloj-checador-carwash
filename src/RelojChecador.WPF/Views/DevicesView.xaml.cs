@@ -45,4 +45,28 @@ public partial class DevicesView : UserControl
             MessageBox.Show(Window.GetWindow(this), error, "No se pudo crear el dispositivo", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
+
+    private async void OnEditDeviceClick(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not DevicesViewModel viewModel || viewModel.SelectedDevice is null)
+        {
+            return;
+        }
+
+        var branches = await viewModel.GetBranchesAsync();
+        var dialog = new EditDeviceDialog(viewModel.SelectedDevice, branches) { Owner = Window.GetWindow(this) };
+        if (dialog.ShowDialog() != true || dialog.SelectedBranch is null)
+        {
+            return;
+        }
+
+        var error = await viewModel.UpdateDeviceAsync(
+            dialog.DeviceId, dialog.DeviceName, dialog.Brand, dialog.Model, dialog.IpAddress, dialog.TcpPort,
+            dialog.SelectedBranch.Id, dialog.SelectedBranch.TimeZoneId, dialog.SerialNumber, dialog.MacAddress);
+
+        if (error is not null)
+        {
+            MessageBox.Show(Window.GetWindow(this), error, "No se pudo actualizar el dispositivo", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
 }

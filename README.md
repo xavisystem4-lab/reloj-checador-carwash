@@ -323,6 +323,22 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   nunca vuelve a recalcular la nómina por escribir en el buscador o cambiar de sucursal.
   El combo de sucursal se reconstruye cada vez que cambia la semana, listando solo las
   sucursales que tienen alguna fila esa semana.
+- **Editar Dispositivos y Sucursales**, a pedido explícito del usuario ("quiero editar mi
+  Dispositivo ya creado y también quiero editar sucursales"). Ambas pantallas solo tenían
+  alta hasta ahora.
+  - `Device.UpdateDetails` (nombre, marca, modelo, sucursal, zona horaria, serie, MAC) +
+    `UpdateNetworkSettings` (ya existía, IP/puerto) — botón "✏️ Editar dispositivo" en el
+    panel de diagnóstico, siempre sobre `SelectedDevice`. Tras guardar se recarga la
+    lista completa y se reselecciona el mismo dispositivo por Id — si estaba conectado,
+    la conexión se reinicia a propósito (la IP/puerto pudo haber cambiado), y el
+    auto-reconnect (15s) la retoma sola.
+  - `Branch.ChangeCode` (nuevo, mismo criterio que `Employee.ChangeNumber`: corrige un
+    error de captura del alta) + `Rename`/`UpdateTimeZone`/`UpdateLegalInfo`/`Activate`/
+    `Deactivate` (ya existían, sin usar hasta ahora) — botón "Editar" por fila en el
+    `DataGrid` de Sucursales, incluye el estatus Activa/Inactiva que el alta no expone.
+  - 5 tests nuevos (Domain).
+- **"Desarrollado por SoftGala"** a la izquierda de la versión, en la barra inferior
+  siempre visible — pedido explícito del usuario.
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Navegación completa de la UI (Fase 3 del diseño visual — Sucursales, Empleados,
