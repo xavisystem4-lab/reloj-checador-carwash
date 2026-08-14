@@ -339,6 +339,16 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   - 5 tests nuevos (Domain).
 - **"Desarrollado por SoftGala"** a la izquierda de la versión, en la barra inferior
   siempre visible — pedido explícito del usuario.
+- **Fix: el estado del dispositivo no llegaba a Supabase de inmediato** — reportado por el
+  usuario con captura ("cada vez que yo cambie los parámetros ya sea de IP, puerto, etc.,
+  este siempre debe actualizar en Supabase y mostrar conectado"): el Dashboard mostraba
+  "Desconectado (hace 8 h)" mientras la app de escritorio ya decía "Conectado (hace 0s)".
+  Causa real: `ConnectAsync`/`DisconnectAsync` (`TryPersistCommunicationResultAsync`) y el
+  nuevo `UpdateDeviceAsync` (editar dispositivo) nunca disparaban
+  `SupabaseSyncBackgroundService.TriggerSyncNowAsync()` — el cambio de estado quedaba
+  esperando hasta el próximo ciclo automático (`IntervalSeconds`), y un "Desconectar"
+  manual ni siquiera tocaba `Device.Status` localmente. Ahora los tres empujan el cambio a
+  Supabase de inmediato, mismo criterio que ya existía para marcaciones nuevas.
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Navegación completa de la UI (Fase 3 del diseño visual — Sucursales, Empleados,

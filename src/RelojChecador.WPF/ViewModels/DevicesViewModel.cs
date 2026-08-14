@@ -380,7 +380,12 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
     /// mismo patrón de recarga completa que EmployeesViewModel.ReloadAsync. Reasignar
     /// SelectedDevice dispara OnSelectedDeviceChanged, que reinicia el diagnóstico y corta
     /// cualquier conexión en curso — correcto a propósito: si se editó la IP/puerto, la
-    /// conexión anterior ya no aplica: el auto-reconnect (15s) la retoma sola.</summary>
+    /// conexión anterior ya no aplica: el auto-reconnect (15s) la retoma sola, y su
+    /// resultado (éxito o fallo) empuja el estado a Supabase de inmediato por su cuenta
+    /// (ver TryPersistCommunicationResultAsync). Aquí se empuja además el cambio de datos
+    /// en sí (nombre/IP/puerto/etc.) sin esperar a que eso ocurra — pedido explícito del
+    /// usuario: "cada vez que yo cambie los parámetros... este siempre debe actualizar en
+    /// Supabase", no solo cuando además se reconecta con éxito.</summary>
     /// <returns>Un mensaje de error comprensible si algo salió mal, o null si se guardó correctamente.</returns>
     public async Task<string?> UpdateDeviceAsync(
         Guid deviceId, string name, string brand, string model, string ipAddress, int tcpPort,
@@ -397,6 +402,7 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
             device.UpdateDetails(name, brand, model, branchId, timeZoneId, serialNumber, macAddress);
             device.UpdateNetworkSettings(ipAddress, tcpPort);
             await _unitOfWork.SaveChangesAsync();
+            await _syncService.TriggerSyncNowAsync();
 
             var devices = await _deviceRepository.ListAsync();
             Devices.Clear();
@@ -554,7 +560,15 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
     /// SelectedDevice ya está bajo seguimiento de EF Core (viene de _deviceRepository.ListAsync(),
     /// sin AsNoTracking), así que no hace falta un método "UpdateAsync" aparte. Nunca deja
     /// que un fallo al guardar tumbe la pantalla — es un detalle de estado, no algo que
-    /// deba interrumpir al usuario si falla.</summary>
+    /// deba interrumpir al usuario si falla.
+    ///
+    /// Tras guardar, empuja el cambio a Supabase de inmediato (TriggerSyncNowAsync) — pedido
+    /// explícito del usuario ("cada vez que yo cambie los parámetros... este siempre debe
+    /// actualizar en Supabase y mostrar conectado"): reportó ver el Dashboard mostrando
+    /// "Desconectado (hace 8h)" mientras la app de escritorio ya estaba "Conectado (hace 0s)".
+    /// Antes había que esperar hasta IntervalSeconds (el ciclo automático) para que el
+    /// Dashboard reflejara un Conectar/Desconectar/reconexión real; ahora es casi al
+    /// instante, igual criterio que PersistAndTriggerSyncAsync para marcaciones nuevas.</summary>
     private async Task TryPersistCommunicationResultAsync(bool succeeded)
     {
         var device = SelectedDevice;
@@ -575,6 +589,7 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
             }
 
             await _unitOfWork.SaveChangesAsync();
+            await _syncService.TriggerSyncNowAsync();
         }
         catch (Exception ex)
         {
@@ -594,6 +609,12 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         await _deviceAdapter.DisconnectAsync();
         IsConnected = false;
         AppendLog("Desconectado del dispositivo.");
+
+        // Antes esto no tocaba Device.Status ni la nube — un "Desconectar" manual dejaba a
+        // Supabase (y por lo tanto al Dashboard) mostrando "Conectado" indefinidamente hasta
+        // el siguiente fallo de reconexión automática. Reutiliza el mismo helper que
+        // ConnectAsync para que el Dashboard refleje el desconecte manual de inmediato.
+        await TryPersistCommunicationResultAsync(succeeded: false);
     }
 
     [RelayCommand]
