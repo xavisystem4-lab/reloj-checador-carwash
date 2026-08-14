@@ -9,6 +9,7 @@ using RelojChecador.Application.EmployeeDeviceMappings;
 using RelojChecador.Application.Employees;
 using RelojChecador.Domain.Attendances;
 using RelojChecador.Domain.Branches;
+using RelojChecador.WPF.Converters;
 using Serilog;
 
 namespace RelojChecador.WPF.ViewModels;
@@ -192,4 +193,38 @@ public sealed partial class AttendanceViewModel : ObservableObject
             ? $"{filtered.Count} marcación(es) encontrada(s) ({unresolvedCount} sin vincular a empleado)."
             : $"{filtered.Count} marcación(es) encontrada(s).";
     }
+
+    /// <summary>Arma el CSV de lo que está mostrando el DataGrid ahora mismo (Attendances,
+    /// ya con el filtro de texto aplicado) — mismas columnas y traducciones que el CSV del
+    /// Dashboard web (dashboard/app.js, onExportClick), para que abra igual en Excel sin
+    /// importar desde cuál de los dos se generó. Devuelve solo texto: el diálogo de
+    /// "Guardar como" y la escritura a disco los maneja AttendanceView (el ViewModel no
+    /// conoce tipos de WPF).</summary>
+    public string BuildCsv()
+    {
+        var header = new[] { "Fecha y hora", "Empleado", "PIN", "Sucursal", "Dispositivo", "Método", "Tipo" };
+        var lines = new List<string> { string.Join(",", header.Select(CsvEscape)) };
+
+        foreach (var row in Attendances)
+        {
+            var fields = new[]
+            {
+                row.Attendance.TimestampUtc.ToString("dd/MM/yyyy HH:mm:ss", CultureInfo.InvariantCulture),
+                row.EmployeeName ?? "(sin vincular)",
+                row.Attendance.DeviceUserPin,
+                row.BranchName,
+                row.DeviceName,
+                VerifyMethodToTextConverter.Describe(row.Attendance.VerifyMethod),
+                PunchTypeToTextConverter.Describe(row.Attendance.PunchType),
+            };
+            lines.Add(string.Join(",", fields.Select(CsvEscape)));
+        }
+
+        return string.Join("\r\n", lines);
+    }
+
+    private static string CsvEscape(string value) =>
+        value.IndexOfAny([',', '"', '\r', '\n']) >= 0
+            ? $"\"{value.Replace("\"", "\"\"")}\""
+            : value;
 }

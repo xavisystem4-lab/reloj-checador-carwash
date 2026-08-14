@@ -12,17 +12,17 @@ namespace RelojChecador.WPF.Converters;
 public sealed class PunchTypeToTextConverter : IValueConverter
 {
     public object Convert(object? value, Type targetType, object parameter, CultureInfo culture) =>
-        value switch
-        {
-            int punchType => Describe(punchType),
-            _ => "—",
-        };
+        Describe(value as int?);
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) =>
         throw new NotSupportedException();
 
-    private static string Describe(int punchType) => punchType switch
+    /// <summary>Público para que AttendanceViewModel.BuildCsv use la misma traducción que
+    /// ve la pantalla, en vez de duplicarla — el ViewModel no puede depender de
+    /// IValueConverter (tipo de WPF), pero sí de este método estático.</summary>
+    public static string Describe(int? punchType) => punchType switch
     {
+        null => "—",
         0 => "Entrada",
         1 => "Salida",
         2 => "Salida a descanso",

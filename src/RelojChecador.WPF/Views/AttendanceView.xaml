@@ -40,8 +40,9 @@
                 <TextBlock Text="Buscar empleado o PIN" FontSize="12" FontWeight="SemiBold" Margin="0,0,0,2" />
                 <TextBox Width="220" Padding="4" Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
             </StackPanel>
-            <StackPanel Margin="0,0,0,10" VerticalAlignment="Bottom">
-                <Button Content="Actualizar" Style="{StaticResource PrimaryButton}" Click="OnRefreshClick" />
+            <StackPanel Margin="0,0,0,10" VerticalAlignment="Bottom" Orientation="Horizontal">
+                <Button Content="Actualizar" Style="{StaticResource PrimaryButton}" Click="OnRefreshClick" Margin="0,0,8,0" />
+                <Button Content="⬇ Exportar CSV" Click="OnExportCsvClick" />
             </StackPanel>
         </WrapPanel>
 

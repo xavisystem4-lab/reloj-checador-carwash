@@ -20,7 +20,10 @@ public sealed class VerifyMethodToTextConverter : IValueConverter
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) =>
         throw new NotSupportedException();
 
-    private static string Describe(AttendanceVerifyMethod method) => method switch
+    /// <summary>Público para que AttendanceViewModel.BuildCsv use la misma traducción que
+    /// ve la pantalla, en vez de duplicarla — el ViewModel no puede depender de
+    /// IValueConverter (tipo de WPF), pero sí de este método estático.</summary>
+    public static string Describe(AttendanceVerifyMethod method) => method switch
     {
         AttendanceVerifyMethod.Fingerprint => "Huella",
         AttendanceVerifyMethod.Password => "Contraseña",
