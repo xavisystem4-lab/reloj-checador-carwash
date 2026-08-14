@@ -102,4 +102,31 @@ public partial class EmployeesView : UserControl
             MessageBox.Show(Window.GetWindow(this), error, "No se pudo vincular el empleado", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
+
+    private async void OnDeleteEmployeeClick(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not EmployeesViewModel viewModel || (sender as FrameworkElement)?.DataContext is not EmployeeRow row)
+        {
+            return;
+        }
+
+        // Baja lógica (ver EmployeesViewModel.DeleteEmployeeAsync): el registro y su
+        // historial se conservan, solo se oculta de la lista por defecto — el texto de
+        // confirmación lo deja claro para que nadie lo confunda con un borrado real.
+        var confirmed = MessageBox.Show(
+            Window.GetWindow(this),
+            $"¿Dar de baja a \"{row.Employee.FullName}\"? Se oculta de la lista, pero su historial de asistencias y vínculos se conserva — puedes volver a verlo marcando \"Mostrar dados de baja\".",
+            "Dar de baja al empleado", MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (confirmed != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        var error = await viewModel.DeleteEmployeeAsync(row.Employee.Id);
+
+        if (error is not null)
+        {
+            MessageBox.Show(Window.GetWindow(this), error, "No se pudo dar de baja al empleado", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
 }

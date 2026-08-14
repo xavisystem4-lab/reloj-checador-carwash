@@ -26,7 +26,9 @@ namespace RelojChecador.WPF.ViewModels;
 public sealed record EmployeeRow(Employee Employee, string BranchName, string LinkedDevicesSummary);
 
 /// <summary>
-/// ViewModel de la pantalla de Empleados: alta, edición y listado (Fase 3), más el vínculo
+/// ViewModel de la pantalla de Empleados: alta, edición, baja lógica ("eliminar" =
+/// ChangeStatus a Terminated, nunca se borra el registro — ver DeleteEmployeeAsync) y
+/// listado (Fase 3), más el vínculo
 /// Empleado↔Dispositivo (EmployeeDeviceMapping) — asocia el PIN interno que cada reloj usa
 /// para reconocer a un empleado, prerequisito para que una futura pantalla de Asistencia
 /// pueda mostrar nombres en vez de PINs crudos. El PIN se captura a mano en el diálogo
@@ -53,8 +55,18 @@ public sealed partial class EmployeesViewModel : ObservableObject
     private readonly IAttendanceRepository _attendanceRepository;
     private readonly IUnitOfWork _unitOfWork;
 
+    private IReadOnlyList<EmployeeRow> _allRows = [];
+
     [ObservableProperty]
     private string _statusMessage = "Cargando empleados...";
+
+    /// <summary>"Eliminar" un empleado es una baja lógica (ChangeStatus a Terminated, ver
+    /// DeleteEmployeeAsync) — nunca se borra el registro ni su historial. Por defecto los
+    /// dados de baja se ocultan de la lista; este toggle los vuelve a mostrar sin
+    /// necesidad de recargar la base de datos otra vez (filtra en memoria sobre
+    /// _allRows).</summary>
+    [ObservableProperty]
+    private bool _showTerminatedEmployees;
 
     public ObservableCollection<EmployeeRow> Employees { get; } = [];
 
@@ -100,13 +112,26 @@ public sealed partial class EmployeesViewModel : ObservableObject
         var branchNamesById = branches.ToDictionary(b => b.Id, b => b.Name);
         var deviceNamesById = devices.ToDictionary(d => d.Id, d => d.Name);
 
+        _allRows = employees.Select(employee => BuildRow(employee, branchNamesById, deviceNamesById, mappings)).ToList();
+        ApplyVisibilityFilter();
+    }
+
+    partial void OnShowTerminatedEmployeesChanged(bool value) => ApplyVisibilityFilter();
+
+    private void ApplyVisibilityFilter()
+    {
+        var visible = ShowTerminatedEmployees
+            ? _allRows
+            : _allRows.Where(row => row.Employee.Status != EmploymentStatus.Terminated).ToList();
+
         Employees.Clear();
-        foreach (var employee in employees)
+        foreach (var row in visible)
         {
-            Employees.Add(BuildRow(employee, branchNamesById, deviceNamesById, mappings));
+            Employees.Add(row);
         }
 
-        RefreshStatusMessage();
+        var hiddenCount = _allRows.Count - visible.Count;
+        RefreshStatusMessage(hiddenCount);
     }
 
     private static EmployeeRow BuildRow(
@@ -221,8 +246,8 @@ public sealed partial class EmployeesViewModel : ObservableObject
             if (employee is null)
             {
                 // No debería pasar en uso normal (la fila viene de una lista ya cargada de
-                // la misma base), pero cubre la carrera de que alguien más lo haya borrado
-                // — hoy imposible desde la UI (no hay eliminar empleados), pero defensivo.
+                // la misma base), pero es defensivo: "eliminar" es baja lógica (ver
+                // DeleteEmployeeAsync), el registro nunca se borra de verdad.
                 return "No se encontró el empleado — puede que la lista esté desactualizada. Cierra y vuelve a abrir esta pantalla.";
             }
 
@@ -312,10 +337,41 @@ public sealed partial class EmployeesViewModel : ObservableObject
         }
     }
 
-    private void RefreshStatusMessage()
+    private void RefreshStatusMessage(int hiddenCount)
     {
-        StatusMessage = Employees.Count == 0
-            ? "Aún no hay empleados registrados."
+        if (Employees.Count == 0 && hiddenCount == 0)
+        {
+            StatusMessage = "Aún no hay empleados registrados.";
+            return;
+        }
+
+        StatusMessage = hiddenCount > 0
+            ? $"{Employees.Count} empleado(s) registrado(s) en la base local ({hiddenCount} dado(s) de baja oculto(s))."
             : $"{Employees.Count} empleado(s) registrado(s) en la base local.";
+    }
+
+    /// <returns>Un mensaje de error comprensible si algo salió mal, o null si se guardó correctamente.</returns>
+    public async Task<string?> DeleteEmployeeAsync(Guid employeeId)
+    {
+        try
+        {
+            var employee = await _employeeRepository.GetByIdAsync(employeeId);
+            if (employee is null)
+            {
+                return "No se encontró el empleado — puede que la lista esté desactualizada. Cierra y vuelve a abrir esta pantalla.";
+            }
+
+            // Baja lógica, no borrado físico: Employee conserva su historial (marcaciones,
+            // vínculos a dispositivos) para consultas futuras — ver comentario de clase.
+            employee.ChangeStatus(EmploymentStatus.Terminated);
+            await _unitOfWork.SaveChangesAsync();
+            await ReloadAsync();
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Error inesperado al dar de baja un empleado (EmployeeId={EmployeeId})", employeeId);
+            return "Ocurrió un error inesperado al guardar. Revisa el registro de errores.";
+        }
     }
 }

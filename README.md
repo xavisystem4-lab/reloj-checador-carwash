@@ -128,6 +128,9 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   dispositivo+PIN que hubieran llegado antes (usa `Attendance.ReconcileEmployee`, ya
   existía en el dominio sin que nada lo invocara). Última pantalla del menú de Fase 3;
   Reportes queda para Fases 5-6
+- Eliminar empleados: baja lógica (`ChangeStatus` a `Terminated`), nunca borra el registro
+  ni su historial — se oculta de la lista por defecto, con un checkbox "Mostrar dados de
+  baja" para volver a verlos
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Confirmar el login real del Dashboard (requiere que el usuario cree su primera cuenta
@@ -135,8 +138,8 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   automáticamente desde aquí)
 - Navegación completa de la UI (Fase 3 del diseño visual — Sucursales, Empleados,
   Dispositivos y Asistencia ya existen; falta el resto de secciones finales) — **en curso**
-- Eliminar empleados, y exportar CSV desde la app de escritorio (el Dashboard web ya lo
-  tiene) — mejoras pendientes, no bloquean nada
+- Exportar CSV desde la app de escritorio (el Dashboard web ya lo tiene) — mejora
+  pendiente, no bloquea nada
 - Reportes, auditoría, incidencias, nómina (Fases 5-6)
 - Razón social real y logotipo/icono para el instalador y la app
 
