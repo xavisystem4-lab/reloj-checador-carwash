@@ -7,6 +7,7 @@ using RelojChecador.Application.Devices;
 using RelojChecador.Application.EmployeeDeviceMappings;
 using RelojChecador.Application.Employees;
 using RelojChecador.Application.Identity;
+using RelojChecador.Application.Payroll;
 using RelojChecador.Application.Sync;
 using RelojChecador.Infrastructure.Cloud.Dtos;
 
@@ -162,6 +163,10 @@ public sealed class SupabaseSyncBackgroundService(
         await PushFullTableAsync(restClient, "app_users",
             (await services.GetRequiredService<IUserRepository>().ListAsync(cancellationToken))
                 .Select(AppUserDto.FromDomain).ToList(), failures, cancellationToken);
+
+        await PushFullTableAsync(restClient, "payroll_deductions",
+            (await services.GetRequiredService<IPayrollDeductionRepository>().ListAsync(cancellationToken))
+                .Select(PayrollDeductionDto.FromDomain).ToList(), failures, cancellationToken);
 
         await PushAttendancesIncrementalAsync(restClient, services, failures, cancellationToken);
 

@@ -6,6 +6,7 @@ using RelojChecador.Domain.Devices;
 using RelojChecador.Domain.EmployeeDeviceMappings;
 using RelojChecador.Domain.Employees;
 using RelojChecador.Domain.Identity;
+using RelojChecador.Domain.Payroll;
 using RelojChecador.Infrastructure.Data.Sync;
 
 namespace RelojChecador.Infrastructure.Data;
@@ -27,6 +28,7 @@ public sealed class RelojChecadorDbContext : DbContext, IUnitOfWork
     public DbSet<EmployeeDeviceMapping> EmployeeDeviceMappings => Set<EmployeeDeviceMapping>();
     public DbSet<User> Users => Set<User>();
     public DbSet<Attendance> Attendances => Set<Attendance>();
+    public DbSet<PayrollDeduction> PayrollDeductions => Set<PayrollDeduction>();
     public DbSet<SyncCursorRecord> SyncCursors => Set<SyncCursorRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)

@@ -55,4 +55,31 @@ public partial class PayrollView : UserControl
                 "No se pudo exportar", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
+
+    /// <summary>Mismo patrón que EmployeesView.OnEditMappingsClick: el DataContext del
+    /// botón (heredado de la plantilla de celda) ya es el PayrollRow de la fila.</summary>
+    private async void OnEditDeductionsClick(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not PayrollViewModel viewModel || (sender as FrameworkElement)?.DataContext is not PayrollRow row)
+        {
+            return;
+        }
+
+        var dialog = new EditPayrollDeductionsDialog(row.EmployeeName, viewModel.WeekRangeText, row.Deductions)
+        {
+            Owner = Window.GetWindow(this),
+        };
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        var error = await viewModel.UpdateDeductionsAsync(
+            row.Summary.EmployeeId, dialog.IsrAmount, dialog.ImssAmount, dialog.OtherAmount, dialog.OtherLabel, dialog.Notes);
+
+        if (error is not null)
+        {
+            MessageBox.Show(Window.GetWindow(this), error, "No se pudieron guardar las deducciones", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
 }

@@ -244,6 +244,19 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   los tres caminos: botón manual, este timer, y la solicitud remota) gana una guardia de
   reentrancia (`_isDownloading`) — con descargas disparándose cada 10s, es real que dos
   caminos coincidan si el dispositivo tarda en responder.
+- **Deducciones de nómina (ISR/IMSS/otro) — captura 100% MANUAL, nunca calculada.** El
+  usuario pidió avanzar con el cálculo fiscal, pero al preguntarle por el régimen y las
+  tablas a usar fue explícito: nada de eso, todo se captura a mano. Nueva entidad
+  `PayrollDeduction` (una fila por `(EmployeeId, WeekStart)`, nunca recurrente — ISR/IMSS
+  varían cada semana según lo devengado) con tres montos (`IsrAmount`/`ImssAmount`/
+  `OtherAmount`, este último con una etiqueta libre para INFONAVIT/préstamos/faltas/etc.).
+  En Reportes: botón "Editar deducciones" por fila (mismo patrón que "Editar vínculo(s)"
+  en Empleados) abre un diálogo para capturarlas; la tabla muestra ISR/IMSS/Otro/Neto a
+  pagar (`TotalPay` menos las tres deducciones, sin impedir que salga negativo — es el
+  usuario quien capturó los montos). Se sincroniza a Supabase igual que el resto del
+  dominio (`payroll_deductions`, solo lectura para `authenticated`) — deja la puerta
+  abierta, barata, para una futura UI de nómina en el Dashboard, que NO se construye en
+  esta entrega. 10 tests nuevos (Domain + repositorio EF).
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Confirmar el login real del Dashboard (requiere que el usuario cree su primera cuenta
@@ -253,8 +266,10 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   Dispositivos, Asistencia y Reportes ya existen; falta el resto de secciones finales)
 - Confirmar contra hardware real el significado de `PunchType` 2/3 (descansos) — hoy
   especulativo, ver `WorkedHoursCalculator`
-- Cálculo fiscal de nómina (ISR, IMSS), auditoría, incidencias — resto de Fases 5-6, fuera
-  de alcance hasta confirmar las tablas y reglas vigentes
+- Cálculo AUTOMÁTICO de ISR/IMSS — descartado explícitamente por el usuario (ver "Hecho":
+  la captura MANUAL de estos montos ya existe). Solo se retomaría si el usuario pide
+  cálculo automático y aporta las tablas/reglas vigentes que quiere aplicar
+- Incidencias de nómina (faltas, permisos, vacaciones) — resto de Fases 5-6
 - Razón social real y logotipo/icono para el instalador y la app
 
 ## Convenciones

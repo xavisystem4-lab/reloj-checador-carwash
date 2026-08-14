@@ -4,6 +4,7 @@ using RelojChecador.Domain.Devices;
 using RelojChecador.Domain.EmployeeDeviceMappings;
 using RelojChecador.Domain.Employees;
 using RelojChecador.Domain.Identity;
+using RelojChecador.Domain.Payroll;
 
 namespace RelojChecador.Infrastructure.Cloud.Dtos;
 
@@ -74,4 +75,14 @@ public sealed record AppUserDto(
     public static AppUserDto FromDomain(User user) => new(
         user.Id, user.Username, user.FullName, user.Email, user.Role.ToString(), user.IsActive,
         [.. user.BranchIds], user.CreatedAtUtc, user.UpdatedAtUtc, user.ConcurrencyToken);
+}
+
+public sealed record PayrollDeductionDto(
+    Guid Id, Guid EmployeeId, DateOnly WeekStart, decimal IsrAmount, decimal ImssAmount, decimal OtherAmount,
+    string? OtherLabel, string? Notes, DateTime CreatedAtUtc, DateTime UpdatedAtUtc, Guid ConcurrencyToken)
+{
+    public static PayrollDeductionDto FromDomain(PayrollDeduction deduction) => new(
+        deduction.Id, deduction.EmployeeId, deduction.WeekStart, deduction.IsrAmount, deduction.ImssAmount,
+        deduction.OtherAmount, deduction.OtherLabel, deduction.Notes,
+        deduction.CreatedAtUtc, deduction.UpdatedAtUtc, deduction.ConcurrencyToken);
 }

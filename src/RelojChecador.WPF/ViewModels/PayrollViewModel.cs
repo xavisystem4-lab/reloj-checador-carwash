@@ -4,18 +4,34 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using RelojChecador.Application.Attendances;
 using RelojChecador.Application.Branches;
+using RelojChecador.Application.Common;
 using RelojChecador.Application.EmployeeDeviceMappings;
 using RelojChecador.Application.Employees;
 using RelojChecador.Application.Payroll;
 using RelojChecador.Domain.Attendances;
+using RelojChecador.Domain.Common;
 using RelojChecador.Domain.Employees;
+using RelojChecador.Domain.Payroll;
 using Serilog;
 
 namespace RelojChecador.WPF.ViewModels;
 
+/// <summary>Montos de deducción de un empleado en la semana actual — forma de UI, no de
+/// dominio (mismo criterio que <c>EmployeeMappingInfo</c> en EmployeesViewModel). "Empty"
+/// representa "sin nada capturado todavía esa semana", no "se capturaron ceros".</summary>
+public sealed record PayrollDeductionValues(decimal IsrAmount, decimal ImssAmount, decimal OtherAmount, string? OtherLabel, string? Notes)
+{
+    public static readonly PayrollDeductionValues Empty = new(0m, 0m, 0m, null, null);
+
+    public static PayrollDeductionValues FromDomain(PayrollDeduction deduction) =>
+        new(deduction.IsrAmount, deduction.ImssAmount, deduction.OtherAmount, deduction.OtherLabel, deduction.Notes);
+}
+
 /// <summary>Una fila del reporte: el resultado de <see cref="WorkedHoursCalculator.CalculateWeek"/>
-/// para un empleado, con su nombre y sucursal ya resueltos.</summary>
-public sealed record PayrollRow(WeeklyPayrollSummary Summary, string EmployeeName, string BranchName)
+/// para un empleado, con su nombre y sucursal ya resueltos, más las deducciones (ISR/IMSS/
+/// otro) capturadas manualmente para esa semana — ver comentario de clase de
+/// <see cref="PayrollDeduction"/> sobre por qué el sistema nunca las calcula.</summary>
+public sealed record PayrollRow(WeeklyPayrollSummary Summary, string EmployeeName, string BranchName, PayrollDeductionValues Deductions)
 {
     public bool HasWarnings => Summary.Warnings.Count > 0;
     public string WarningsText => string.Join(" | ", Summary.Warnings);
@@ -24,6 +40,11 @@ public sealed record PayrollRow(WeeklyPayrollSummary Summary, string EmployeeNam
     // 0-23 y separa los días aparte, y aquí puede haber más de 24h sumadas en la semana.
     public string RegularTimeText => FormatHoursAndMinutes(Summary.TotalRegularTime);
     public string OvertimeTimeText => FormatHoursAndMinutes(Summary.TotalOvertimeTime);
+
+    /// <summary>Bruto (Summary.TotalPay) menos las tres deducciones capturadas a mano —
+    /// nunca se impide que salga negativo: el usuario capturó los montos, no hay nada que
+    /// la app deba "corregir" aquí.</summary>
+    public decimal NetPay => Summary.TotalPay - Deductions.IsrAmount - Deductions.ImssAmount - Deductions.OtherAmount;
 
     private static string FormatHoursAndMinutes(TimeSpan span) => $"{(int)span.TotalHours}:{span.Minutes:00}";
 }
@@ -52,6 +73,8 @@ public sealed partial class PayrollViewModel : ObservableObject
     private readonly IBranchRepository _branchRepository;
     private readonly IEmployeeDeviceMappingRepository _mappingRepository;
     private readonly IAttendanceRepository _attendanceRepository;
+    private readonly IPayrollDeductionRepository _deductionRepository;
+    private readonly IUnitOfWork _unitOfWork;
 
     private DateOnly _weekStart;
 
@@ -65,12 +88,15 @@ public sealed partial class PayrollViewModel : ObservableObject
 
     public PayrollViewModel(
         IEmployeeRepository employeeRepository, IBranchRepository branchRepository,
-        IEmployeeDeviceMappingRepository mappingRepository, IAttendanceRepository attendanceRepository)
+        IEmployeeDeviceMappingRepository mappingRepository, IAttendanceRepository attendanceRepository,
+        IPayrollDeductionRepository deductionRepository, IUnitOfWork unitOfWork)
     {
         _employeeRepository = employeeRepository;
         _branchRepository = branchRepository;
         _mappingRepository = mappingRepository;
         _attendanceRepository = attendanceRepository;
+        _deductionRepository = deductionRepository;
+        _unitOfWork = unitOfWork;
         _weekStart = WeekBoundary.GetWeekStart(DateOnly.FromDateTime(DateTime.Now));
     }
 
@@ -93,6 +119,41 @@ public sealed partial class PayrollViewModel : ObservableObject
     [RelayCommand]
     private async Task RefreshAsync() => await LoadAsync();
 
+    /// <summary>Guarda las deducciones (ISR/IMSS/Otro) de un empleado para la semana
+    /// actualmente mostrada — busca-o-crea la fila de esa semana (nunca crea una segunda
+    /// fila para "corregir" un monto ya capturado, ver PayrollDeduction.UpdateAmounts) y
+    /// recarga la tabla para reflejar el cambio (incluye el "Neto a pagar" recalculado).
+    /// Mismo patrón try/catch que EmployeesViewModel.UpdateMappingPinsAsync.</summary>
+    /// <returns>Un mensaje de error comprensible si algo salió mal, o null si se guardó correctamente.</returns>
+    public async Task<string?> UpdateDeductionsAsync(
+        Guid employeeId, decimal isrAmount, decimal imssAmount, decimal otherAmount, string? otherLabel, string? notes)
+    {
+        try
+        {
+            var deduction = await _deductionRepository.GetByEmployeeAndWeekAsync(employeeId, _weekStart);
+            if (deduction is null)
+            {
+                deduction = PayrollDeduction.Create(employeeId, _weekStart);
+                await _deductionRepository.AddAsync(deduction);
+            }
+
+            deduction.UpdateAmounts(isrAmount, imssAmount, otherAmount, otherLabel, notes);
+            await _unitOfWork.SaveChangesAsync();
+            await LoadAsync();
+            return null;
+        }
+        catch (DomainException ex)
+        {
+            return ex.Message;
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "No se pudieron guardar las deducciones de nómina (EmployeeId={EmployeeId}, WeekStart={WeekStart}).",
+                employeeId, _weekStart);
+            return "Ocurrió un error inesperado al guardar. Revisa el registro de errores.";
+        }
+    }
+
     private async Task LoadAsync()
     {
         var weekEnd = WeekBoundary.GetWeekEnd(_weekStart);
@@ -111,10 +172,12 @@ public sealed partial class PayrollViewModel : ObservableObject
             var branches = await _branchRepository.ListAsync();
             var mappings = await _mappingRepository.ListAsync();
             var attendances = await _attendanceRepository.ListAsync(fromUtc, toUtc, MaxAttendances);
+            var deductions = await _deductionRepository.ListByWeekAsync(_weekStart);
 
             var branchNamesById = branches.ToDictionary(b => b.Id, b => b.Name);
             var employeeIdByDeviceAndPin = mappings.ToDictionary(m => (m.DeviceId, m.DeviceUserPin), m => m.EmployeeId);
             var attendancesByEmployeeId = GroupByResolvedEmployee(attendances, employeeIdByDeviceAndPin);
+            var deductionsByEmployeeId = deductions.ToDictionary(d => d.EmployeeId, PayrollDeductionValues.FromDomain);
 
             var rows = new List<PayrollRow>();
             foreach (var employee in activeEmployees)
@@ -124,7 +187,8 @@ public sealed partial class PayrollViewModel : ObservableObject
                     : [];
                 var summary = WorkedHoursCalculator.CalculateWeek(employee, _weekStart, employeeAttendances);
                 var branchName = branchNamesById.TryGetValue(employee.BranchId, out var name) ? name : "(sucursal desconocida)";
-                rows.Add(new PayrollRow(summary, employee.FullName, branchName));
+                var deductionValues = deductionsByEmployeeId.TryGetValue(employee.Id, out var dv) ? dv : PayrollDeductionValues.Empty;
+                rows.Add(new PayrollRow(summary, employee.FullName, branchName, deductionValues));
             }
 
             PayrollRows.Clear();
@@ -176,7 +240,8 @@ public sealed partial class PayrollViewModel : ObservableObject
         var header = new[]
         {
             "Empleado", "Sucursal", "Horas normales", "Horas extra", "Sueldo semanal",
-            "Pago horas extra", "Total a pagar", "Advertencias",
+            "Pago horas extra", "Total a pagar", "ISR", "IMSS", "Otro (monto)", "Otro (concepto)",
+            "Neto a pagar", "Notas de deducciones", "Advertencias",
         };
         var lines = new List<string> { string.Join(",", header.Select(CsvEscape)) };
 
@@ -191,6 +256,12 @@ public sealed partial class PayrollViewModel : ObservableObject
                 row.Summary.WeeklySalary.ToString("0.00"),
                 row.Summary.OvertimePay.ToString("0.00"),
                 row.Summary.TotalPay.ToString("0.00"),
+                row.Deductions.IsrAmount.ToString("0.00"),
+                row.Deductions.ImssAmount.ToString("0.00"),
+                row.Deductions.OtherAmount.ToString("0.00"),
+                row.Deductions.OtherLabel ?? "",
+                row.NetPay.ToString("0.00"),
+                row.Deductions.Notes ?? "",
                 row.WarningsText,
             };
             lines.Add(string.Join(",", fields.Select(CsvEscape)));
