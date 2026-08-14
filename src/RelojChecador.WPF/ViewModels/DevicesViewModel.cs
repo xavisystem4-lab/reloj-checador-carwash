@@ -8,10 +8,14 @@ using RelojChecador.Application.Attendances;
 using RelojChecador.Application.Branches;
 using RelojChecador.Application.Common;
 using RelojChecador.Application.Devices;
+using RelojChecador.Application.EmployeeDeviceMappings;
+using RelojChecador.Application.Employees;
 using RelojChecador.Domain.Attendances;
 using RelojChecador.Domain.Branches;
 using RelojChecador.Domain.Common;
 using RelojChecador.Domain.Devices;
+using RelojChecador.Domain.Employees;
+using RelojChecador.Domain.EmployeeDeviceMappings;
 using RelojChecador.Infrastructure.Cloud;
 using Serilog;
 
@@ -36,10 +40,17 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
     private readonly IDeviceRepository _deviceRepository;
     private readonly IBranchRepository _branchRepository;
     private readonly IAttendanceRepository _attendanceRepository;
+    private readonly IEmployeeRepository _employeeRepository;
+    private readonly IEmployeeDeviceMappingRepository _mappingRepository;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IAttendanceDeviceAdapter _deviceAdapter;
     private readonly SupabaseSyncBackgroundService _syncService;
     private readonly RemoteSyncRequestCoordinator _remoteSyncCoordinator;
+
+    // Guardia de reentrancia para "Enviar empleados al reloj" — evita que un doble clic (o
+    // que el usuario navegue de pestaña y vuelva) dispare dos lotes de SSR_SetUserInfo al
+    // mismo tiempo, mismo criterio que _isDownloading/_isConnecting.
+    private bool _isSendingEmployees;
 
     // Reconexión automática (reportado por el usuario: "hasta que no le doy conectar...
     // no se actualiza" — sin esto, cualquier corte de red/reinicio del reloj dejaba de
@@ -98,6 +109,8 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         IDeviceRepository deviceRepository,
         IBranchRepository branchRepository,
         IAttendanceRepository attendanceRepository,
+        IEmployeeRepository employeeRepository,
+        IEmployeeDeviceMappingRepository mappingRepository,
         IUnitOfWork unitOfWork,
         IAttendanceDeviceAdapter deviceAdapter,
         SupabaseSyncBackgroundService syncService,
@@ -106,6 +119,8 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         _deviceRepository = deviceRepository;
         _branchRepository = branchRepository;
         _attendanceRepository = attendanceRepository;
+        _employeeRepository = employeeRepository;
+        _mappingRepository = mappingRepository;
         _unitOfWork = unitOfWork;
         _deviceAdapter = deviceAdapter;
         _syncService = syncService;
@@ -711,6 +726,148 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         }
 
         AppendLog($"Hora del dispositivo sincronizada (antes: {before} → ahora: {DateTime.Now:dd/MM/yyyy HH:mm:ss}).");
+    }
+
+    /// <summary>Botón "Enviar empleados al reloj" — pedido explícito del usuario tras la
+    /// importación masiva de 54 empleados ("agrega un botón para mandar esta información
+    /// al reloj checador"). Escribe Nombre+PIN en la memoria del dispositivo vía
+    /// SSR_SetUserInfo (<see cref="IAttendanceDeviceAdapter.CreateOrUpdateUserAsync"/> —
+    /// ya existía en el adaptador desde antes pero nunca estuvo conectado a ningún botón)
+    /// para cada empleado activo de la sucursal del dispositivo que todavía no tiene
+    /// vínculo (<see cref="EmployeeDeviceMapping"/>) con él. Solo prepara el PIN para que
+    /// la persona pueda enrolar su huella en el reloj — nunca sube huellas, eso sigue
+    /// siendo un paso físico en el dispositivo.
+    ///
+    /// El PIN se asigna en automático (nunca el "Number" del negocio, p. ej. "EMP-001":
+    /// el teclado del reloj es numérico y ese formato lo rechazaría) — decisión confirmada
+    /// con el usuario. Para no chocar con usuarios que ya existan físicamente en el reloj
+    /// desde antes de que existiera este vínculo local, primero se descarga la lista real
+    /// del dispositivo (<see cref="IAttendanceDeviceAdapter.DownloadUsersAsync"/>) y se
+    /// evita cualquier PIN que ya esté ocupado ahí, además de los que ya están en
+    /// <see cref="EmployeeDeviceMapping"/> localmente.</summary>
+    [RelayCommand]
+    private async Task SendEmployeesToDeviceAsync()
+    {
+        var device = SelectedDevice;
+        if (device is null)
+        {
+            AppendLog("⚠️ No se puede enviar: selecciona primero un dispositivo.");
+            return;
+        }
+
+        if (!IsConnected)
+        {
+            AppendLog("⚠️ No se puede enviar: conecta primero con el dispositivo.");
+            return;
+        }
+
+        if (_isSendingEmployees)
+        {
+            return;
+        }
+
+        _isSendingEmployees = true;
+        try
+        {
+            var allEmployees = await _employeeRepository.ListAsync();
+            var pending = allEmployees
+                .Where(e => e.BranchId == device.BranchId && e.Status == EmploymentStatus.Active)
+                .OrderBy(e => e.Number.Value)
+                .ToList();
+
+            if (pending.Count == 0)
+            {
+                AppendLog("No hay empleados activos en la sucursal de este dispositivo.");
+                return;
+            }
+
+            var allMappings = await _mappingRepository.ListAsync();
+            var deviceMappings = allMappings.Where(m => m.DeviceId == device.Id).ToList();
+            var alreadyLinkedEmployeeIds = deviceMappings.Select(m => m.EmployeeId).ToHashSet();
+
+            var toSend = pending.Where(e => !alreadyLinkedEmployeeIds.Contains(e.Id)).ToList();
+            if (toSend.Count == 0)
+            {
+                AppendLog("Todos los empleados activos de esta sucursal ya están vinculados a este dispositivo.");
+                return;
+            }
+
+            // PINs ocupados: los que ya están vinculados localmente + los que ya existan
+            // físicamente en el reloj (por ejemplo, gente enrolada a mano antes de que
+            // existiera este botón) — nunca se asume que el reloj está "limpio".
+            var usedPins = new HashSet<int>();
+            foreach (var mapping in deviceMappings)
+            {
+                if (int.TryParse(mapping.DeviceUserPin, out var pinFromMapping))
+                {
+                    usedPins.Add(pinFromMapping);
+                }
+            }
+
+            var deviceUsersResult = await _deviceAdapter.DownloadUsersAsync();
+            if (deviceUsersResult.IsSuccess)
+            {
+                foreach (var deviceUser in deviceUsersResult.Value)
+                {
+                    if (int.TryParse(deviceUser.DeviceUserPin, out var pinFromDevice))
+                    {
+                        usedPins.Add(pinFromDevice);
+                    }
+                }
+            }
+            else
+            {
+                AppendLog($"⚠️ No se pudo leer la lista actual de usuarios del reloj ({deviceUsersResult.Error.Message}); " +
+                          "se continúa solo con los PINs ya vinculados localmente.");
+            }
+
+            AppendLog($"📤 Enviando {toSend.Count} empleado(s) nuevo(s) al reloj...");
+
+            var nextPin = 1;
+            var sentCount = 0;
+            var failedNames = new List<string>();
+
+            foreach (var employee in toSend)
+            {
+                while (usedPins.Contains(nextPin))
+                {
+                    nextPin++;
+                }
+
+                var pin = nextPin.ToString();
+                var record = new DeviceUserRecord(pin, employee.FullName, PrivilegeLevel: 0, IsEnabled: true);
+                var result = await _deviceAdapter.CreateOrUpdateUserAsync(record);
+
+                if (result.IsFailure)
+                {
+                    failedNames.Add($"{employee.FullName} ({result.Error.Message})");
+                    continue;
+                }
+
+                usedPins.Add(nextPin);
+                var mapping = EmployeeDeviceMapping.Create(employee.Id, device.Id, pin);
+                await _mappingRepository.AddAsync(mapping);
+                sentCount++;
+            }
+
+            await _unitOfWork.SaveChangesAsync();
+
+            AppendLog($"✅ Enviado(s) {sentCount} de {toSend.Count} empleado(s) nuevo(s) al reloj (PIN asignado en automático). " +
+                      "Falta enrolar su huella físicamente en el dispositivo.");
+            if (failedNames.Count > 0)
+            {
+                AppendLog($"⚠️ No se pudo enviar a: {string.Join(", ", failedNames)}.");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Error inesperado al enviar empleados al dispositivo {DeviceId}", device.Id);
+            AppendLog($"⚠️ Error inesperado al enviar empleados al reloj: {ex.Message}");
+        }
+        finally
+        {
+            _isSendingEmployees = false;
+        }
     }
 
     private void AppendLog(string message) =>

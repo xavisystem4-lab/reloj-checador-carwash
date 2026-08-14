@@ -296,6 +296,20 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   - `AddEmployeeDialog`/`EditEmployeeDialog` ganan campo "Notas" y el sueldo semanal pasa
     a ser opcional (antes obligatorio) — consistentes con la vía masiva.
   - 20 tests nuevos/actualizados (Domain + Application).
+- **Botón "📤 Enviar empleados al reloj"** (Dispositivos), a pedido explícito del usuario
+  tras la importación masiva ("agrega un botón para mandar esta información al reloj
+  checador"). Escribe Nombre + PIN en la memoria del dispositivo vía `SSR_SetUserInfo`
+  (`IAttendanceDeviceAdapter.CreateOrUpdateUserAsync` — ya existía en el adaptador desde
+  antes pero nunca estuvo conectado a ningún botón) para cada empleado activo de la
+  sucursal del dispositivo que aún no tenga vínculo (`EmployeeDeviceMapping`) con él.
+  - El PIN se asigna en automático (1, 2, 3…), nunca el "Number" de negocio (ej.
+    "EMP-001") — confirmado con el usuario: el teclado del reloj es numérico y ese
+    formato lo rechazaría. Antes de asignar, se descargan los usuarios reales ya
+    existentes en el dispositivo (`DownloadUsersAsync`) para no chocar con PINs ocupados
+    por gente enrolada a mano antes de que existiera este botón.
+  - Solo prepara el PIN + nombre para que la persona pueda enrolar su huella físicamente
+    en el reloj — nunca sube huellas ni hace ese paso por sí solo. Reporta en la bitácora
+    cuántos se enviaron y cuáles fallaron, sin detener el lote por un solo error.
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Navegación completa de la UI (Fase 3 del diseño visual — Sucursales, Empleados,
