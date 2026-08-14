@@ -44,6 +44,12 @@
          La compilación (dotnet build) puede funcionar aquí, pero SOLO se puede EJECUTAR y probar
          visualmente en Windows real. No asumir que "compila" significa "funciona en Windows". -->
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <!-- Ícono real de la app (marca GalaCheck, pedido explícito del usuario) — queda
+         embebido en el .exe compilado, así que se ve solo con esto en el ícono de la
+         barra de tareas, en el Explorador de Windows y en CUALQUIER acceso directo que
+         apunte al .exe (incluido el que crea el instalador), sin depender de que Inno
+         Setup especifique un ícono aparte. -->
+    <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
   </PropertyGroup>
 
 </Project>

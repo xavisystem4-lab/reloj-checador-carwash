@@ -31,6 +31,16 @@ public sealed class RemoteSyncRequestCoordinator(
     SupabaseSyncOptions options,
     ILogger<RemoteSyncRequestCoordinator> logger)
 {
+    /// <summary>Ventana de gracia antes de considerar abandonada una solicitud que quedó
+    /// "in_progress" sin completarse — cubre un caso real reportado por el usuario: la app
+    /// se cerró a la mitad del proceso (crash — ver el fix de v1.17.2) sin alcanzar a
+    /// llamar CompleteAsync, y esa fila quedó "Sincronizando…" para siempre en el
+    /// Dashboard, porque PollForPendingRequestAsync solo buscaba status=eq.pending y
+    /// _activeRequestId es una guardia en memoria que se pierde al reiniciar la app —
+    /// nada volvía a recogerla jamás. 2 minutos es generoso frente a lo que tarda
+    /// conectar+descargar+sincronizar en la práctica (segundos, no minutos).</summary>
+    private static readonly TimeSpan StaleInProgressThreshold = TimeSpan.FromMinutes(2);
+
     private readonly object _lock = new();
     private Guid? _activeRequestId;
 
@@ -67,8 +77,15 @@ public sealed class RemoteSyncRequestCoordinator(
         {
             using var scope = scopeFactory.CreateScope();
             var restClient = scope.ServiceProvider.GetRequiredService<SupabaseRestClient>();
-            pending = await restClient.GetAsync<SyncRequestDto>(
-                "sync_requests", "status=eq.pending&order=requested_at_utc.asc&limit=1", cancellationToken);
+
+            // Trae "pending" normales O "in_progress" abandonadas hace más de
+            // StaleInProgressThreshold (ver su comentario) — así una solicitud huérfana por
+            // un crash se recoge sola en el siguiente ciclo tras reiniciar la app, sin
+            // depender de que alguien la reintente a mano desde el Dashboard.
+            var staleThreshold = (DateTime.UtcNow - StaleInProgressThreshold).ToString("O");
+            var filter = $"or=(status.eq.pending,and(status.eq.in_progress,started_at_utc.lt.{staleThreshold}))" +
+                         "&order=requested_at_utc.asc&limit=1";
+            pending = await restClient.GetAsync<SyncRequestDto>("sync_requests", filter, cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

@@ -19,7 +19,7 @@
 ; propio Assembly.GetEntryAssembly().Version contra la última versión en GitHub Releases,
 ; así que si estos dos números se desincronizan, el auto-actualizador queda mostrando
 ; una versión incorrecta aunque el instalador esté bien.
-#define MyAppVersion "1.17.2"
+#define MyAppVersion "1.18.0"
 #define MyAppPublisher "Carwash Mexicali"
 #define MyAppExeName "RelojChecador.WPF.exe"
 #define MyPublishDir "publish"
@@ -49,6 +49,17 @@ Compression=lzma2/ultra
 SolidCompression=yes
 WizardStyle=modern
 UninstallDisplayIcon={app}\{#MyAppExeName}
+; Ícono del propio instalador (Setup.exe) — el ícono del acceso directo/taskbar de la app
+; YA queda embebido en el .exe compilado (ver <ApplicationIcon> en RelojChecador.WPF.csproj),
+; así que esto es solo para el instalador en sí, antes de que la app exista en el equipo.
+SetupIconFile=..\src\RelojChecador.WPF\Assets\AppIcon.ico
+; Personalización de la ventana de instalación con la marca GalaCheck, a pedido explícito
+; del usuario — banner grande (logotipo completo) + logo pequeño de cada página (símbolo
+; solo, el texto no se leería a 55x58). Ambos son .bmp generados a partir de los PNG
+; originales sobre un fondo azul marino que combina con el degradado del ícono — Inno
+; Setup exige BMP para estos dos, no acepta PNG directo.
+WizardImageFile=assets\WizardImage.bmp
+WizardSmallImageFile=assets\WizardSmallImage.bmp
 
 [Languages]
 Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"

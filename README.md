@@ -365,6 +365,24 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   dentro de un único bloque marshalizado al Dispatcher; `ProcessRemoteSyncRequestAsync`
   además gana un try/catch general (defensivo ante cualquier excepción futura no
   relacionada con hilos, dado que se invoca fire-and-forget).
+- **Fix: una solicitud remota abandonada por el crash de arriba quedaba "Sincronizando…"
+  para siempre en el Dashboard** — confirmado directamente contra Supabase (`sync_requests`
+  con `status = 'in_progress'` desde hace horas, `completed_at_utc` nulo).
+  `RemoteSyncRequestCoordinator.PollForPendingRequestAsync` solo consultaba
+  `status=eq.pending`; una fila que quedó "in_progress" por un cierre a la mitad del
+  proceso nunca se volvía a recoger, ni siquiera al reiniciar la app (el guardia
+  `_activeRequestId` es solo en memoria). Ahora también reclama solicitudes "in_progress"
+  abandonadas hace más de 2 minutos (`or=(status.eq.pending,and(status.eq.in_progress,
+  started_at_utc.lt.…))`, filtro de PostgREST) — se autorrecupera solo, sin intervención
+  manual en Supabase.
+- **Ícono de marca "GalaCheck"** en el `.exe`/accesos directos/taskbar (`ApplicationIcon`
+  en el `.csproj`, generado como `.ico` multi-resolución desde el PNG cuadrado
+  proporcionado) y personalización del instalador (Inno Setup `SetupIconFile` +
+  `WizardImageFile`/`WizardSmallImageFile`, compuestos sobre un fondo azul marino que
+  combina con el degradado del ícono) — pedido explícito del usuario. **No verificable
+  visualmente desde macOS** (a diferencia de la app, el asistente de instalación de Inno
+  Setup no se captura en el screenshot del CI): confirmar aspecto real la próxima vez que
+  se instale en Windows.
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Navegación completa de la UI (Fase 3 del diseño visual — Sucursales, Empleados,
@@ -375,7 +393,14 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   la captura MANUAL de estos montos ya existe). Solo se retomaría si el usuario pide
   cálculo automático y aporta las tablas/reglas vigentes que quiere aplicar
 - Incidencias de nómina (faltas, permisos, vacaciones) — resto de Fases 5-6
-- Razón social real y logotipo/icono para el instalador y la app
+- Razón social real para el instalador (el ícono/logotipo de marca "GalaCheck" ya se
+  resolvió — ver "Hecho")
+- Logotipo del negocio ("Drive In Car Wash") en la esquina superior izquierda de las
+  ventanas de la app, con contraste correcto en modo claro y oscuro — pedido explícito del
+  usuario, bloqueado: el archivo se envió como imagen embebida en el chat, no como archivo
+  en el equipo (a diferencia de los otros logos, que sí se guardaron en
+  `Documents/PROYECTOS`) — no se pudo localizar en disco para usarlo. Pendiente de que el
+  usuario lo guarde ahí.
 
 ## Convenciones
 

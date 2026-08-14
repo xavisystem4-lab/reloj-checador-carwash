@@ -55,6 +55,31 @@ public class RemoteSyncRequestCoordinatorTests
     }
 
     [Fact]
+    public async Task PollForPendingRequestAsync_ConsultaTantoPendientesComoEnCursoAbandonadas()
+    {
+        // Regresión: una solicitud que quedó "in_progress" por un crash de la app (ver
+        // v1.17.2) nunca se volvía a recoger porque el filtro solo pedía status=eq.pending
+        // — se verifica que la consulta real ahora también reclama las "in_progress"
+        // abandonadas hace más de StaleInProgressThreshold, vía un OR de PostgREST.
+        var handler = new FakeHttpMessageHandler
+        {
+            ResponseFactory = _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("[]", Encoding.UTF8, "application/json"),
+            },
+        };
+        var coordinator = BuildCoordinator(handler, ConfiguredOptions());
+
+        await coordinator.PollForPendingRequestAsync(CancellationToken.None);
+
+        var getRequest = Assert.Single(handler.Requests, r => r.Method == HttpMethod.Get);
+        var query = getRequest.Uri!.Query;
+        Assert.Contains("status.eq.pending", query);
+        Assert.Contains("status.eq.in_progress", query);
+        Assert.Contains("started_at_utc.lt.", query);
+    }
+
+    [Fact]
     public async Task PollForPendingRequestAsync_SinSolicitudesPendientes_NoDisparaNada()
     {
         var handler = new FakeHttpMessageHandler
