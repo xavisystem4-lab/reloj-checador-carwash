@@ -35,4 +35,15 @@ public sealed class EmployeeDeviceMapping : Entity
             EnrolledAtUtc = DateTime.UtcNow,
         };
     }
+
+    /// <summary>Corrige el PIN de un vínculo ya existente — caso real: el usuario captura
+    /// un PIN equivocado al vincular (p. ej. el número de empleado en vez del PIN real del
+    /// reloj) y no puede simplemente "vincular de nuevo" porque el índice único
+    /// (DeviceId, EmployeeId) se lo impide (ver EmployeeDeviceMappingConfiguration) — sin
+    /// esto, no había ninguna forma de corregirlo desde la UI.</summary>
+    public void UpdatePin(string newDeviceUserPin)
+    {
+        Guard.AgainstNullOrWhiteSpace(newDeviceUserPin, nameof(newDeviceUserPin));
+        DeviceUserPin = newDeviceUserPin.Trim();
+    }
 }

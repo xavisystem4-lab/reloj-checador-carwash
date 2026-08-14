@@ -32,4 +32,22 @@ public class EmployeeDeviceMappingTests
         Assert.Throws<DomainException>(() =>
             EmployeeDeviceMapping.Create(Guid.NewGuid(), Guid.NewGuid(), " "));
     }
+
+    [Fact]
+    public void UpdatePin_CorrigeElPinCapturado()
+    {
+        var mapping = EmployeeDeviceMapping.Create(Guid.NewGuid(), Guid.NewGuid(), "1");
+
+        mapping.UpdatePin("6");
+
+        Assert.Equal("6", mapping.DeviceUserPin);
+    }
+
+    [Fact]
+    public void UpdatePin_ConPinVacio_LanzaDomainException()
+    {
+        var mapping = EmployeeDeviceMapping.Create(Guid.NewGuid(), Guid.NewGuid(), "1");
+
+        Assert.Throws<DomainException>(() => mapping.UpdatePin(" "));
+    }
 }

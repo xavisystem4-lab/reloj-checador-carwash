@@ -160,6 +160,15 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
 - Intervalo de sincronización 30s (antes 5s, a pedido explícito del usuario) —
   `SupabaseSyncOptions.IntervalSeconds` en `appsettings.json`, y el auto-refresco del
   Dashboard web ajustado igual para seguir mostrando los datos prácticamente al día
+- Corregir el PIN de un vínculo Empleado↔Dispositivo ya existente: caso real detectado con
+  el usuario — capturó el número de empleado en vez del PIN real del reloj al vincular, y
+  "Vincular a dispositivo" de nuevo con el PIN correcto lo rechazaba (índice único
+  `(DeviceId, EmployeeId)`, ver `EmployeeDeviceMappingConfiguration`) sin ninguna forma de
+  corregirlo. Nuevo botón "Editar vínculo(s)" (`EmployeeDeviceMapping.UpdatePin`) por fila
+  de Empleados — solo corrige el PIN de vínculos existentes, no elimina ni agrega (el
+  motor de sync es push-only por upsert, nunca hace `DELETE` remoto — eliminar un vínculo
+  local dejaría un huérfano en Supabase para siempre, así que esa función queda fuera de
+  alcance por ahora)
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Confirmar el login real del Dashboard (requiere que el usuario cree su primera cuenta

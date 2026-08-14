@@ -25,6 +25,11 @@ namespace RelojChecador.WPF.ViewModels;
 /// </summary>
 public sealed record EmployeeRow(Employee Employee, string BranchName, string LinkedDevicesSummary);
 
+/// <summary>Un vínculo de un empleado a un dispositivo, con el nombre del dispositivo ya
+/// resuelto — usado por EditEmployeeMappingsDialog para poder corregir el PIN sin
+/// necesitar el objeto Device completo.</summary>
+public sealed record EmployeeMappingInfo(Guid MappingId, string DeviceName, string DeviceUserPin);
+
 /// <summary>
 /// ViewModel de la pantalla de Empleados: alta (con sueldo semanal/tarifa de hora extra,
 /// insumo de nómina sin cálculo fiscal — ver Employee.cs), edición, baja lógica
@@ -341,6 +346,70 @@ public sealed partial class EmployeesViewModel : ObservableObject
         {
             Log.Error(ex, "Error inesperado al vincular empleado a dispositivo (EmployeeId={EmployeeId}, DeviceId={DeviceId})",
                 employeeId, deviceId);
+            return "Ocurrió un error inesperado al guardar. Revisa el registro de errores.";
+        }
+    }
+
+    /// <summary>Vínculos actuales del empleado, con nombre de dispositivo resuelto —
+    /// usado por "Editar vínculo(s)" para poder corregir un PIN mal capturado (caso real:
+    /// el usuario capturó el número de empleado en vez del PIN real del reloj, y no había
+    /// forma de corregirlo — "vincular de nuevo" con el PIN correcto lo rechaza el índice
+    /// único (DeviceId, EmployeeId), ver EmployeeDeviceMappingConfiguration).</summary>
+    public async Task<IReadOnlyList<EmployeeMappingInfo>> GetMappingsForEmployeeAsync(Guid employeeId)
+    {
+        var mappings = await _mappingRepository.ListAsync();
+        var devices = await _deviceRepository.ListAsync();
+        var deviceNamesById = devices.ToDictionary(d => d.Id, d => d.Name);
+
+        return mappings
+            .Where(m => m.EmployeeId == employeeId)
+            .Select(m => new EmployeeMappingInfo(
+                m.Id, deviceNamesById.TryGetValue(m.DeviceId, out var name) ? name : "(dispositivo desconocido)", m.DeviceUserPin))
+            .ToList();
+    }
+
+    /// <param name="newPinsByMappingId">Solo se tocan los vínculos cuyo PIN realmente
+    /// cambió respecto al actual — evita un Touch/SaveChanges innecesario en los que no
+    /// se editaron.</param>
+    /// <returns>Un mensaje de error comprensible si algo salió mal, o null si se guardó correctamente.</returns>
+    public async Task<string?> UpdateMappingPinsAsync(IReadOnlyDictionary<Guid, string> newPinsByMappingId)
+    {
+        try
+        {
+            foreach (var (mappingId, newPin) in newPinsByMappingId)
+            {
+                var mapping = await _mappingRepository.GetByIdAsync(mappingId);
+                if (mapping is null)
+                {
+                    // No debería pasar en uso normal (la lista viene de la misma base),
+                    // pero defensivo ante la carrera de que alguien más lo haya tocado.
+                    continue;
+                }
+
+                if (mapping.DeviceUserPin != newPin)
+                {
+                    mapping.UpdatePin(newPin);
+                }
+            }
+
+            await _unitOfWork.SaveChangesAsync();
+            await ReloadAsync();
+            return null;
+        }
+        catch (DomainException ex)
+        {
+            return ex.Message;
+        }
+        catch (DbUpdateException ex)
+        {
+            // Índice único (DeviceId, DeviceUserPin): el nuevo PIN ya está en uso por otro
+            // empleado en ese mismo dispositivo.
+            Log.Warning(ex, "No se pudo corregir el PIN de un vínculo.");
+            return "Ese PIN ya está en uso en este dispositivo por otro empleado.";
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Error inesperado al corregir el PIN de un vínculo.");
             return "Ocurrió un error inesperado al guardar. Revisa el registro de errores.";
         }
     }

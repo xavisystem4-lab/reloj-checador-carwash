@@ -104,6 +104,36 @@ public partial class EmployeesView : UserControl
         }
     }
 
+    private async void OnEditMappingsClick(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not EmployeesViewModel viewModel || (sender as FrameworkElement)?.DataContext is not EmployeeRow row)
+        {
+            return;
+        }
+
+        var mappings = await viewModel.GetMappingsForEmployeeAsync(row.Employee.Id);
+        if (mappings.Count == 0)
+        {
+            MessageBox.Show(Window.GetWindow(this),
+                "Este empleado todavía no está vinculado a ningún dispositivo — usa \"Vincular a dispositivo\" primero.",
+                "Sin vínculos que editar", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var dialog = new EditEmployeeMappingsDialog(row.Employee.FullName, mappings) { Owner = Window.GetWindow(this) };
+        if (dialog.ShowDialog() != true || dialog.ChangedPins.Count == 0)
+        {
+            return;
+        }
+
+        var error = await viewModel.UpdateMappingPinsAsync(dialog.ChangedPins);
+
+        if (error is not null)
+        {
+            MessageBox.Show(Window.GetWindow(this), error, "No se pudo corregir el vínculo", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
     private async void OnDeleteEmployeeClick(object sender, RoutedEventArgs e)
     {
         if (DataContext is not EmployeesViewModel viewModel || (sender as FrameworkElement)?.DataContext is not EmployeeRow row)
