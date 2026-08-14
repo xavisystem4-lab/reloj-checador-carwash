@@ -92,4 +92,14 @@ public sealed class Employee : AuditableEntity
         Status = newStatus;
         Touch();
     }
+
+    /// <summary>Corrige el número de empleado tras el alta (p. ej. error de captura). El
+    /// índice único sobre Number (ver EmployeeConfiguration) sigue siendo la defensa real
+    /// contra duplicados — esto no lo verifica aquí, solo lo deja disponible para editar.</summary>
+    public void ChangeNumber(EmployeeNumber newNumber)
+    {
+        ArgumentNullException.ThrowIfNull(newNumber);
+        Number = newNumber;
+        Touch();
+    }
 }

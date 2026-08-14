@@ -22,6 +22,20 @@ public sealed class EfAttendanceRepository(RelojChecadorDbContext dbContext) : I
             .OrderByDescending(a => a.TimestampUtc)
             .ToListAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<Attendance>> ListAsync(
+        DateTime fromUtc, DateTime toUtc, int maxCount, CancellationToken cancellationToken = default) =>
+        await dbContext.Attendances
+            .Where(a => a.TimestampUtc >= fromUtc && a.TimestampUtc <= toUtc)
+            .OrderByDescending(a => a.TimestampUtc)
+            .Take(maxCount)
+            .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<Attendance>> ListUnresolvedByDeviceAndPinAsync(
+        Guid deviceId, string deviceUserPin, CancellationToken cancellationToken = default) =>
+        await dbContext.Attendances
+            .Where(a => a.DeviceId == deviceId && a.DeviceUserPin == deviceUserPin && a.EmployeeId == null)
+            .ToListAsync(cancellationToken);
+
     public async Task<IReadOnlyList<Attendance>> ListChangedSinceAsync(
         DateTime sinceUtc, int maxCount, CancellationToken cancellationToken = default) =>
         await dbContext.Attendances

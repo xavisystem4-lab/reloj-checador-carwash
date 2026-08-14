@@ -120,17 +120,23 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   recarga la lista completa desde la base local tras cada alta/edición/vínculo en vez de
   mutar la vista a mano, para eliminar de raíz un caso real donde el DataGrid no reflejaba
   una fila recién guardada hasta reiniciar la app (el dato en sí nunca se perdía)
+- Pantalla de Asistencia: consulta las marcaciones ya guardadas localmente (filtros de
+  sucursal, rango de fechas y texto libre), con nombre de empleado resuelto — mismo
+  criterio de resolución que ya usaba el Dashboard web (`Attendance.EmployeeId` directo, o
+  si no hay, `EmployeeDeviceMapping` por dispositivo+PIN). Al crear un vínculo
+  Empleado↔Dispositivo ahora se concilian retroactivamente las marcaciones de ese
+  dispositivo+PIN que hubieran llegado antes (usa `Attendance.ReconcileEmployee`, ya
+  existía en el dominio sin que nada lo invocara). Última pantalla del menú de Fase 3;
+  Reportes queda para Fases 5-6
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Confirmar el login real del Dashboard (requiere que el usuario cree su primera cuenta
   en Supabase Auth — ver `dashboard/README.md` — algo que, por diseño, nunca se hace
   automáticamente desde aquí)
-- Navegación completa de la UI (Fase 3 del diseño visual — Sucursales, Empleados y
-  Dispositivos ya existen; faltan Asistencia, Reportes y el resto de secciones finales) —
-  **en curso**
-- Pantalla de Asistencia (consultar marcaciones ya guardadas localmente, ahora resolubles a
-  nombre de empleado gracias al vínculo Empleado↔Dispositivo) y eliminar empleados —
-  siguiente tramo de Fase 3
+- Navegación completa de la UI (Fase 3 del diseño visual — Sucursales, Empleados,
+  Dispositivos y Asistencia ya existen; falta el resto de secciones finales) — **en curso**
+- Eliminar empleados, y exportar CSV desde la app de escritorio (el Dashboard web ya lo
+  tiene) — mejoras pendientes, no bloquean nada
 - Reportes, auditoría, incidencias, nómina (Fases 5-6)
 - Razón social real y logotipo/icono para el instalador y la app
 

@@ -56,15 +56,16 @@ public partial class EmployeesView : UserControl
         }
 
         var branches = await viewModel.GetBranchesAsync();
-        var dialog = new EditEmployeeDialog(row.Employee, branches) { Owner = Window.GetWindow(this) };
+        var devices = await viewModel.GetDevicesAsync();
+        var dialog = new EditEmployeeDialog(row, branches, devices) { Owner = Window.GetWindow(this) };
         if (dialog.ShowDialog() != true || dialog.SelectedBranch is null)
         {
             return;
         }
 
         var error = await viewModel.UpdateEmployeeAsync(
-            row.Employee.Id, dialog.FullName, dialog.SelectedBranch.Id, dialog.Department, dialog.Position,
-            dialog.Phone, dialog.Email, dialog.SelectedStatus);
+            row.Employee.Id, dialog.Number, dialog.FullName, dialog.SelectedBranch.Id, dialog.Department, dialog.Position,
+            dialog.Phone, dialog.Email, dialog.SelectedStatus, dialog.SelectedDevice?.Id, dialog.DeviceUserPin);
 
         if (error is not null)
         {

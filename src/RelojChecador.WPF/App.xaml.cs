@@ -105,6 +105,7 @@ public partial class App : System.Windows.Application
                     services.AddScoped<MainViewModel>();
                     services.AddScoped<EmployeesViewModel>();
                     services.AddScoped<DevicesViewModel>();
+                    services.AddScoped<AttendanceViewModel>();
                     services.AddScoped<UpdateViewModel>();
                 })
                 .Build();

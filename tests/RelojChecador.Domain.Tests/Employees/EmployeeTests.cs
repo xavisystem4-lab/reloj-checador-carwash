@@ -63,4 +63,22 @@ public class EmployeeTests
 
         Assert.Equal(EmploymentStatus.Terminated, employee.Status);
     }
+
+    [Fact]
+    public void ChangeNumber_ActualizaElNumeroDeEmpleado()
+    {
+        var employee = CreateSampleEmployee();
+
+        employee.ChangeNumber(EmployeeNumber.Create("0250"));
+
+        Assert.Equal("0250", employee.Number.Value);
+    }
+
+    [Fact]
+    public void ChangeNumber_ConNumeroNulo_LanzaArgumentNullException()
+    {
+        var employee = CreateSampleEmployee();
+
+        Assert.Throws<ArgumentNullException>(() => employee.ChangeNumber(null!));
+    }
 }

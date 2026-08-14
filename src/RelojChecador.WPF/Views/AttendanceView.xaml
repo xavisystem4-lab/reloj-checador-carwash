@@ -1,0 +1,62 @@
+<UserControl x:Class="RelojChecador.WPF.Views.AttendanceView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:converters="clr-namespace:RelojChecador.WPF.Converters"
+             mc:Ignorable="d" d:DesignHeight="600" d:DesignWidth="1050">
+    <UserControl.Resources>
+        <converters:VerifyMethodToTextConverter x:Key="VerifyMethodToTextConverter" />
+        <converters:PunchTypeToTextConverter x:Key="PunchTypeToTextConverter" />
+    </UserControl.Resources>
+
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="Asistencia" FontSize="24" FontWeight="Bold" Margin="0,0,0,4" />
+
+        <!-- Sucursal y fechas van al servidor al presionar "Actualizar"; Buscar filtra en
+             memoria sobre lo ya cargado, sin recargar nada (ver AttendanceViewModel). -->
+        <WrapPanel Grid.Row="1" Margin="0,0,0,10">
+            <StackPanel Margin="0,0,14,10">
+                <TextBlock Text="Sucursal" FontSize="12" FontWeight="SemiBold" Margin="0,0,0,2" />
+                <ComboBox Width="200" Padding="4" ItemsSource="{Binding BranchOptions}"
+                          SelectedItem="{Binding SelectedBranchOption, Mode=TwoWay}" />
+            </StackPanel>
+            <StackPanel Margin="0,0,14,10">
+                <TextBlock Text="Desde (dd/mm/aaaa)" FontSize="12" FontWeight="SemiBold" Margin="0,0,0,2" />
+                <TextBox Width="120" Padding="4" Text="{Binding FromDateText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+            </StackPanel>
+            <StackPanel Margin="0,0,14,10">
+                <TextBlock Text="Hasta (dd/mm/aaaa)" FontSize="12" FontWeight="SemiBold" Margin="0,0,0,2" />
+                <TextBox Width="120" Padding="4" Text="{Binding ToDateText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+            </StackPanel>
+            <StackPanel Margin="0,0,14,10">
+                <TextBlock Text="Buscar empleado o PIN" FontSize="12" FontWeight="SemiBold" Margin="0,0,0,2" />
+                <TextBox Width="220" Padding="4" Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+            </StackPanel>
+            <StackPanel Margin="0,0,0,10" VerticalAlignment="Bottom">
+                <Button Content="Actualizar" Style="{StaticResource PrimaryButton}" Click="OnRefreshClick" />
+            </StackPanel>
+        </WrapPanel>
+
+        <TextBlock Grid.Row="2" Text="{Binding StatusMessage}" FontSize="13" Foreground="{DynamicResource BrushTextSecondary}" Margin="0,0,0,12" />
+
+        <DataGrid Grid.Row="3" ItemsSource="{Binding Attendances}" AutoGenerateColumns="False" IsReadOnly="True"
+                  CanUserAddRows="False" GridLinesVisibility="Horizontal" HeadersVisibility="Column">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Fecha y hora" Binding="{Binding Attendance.TimestampUtc, StringFormat='dd/MM/yyyy HH:mm:ss'}" Width="160" />
+                <DataGridTextColumn Header="Empleado" Binding="{Binding EmployeeDisplay}" Width="*" />
+                <DataGridTextColumn Header="Sucursal" Binding="{Binding BranchName}" Width="140" />
+                <DataGridTextColumn Header="Dispositivo" Binding="{Binding DeviceName}" Width="140" />
+                <DataGridTextColumn Header="Método" Binding="{Binding Attendance.VerifyMethod, Converter={StaticResource VerifyMethodToTextConverter}}" Width="100" />
+                <DataGridTextColumn Header="Tipo" Binding="{Binding Attendance.PunchType, Converter={StaticResource PunchTypeToTextConverter}}" Width="170" />
+            </DataGrid.Columns>
+        </DataGrid>
+    </Grid>
+</UserControl>

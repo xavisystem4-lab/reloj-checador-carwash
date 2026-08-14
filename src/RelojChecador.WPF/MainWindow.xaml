@@ -81,8 +81,8 @@
             </Grid>
         </Border>
 
-        <!-- Navegación por pestañas: Sucursales, Empleados y Dispositivos existen ya.
-             El resto de secciones (Asistencia, Reportes...) del menú lateral definido en
+        <!-- Navegación por pestañas: Sucursales, Empleados, Dispositivos y Asistencia
+             existen ya. El resto de secciones (Reportes...) del menú lateral definido en
              la Fase 3 todavía no están construidas. -->
         <TabControl Padding="4">
             <TabItem Header="Sucursales">
@@ -93,6 +93,9 @@
             </TabItem>
             <TabItem Header="Dispositivos">
                 <views:DevicesView x:Name="DevicesViewControl" />
+            </TabItem>
+            <TabItem Header="Asistencia">
+                <views:AttendanceView x:Name="AttendanceViewControl" />
             </TabItem>
         </TabControl>
     </DockPanel>

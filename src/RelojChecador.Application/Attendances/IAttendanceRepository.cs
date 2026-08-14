@@ -15,6 +15,21 @@ public interface IAttendanceRepository
     Task<IReadOnlyList<Attendance>> ListByBranchAsync(
         Guid branchId, DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken = default);
 
+    /// <summary>Igual que <see cref="ListByBranchAsync"/> pero de todas las sucursales —
+    /// usado por la pantalla de Asistencia cuando el filtro de sucursal está en "Todas".
+    /// <paramref name="maxCount"/> es un tope defensivo (esta tabla puede crecer mucho con
+    /// el tiempo, ver comentario de ListChangedSinceAsync) para no cargar un histórico
+    /// completo sin querer solo porque el usuario dejó un rango de fechas muy amplio.</summary>
+    Task<IReadOnlyList<Attendance>> ListAsync(
+        DateTime fromUtc, DateTime toUtc, int maxCount, CancellationToken cancellationToken = default);
+
+    /// <summary>Marcaciones de un dispositivo+PIN que todavía no están conciliadas con
+    /// ningún Employee (EmployeeId null) — usado para la conciliación retroactiva al crear
+    /// un EmployeeDeviceMapping tardío (ver EmployeesViewModel.CreateMappingAsync y
+    /// Attendance.ReconcileEmployee).</summary>
+    Task<IReadOnlyList<Attendance>> ListUnresolvedByDeviceAndPinAsync(
+        Guid deviceId, string deviceUserPin, CancellationToken cancellationToken = default);
+
     /// <summary>Usado por el motor de sincronización con Supabase (RelojChecador.Infrastructure.Cloud):
     /// esta tabla puede crecer mucho, así que en vez de reenviar todo en cada ciclo se pide
     /// solo lo modificado después de <paramref name="sinceUtc"/> (por UpdatedAtUtc, que

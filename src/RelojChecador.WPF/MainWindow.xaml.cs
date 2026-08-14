@@ -13,7 +13,7 @@ public partial class MainWindow : Window
 
     public MainWindow(
         MainViewModel branchesViewModel, EmployeesViewModel employeesViewModel, DevicesViewModel devicesViewModel,
-        UpdateViewModel updateViewModel, ThemeService themeService)
+        AttendanceViewModel attendanceViewModel, UpdateViewModel updateViewModel, ThemeService themeService)
     {
         InitializeComponent();
 
@@ -23,6 +23,7 @@ public partial class MainWindow : Window
         BranchesViewControl.DataContext = branchesViewModel;
         EmployeesViewControl.DataContext = employeesViewModel;
         DevicesViewControl.DataContext = devicesViewModel;
+        AttendanceViewControl.DataContext = attendanceViewModel;
 
         // ThemeService.Initialize() ya corrió en App.xaml.cs (antes de crear esta ventana);
         // aquí solo se refleja ese estado ya aplicado en el ícono del botón.
@@ -33,6 +34,7 @@ public partial class MainWindow : Window
             await branchesViewModel.InitializeAsync();
             await employeesViewModel.InitializeAsync();
             await devicesViewModel.InitializeAsync();
+            await attendanceViewModel.InitializeAsync();
         };
     }
 

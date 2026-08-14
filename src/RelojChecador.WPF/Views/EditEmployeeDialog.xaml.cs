@@ -1,16 +1,19 @@
 using System.Linq;
 using System.Windows;
 using RelojChecador.Domain.Branches;
+using RelojChecador.Domain.Devices;
 using RelojChecador.Domain.Employees;
+using RelojChecador.WPF.ViewModels;
 
 namespace RelojChecador.WPF.Views;
 
 /// <summary>
-/// Diálogo para editar los datos de un empleado ya existente. Número y fecha de alta se
-/// muestran de solo lectura (ver comentario en el XAML); el resto de campos precarga los
-/// valores actuales. La validación real de negocio (nombre requerido, etc.) la hace el
-/// dominio al guardar (ver EmployeesViewModel.UpdateEmployeeAsync) — aquí solo se evita
-/// mandar el nombre obviamente vacío.
+/// Diálogo para editar los datos de un empleado ya existente, incluido su número (se
+/// puede corregir un error de captura del alta — ver Employee.ChangeNumber) y, si todavía
+/// no tiene ningún dispositivo vinculado, el primer vínculo (dispositivo + PIN) en el
+/// mismo formulario. Si ya tiene uno o más vínculos, esa sección no se muestra — agregar
+/// otro dispositivo se sigue haciendo con "Vincular a dispositivo" en la lista, para no
+/// meter aquí la complejidad de editar/quitar vínculos existentes.
 /// </summary>
 public partial class EditEmployeeDialog : Window
 {
@@ -27,6 +30,7 @@ public partial class EditEmployeeDialog : Window
         new(EmploymentStatus.Terminated, "Baja"),
     ];
 
+    public string Number => NumberTextBox.Text.Trim();
     public string FullName => FullNameTextBox.Text.Trim();
     public Branch? SelectedBranch => BranchComboBox.SelectedItem as Branch;
     public string? Department => string.IsNullOrWhiteSpace(DepartmentTextBox.Text) ? null : DepartmentTextBox.Text.Trim();
@@ -35,11 +39,22 @@ public partial class EditEmployeeDialog : Window
     public string? Email => string.IsNullOrWhiteSpace(EmailTextBox.Text) ? null : EmailTextBox.Text.Trim();
     public EmploymentStatus SelectedStatus => (StatusComboBox.SelectedItem as StatusOption)?.Value ?? EmploymentStatus.Active;
 
-    public EditEmployeeDialog(Employee employee, IReadOnlyList<Branch> branches)
+    /// <summary>Null si la sección de vínculo no aplica (ya tenía uno) o el checkbox no
+    /// está marcado.</summary>
+    public Device? SelectedDevice => LinkDeviceSection.Visibility == Visibility.Visible && LinkDeviceCheckBox.IsChecked == true
+        ? DeviceComboBox.SelectedItem as Device
+        : null;
+    public string? DeviceUserPin =>
+        SelectedDevice is not null && !string.IsNullOrWhiteSpace(DevicePinTextBox.Text)
+            ? DevicePinTextBox.Text.Trim()
+            : null;
+
+    public EditEmployeeDialog(EmployeeRow row, IReadOnlyList<Branch> branches, IReadOnlyList<Device> devices)
     {
         InitializeComponent();
 
-        NumberTextBlock.Text = employee.Number.Value;
+        var employee = row.Employee;
+        NumberTextBox.Text = employee.Number.Value;
         FullNameTextBox.Text = employee.FullName;
         DepartmentTextBox.Text = employee.Department ?? "";
         PositionTextBox.Text = employee.Position ?? "";
@@ -51,6 +66,22 @@ public partial class EditEmployeeDialog : Window
 
         StatusComboBox.ItemsSource = StatusOptions;
         StatusComboBox.SelectedItem = StatusOptions.First(o => o.Value == employee.Status);
+
+        var alreadyLinked = row.LinkedDevicesSummary != "Sin vincular";
+        LinkDeviceSection.Visibility = alreadyLinked ? Visibility.Collapsed : Visibility.Visible;
+        if (!alreadyLinked)
+        {
+            DeviceComboBox.ItemsSource = devices;
+            if (devices.Count > 0)
+            {
+                DeviceComboBox.SelectedIndex = 0;
+            }
+        }
+    }
+
+    private void OnLinkDeviceCheckedChanged(object sender, RoutedEventArgs e)
+    {
+        LinkDevicePanel.Visibility = LinkDeviceCheckBox.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void OnCancelClick(object sender, RoutedEventArgs e)
@@ -60,9 +91,16 @@ public partial class EditEmployeeDialog : Window
 
     private void OnSaveClick(object sender, RoutedEventArgs e)
     {
-        if (string.IsNullOrWhiteSpace(FullName) || SelectedBranch is null)
+        if (string.IsNullOrWhiteSpace(Number) || string.IsNullOrWhiteSpace(FullName) || SelectedBranch is null)
         {
-            ShowError("Nombre y sucursal son obligatorios.");
+            ShowError("Número, nombre y sucursal son obligatorios.");
+            return;
+        }
+
+        if (LinkDeviceSection.Visibility == Visibility.Visible && LinkDeviceCheckBox.IsChecked == true
+            && (DeviceComboBox.SelectedItem is not Device || string.IsNullOrWhiteSpace(DevicePinTextBox.Text)))
+        {
+            ShowError("Para vincular a un dispositivo ahora, elige el reloj y escribe el PIN.");
             return;
         }
 

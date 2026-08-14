@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Microsoft.EntityFrameworkCore;
+using RelojChecador.Application.Attendances;
 using RelojChecador.Application.Branches;
 using RelojChecador.Application.Common;
 using RelojChecador.Application.Devices;
@@ -30,7 +31,9 @@ public sealed record EmployeeRow(Employee Employee, string BranchName, string Li
 /// para reconocer a un empleado, prerequisito para que una futura pantalla de Asistencia
 /// pueda mostrar nombres en vez de PINs crudos. El PIN se captura a mano en el diálogo
 /// (LinkEmployeeDeviceDialog), no se descarga del dispositivo conectado — decisión de
-/// alcance explícita para esta entrega.
+/// alcance explícita para esta entrega. Al crear un vínculo, se concilian retroactivamente
+/// las marcaciones de ese dispositivo+PIN que hayan llegado antes de que existiera (ver
+/// ReconcileAttendancesAsync) — sin esto quedarían para siempre como "sin vincular".
 ///
 /// Tras cualquier alta/edición/vínculo, se recarga la lista COMPLETA desde la base local
 /// (ReloadAsync) en vez de mutar Employees a mano (Add/reemplazo puntual, como se hacía
@@ -47,6 +50,7 @@ public sealed partial class EmployeesViewModel : ObservableObject
     private readonly IBranchRepository _branchRepository;
     private readonly IDeviceRepository _deviceRepository;
     private readonly IEmployeeDeviceMappingRepository _mappingRepository;
+    private readonly IAttendanceRepository _attendanceRepository;
     private readonly IUnitOfWork _unitOfWork;
 
     [ObservableProperty]
@@ -56,12 +60,14 @@ public sealed partial class EmployeesViewModel : ObservableObject
 
     public EmployeesViewModel(
         IEmployeeRepository employeeRepository, IBranchRepository branchRepository, IDeviceRepository deviceRepository,
-        IEmployeeDeviceMappingRepository mappingRepository, IUnitOfWork unitOfWork)
+        IEmployeeDeviceMappingRepository mappingRepository, IAttendanceRepository attendanceRepository,
+        IUnitOfWork unitOfWork)
     {
         _employeeRepository = employeeRepository;
         _branchRepository = branchRepository;
         _deviceRepository = deviceRepository;
         _mappingRepository = mappingRepository;
+        _attendanceRepository = attendanceRepository;
         _unitOfWork = unitOfWork;
     }
 
@@ -129,6 +135,22 @@ public sealed partial class EmployeesViewModel : ObservableObject
         return string.Join(", ", parts);
     }
 
+    /// <summary>Concilia con <paramref name="employeeId"/> las marcaciones de
+    /// <paramref name="deviceId"/>+<paramref name="deviceUserPin"/> que llegaron ANTES de
+    /// que existiera este vínculo (EmployeeId todavía null) — usa
+    /// Attendance.ReconcileEmployee, que existía en el dominio sin que nada lo invocara
+    /// hasta ahora. Se llama justo antes de SaveChangesAsync en los tres lugares donde se
+    /// crea un EmployeeDeviceMapping, para que quede en la misma transacción que el
+    /// vínculo — si algo falla al guardar, ninguna de las dos cosas queda a medias.</summary>
+    private async Task ReconcileAttendancesAsync(Guid employeeId, Guid deviceId, string deviceUserPin)
+    {
+        var unresolved = await _attendanceRepository.ListUnresolvedByDeviceAndPinAsync(deviceId, deviceUserPin);
+        foreach (var attendance in unresolved)
+        {
+            attendance.ReconcileEmployee(employeeId);
+        }
+    }
+
     public async Task<IReadOnlyList<Branch>> GetBranchesAsync() => await _branchRepository.ListAsync();
 
     public async Task<IReadOnlyList<Device>> GetDevicesAsync() => await _deviceRepository.ListAsync();
@@ -152,6 +174,7 @@ public sealed partial class EmployeesViewModel : ObservableObject
             {
                 var mapping = EmployeeDeviceMapping.Create(employee.Id, deviceId.Value, deviceUserPin);
                 await _mappingRepository.AddAsync(mapping);
+                await ReconcileAttendancesAsync(employee.Id, deviceId.Value, deviceUserPin);
             }
 
             await _unitOfWork.SaveChangesAsync();
@@ -182,10 +205,15 @@ public sealed partial class EmployeesViewModel : ObservableObject
         }
     }
 
+    /// <param name="number">Número de empleado — puede haber cambiado respecto al actual
+    /// (corrección de un error de captura del alta, ver Employee.ChangeNumber).</param>
+    /// <param name="deviceId">Dispositivo a vincular en la misma operación si el empleado
+    /// todavía no tenía ninguno (ver EditEmployeeDialog) — null si no aplica.</param>
+    /// <param name="deviceUserPin">Requerido si <paramref name="deviceId"/> no es null.</param>
     /// <returns>Un mensaje de error comprensible si algo salió mal, o null si se guardó correctamente.</returns>
     public async Task<string?> UpdateEmployeeAsync(
-        Guid employeeId, string fullName, Guid branchId, string? department, string? position,
-        string? phone, string? email, EmploymentStatus status)
+        Guid employeeId, string number, string fullName, Guid branchId, string? department, string? position,
+        string? phone, string? email, EmploymentStatus status, Guid? deviceId = null, string? deviceUserPin = null)
     {
         try
         {
@@ -196,6 +224,11 @@ public sealed partial class EmployeesViewModel : ObservableObject
                 // la misma base), pero cubre la carrera de que alguien más lo haya borrado
                 // — hoy imposible desde la UI (no hay eliminar empleados), pero defensivo.
                 return "No se encontró el empleado — puede que la lista esté desactualizada. Cierra y vuelve a abrir esta pantalla.";
+            }
+
+            if (employee.Number.Value != number)
+            {
+                employee.ChangeNumber(EmployeeNumber.Create(number));
             }
 
             employee.UpdatePersonalInfo(fullName, department, position);
@@ -209,6 +242,16 @@ public sealed partial class EmployeesViewModel : ObservableObject
                 employee.ChangeStatus(status);
             }
 
+            // Primer vínculo del empleado, capturado en el mismo formulario de edición —
+            // mismo patrón que CreateEmployeeAsync; EditEmployeeDialog solo ofrece esto
+            // cuando el empleado aún no tenía ningún dispositivo vinculado.
+            if (deviceId is not null && !string.IsNullOrWhiteSpace(deviceUserPin))
+            {
+                var mapping = EmployeeDeviceMapping.Create(employeeId, deviceId.Value, deviceUserPin);
+                await _mappingRepository.AddAsync(mapping);
+                await ReconcileAttendancesAsync(employeeId, deviceId.Value, deviceUserPin);
+            }
+
             await _unitOfWork.SaveChangesAsync();
             await ReloadAsync();
             return null;
@@ -216,6 +259,17 @@ public sealed partial class EmployeesViewModel : ObservableObject
         catch (DomainException ex)
         {
             return ex.Message;
+        }
+        catch (DbUpdateException ex)
+        {
+            // Número duplicado (índice único de Employee.Number), o si se vinculó a un
+            // dispositivo en la misma operación, alguno de los índices únicos de
+            // EmployeeDeviceMapping — igual que el resto de la app, sin inspeccionar el
+            // texto nativo del error de SQLite.
+            Log.Warning(ex, "No se pudo editar el empleado (EmployeeId={EmployeeId}, Number={Number})", employeeId, number);
+            return deviceId is not null
+                ? "No se pudo guardar: el número de empleado ya está en uso, o ese PIN ya está en uso en el dispositivo elegido."
+                : "Ya existe otro empleado con ese número.";
         }
         catch (Exception ex)
         {
@@ -231,6 +285,7 @@ public sealed partial class EmployeesViewModel : ObservableObject
         {
             var mapping = EmployeeDeviceMapping.Create(employeeId, deviceId, deviceUserPin);
             await _mappingRepository.AddAsync(mapping);
+            await ReconcileAttendancesAsync(employeeId, deviceId, deviceUserPin);
             await _unitOfWork.SaveChangesAsync();
             await ReloadAsync();
             return null;
