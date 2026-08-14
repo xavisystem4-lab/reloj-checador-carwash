@@ -128,8 +128,20 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         {
             var alreadyExists = await _attendanceRepository.ExistsAsync(
                 device.Id, record.DeviceUserPin, record.TimestampUtc);
+
+            // Cualquier marcación que llega por el monitoreo en tiempo real (nueva o
+            // duplicada) es evidencia fresca de que el dispositivo sigue comunicándose —
+            // sin esto, LastCommunicationAtUtc solo se actualizaba al presionar "Conectar"
+            // a mano (ver ConnectAsync/TryPersistCommunicationResultAsync), así que el
+            // indicador "Conectado" del Dashboard (basado en ese campo, ver
+            // dashboard/app.js DEVICE_ONLINE_THRESHOLD_MINUTES) expiraba a los 5 minutos
+            // del último "Conectar" manual aunque el reloj siguiera mandando marcaciones
+            // con total normalidad — reportado por el usuario como "a veces se desconecta".
+            device.RecordSuccessfulCommunication(DateTime.UtcNow);
+
             if (alreadyExists)
             {
+                await _unitOfWork.SaveChangesAsync();
                 return false;
             }
 

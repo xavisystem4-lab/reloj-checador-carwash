@@ -133,6 +133,11 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   baja" para volver a verlos
 - Exportar CSV desde la pantalla de Asistencia de la app de escritorio (mismas columnas y
   traducciones que el CSV del Dashboard web, para que abran igual en Excel)
+- Corregido: el indicador "Conectado"/"Desconectado" de cada reloj en el Dashboard (basado
+  en `Device.LastCommunicationAtUtc`) solo se actualizaba al presionar "Conectar" a mano en
+  Dispositivos — nunca con las marcaciones que llegaban por el monitoreo en tiempo real.
+  Reportado por el usuario como "a veces se desconecta" sin explicación; ahora cada
+  marcación en tiempo real también refresca esa marca de tiempo
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Confirmar el login real del Dashboard (requiere que el usuario cree su primera cuenta
