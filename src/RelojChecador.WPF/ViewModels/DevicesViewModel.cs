@@ -204,20 +204,28 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
 
     /// <summary>Se invoca desde el hilo del adaptador (background), nunca desde el de UI —
     /// por eso todo lo que toca las ObservableCollection/propiedades se reenvía al
-    /// Dispatcher de WPF antes de tocarlas.</summary>
+    /// Dispatcher de WPF antes de tocarlas. Esto incluye el fire-and-forget de abajo: un
+    /// crash real reportado por el usuario (NotSupportedException "CollectionView no
+    /// admite cambios... de un subproceso distinto del subproceso Dispatcher" →
+    /// UnobservedTaskException, tumbaba la app entera) venía de un caso hermano de este
+    /// mismo patrón (ver OnRemoteSyncRequested) donde el fire-and-forget quedaba FUERA del
+    /// bloque marshalizado — PersistAttendanceAsync también llama AppendLog en sus rutas de
+    /// error, así que tenía que quedar dentro del mismo Dispatcher.Invoke.</summary>
     private void OnAttendancePunchReceived(object? sender, RawAttendanceRecord record)
     {
         System.Windows.Application.Current?.Dispatcher.Invoke(() =>
         {
             AttendanceRecords.Insert(0, record);
             AppendLog($"🟢 Marcación en vivo — PIN {record.DeviceUserPin} · {record.TimestampUtc:HH:mm:ss} · {record.VerifyMethod}");
-        });
 
-        // Fire-and-forget deliberado: el evento del adaptador es síncrono (no se puede
-        // "esperar" desde aquí sin bloquear su hilo de sondeo) y guardar en SQLite no debe
-        // frenar la siguiente marcación. Los errores se registran en la bitácora en vez de
-        // perderse en silencio — ver PersistAttendanceAsync.
-        _ = PersistAndTriggerSyncAsync(record, source: "tiempo real");
+            // Fire-and-forget deliberado: no se puede "esperar" aquí sin bloquear el hilo de
+            // UI hasta que termine de guardar en SQLite y sincronizar con la nube — pero sí
+            // debe INICIARSE en el hilo de UI (dentro de este Invoke) para que sus `await`
+            // reanuden aquí mismo vía el SynchronizationContext del Dispatcher, no en el hilo
+            // de sondeo del adaptador. Los errores se registran en la bitácora en vez de
+            // perderse en silencio — ver PersistAttendanceAsync.
+            _ = PersistAndTriggerSyncAsync(record, source: "tiempo real");
+        });
     }
 
     /// <summary>Guarda la marcación y, si fue realmente nueva (no un duplicado), dispara
@@ -711,18 +719,32 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
 
     /// <summary>Se dispara cuando <see cref="RemoteSyncRequestCoordinator"/> detecta una
     /// solicitud "Actualizar asistencias" pendiente desde el Dashboard — evento de hilo de
-    /// fondo (ver su comentario), se marshaliza al Dispatcher antes de tocar LogEntries,
-    /// igual que <see cref="OnAttendancePunchReceived"/>.</summary>
+    /// fondo (el hilo de sondeo de RemoteSyncRequestPollingService, nunca el de UI).
+    ///
+    /// CRASH REAL reportado por el usuario (v1.17.1): antes solo el AppendLog de aquí se
+    /// marshalizaba al Dispatcher; el fire-and-forget de ProcessRemoteSyncRequestAsync
+    /// quedaba fuera, así que TODO lo que esa cadena toca (AppendLog/LogEntries,
+    /// ConnectAsync y sus propiedades observables, DownloadAttendanceCoreAsync y
+    /// AttendanceRecords) corría en el hilo de sondeo — WPF lo rechaza con
+    /// NotSupportedException ("CollectionView no admite cambios... de un subproceso
+    /// distinto del subproceso Dispatcher"), y como nadie observaba esa excepción (Task
+    /// fire-and-forget sin await), terminaba re-lanzada por el finalizer como
+    /// UnobservedTaskException y tumbaba la aplicación completa. Ahora TODA la cadena se
+    /// inicia dentro de un único Dispatcher.InvokeAsync, para que sus `await` reanuden en
+    /// el hilo de UI vía el SynchronizationContext del Dispatcher — mismo criterio que
+    /// OnAttendancePunchReceived.</summary>
     private void OnRemoteSyncRequested(object? sender, RemoteSyncRequest request)
     {
-        System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+        System.Windows.Application.Current?.Dispatcher.InvokeAsync(() =>
+        {
             AppendLog("📥 Solicitud de sincronización remota recibida desde el Dashboard" +
-                (string.IsNullOrWhiteSpace(request.RequestedByEmail) ? "" : $" ({request.RequestedByEmail})") + "…"));
+                (string.IsNullOrWhiteSpace(request.RequestedByEmail) ? "" : $" ({request.RequestedByEmail})") + "…");
 
-        // Fire-and-forget deliberado, mismo motivo que PersistAndTriggerSyncAsync: el
-        // evento del coordinador es síncrono, no se puede "esperar" aquí sin bloquear su
-        // hilo de sondeo.
-        _ = ProcessRemoteSyncRequestAsync(request);
+            // Fire-and-forget deliberado: no se puede "esperar" aquí sin bloquear el hilo de
+            // UI hasta que termine de conectar/descargar/sincronizar — pero sí debe
+            // INICIARSE dentro de este InvokeAsync (ver comentario del método).
+            _ = ProcessRemoteSyncRequestAsync(request);
+        });
     }
 
     /// <summary>Procesa una solicitud remota reutilizando exactamente los mismos pasos que
@@ -730,54 +752,81 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
     /// <see cref="ConnectAsync"/>/<see cref="DownloadAttendanceCoreAsync"/>), y reporta el
     /// resultado de vuelta con <see cref="RemoteSyncRequestCoordinator.CompleteAsync"/> —
     /// así el Dashboard pasa de "Sincronizando…" a "Completado"/"Error" con un mensaje
-    /// claro en cualquiera de los puntos donde puede fallar.</summary>
+    /// claro en cualquiera de los puntos donde puede fallar.
+    ///
+    /// El try/catch general es defensivo, no solo para el bug de hilos ya corregido en
+    /// <see cref="OnRemoteSyncRequested"/>: este método se invoca fire-and-forget (nadie
+    /// espera el Task ni observa su excepción), así que CUALQUIER excepción no atrapada
+    /// aquí dentro —de cualquier causa futura, no solo la de hilos— se volvería una
+    /// UnobservedTaskException que tumba la app entera en el finalizer. Mejor reportarla
+    /// como solicitud fallida y seguir funcionando.</summary>
     private async Task ProcessRemoteSyncRequestAsync(RemoteSyncRequest request)
     {
-        if (SelectedDevice is null)
+        try
         {
-            AppendLog("⚠️ Solicitud remota rechazada: no hay ningún dispositivo seleccionado en esta PC.");
-            await _remoteSyncCoordinator.CompleteAsync(
-                request.Id, success: false, "No hay ningún dispositivo seleccionado en esta PC.", CancellationToken.None);
-            return;
-        }
+            if (SelectedDevice is null)
+            {
+                AppendLog("⚠️ Solicitud remota rechazada: no hay ningún dispositivo seleccionado en esta PC.");
+                await _remoteSyncCoordinator.CompleteAsync(
+                    request.Id, success: false, "No hay ningún dispositivo seleccionado en esta PC.", CancellationToken.None);
+                return;
+            }
 
-        if (!IsConnected)
-        {
-            // Reutiliza el mismo comando que el botón "Conectar" — incluye su propio
-            // guardia de reentrancia (_isConnecting) y reactiva el auto-reconnect si
-            // estaba suspendido por un "Desconectar" manual previo.
-            await ConnectAsync();
-        }
+            if (!IsConnected)
+            {
+                // Reutiliza el mismo comando que el botón "Conectar" — incluye su propio
+                // guardia de reentrancia (_isConnecting) y reactiva el auto-reconnect si
+                // estaba suspendido por un "Desconectar" manual previo.
+                await ConnectAsync();
+            }
 
-        if (!IsConnected)
-        {
-            AppendLog("⚠️ Solicitud remota fallida: no se pudo conectar con el reloj checador.");
-            await _remoteSyncCoordinator.CompleteAsync(
-                request.Id, success: false, "No se pudo conectar con el reloj checador desde esta PC.", CancellationToken.None);
-            return;
-        }
+            if (!IsConnected)
+            {
+                AppendLog("⚠️ Solicitud remota fallida: no se pudo conectar con el reloj checador.");
+                await _remoteSyncCoordinator.CompleteAsync(
+                    request.Id, success: false, "No se pudo conectar con el reloj checador desde esta PC.", CancellationToken.None);
+                return;
+            }
 
-        var (success, error, totalRead, savedCount) = await DownloadAttendanceCoreAsync();
-        if (!success)
-        {
-            AppendLog($"⚠️ Solicitud remota fallida: no se pudo descargar del dispositivo ({error}).");
-            await _remoteSyncCoordinator.CompleteAsync(
-                request.Id, success: false, $"No se pudo descargar del dispositivo: {error}", CancellationToken.None);
-            return;
-        }
+            var (success, error, totalRead, savedCount) = await DownloadAttendanceCoreAsync();
+            if (!success)
+            {
+                AppendLog($"⚠️ Solicitud remota fallida: no se pudo descargar del dispositivo ({error}).");
+                await _remoteSyncCoordinator.CompleteAsync(
+                    request.Id, success: false, $"No se pudo descargar del dispositivo: {error}", CancellationToken.None);
+                return;
+            }
 
-        var pushOk = await _syncService.TriggerSyncNowAsync();
-        if (pushOk)
-        {
-            var summary = $"{savedCount} marcación(es) nueva(s) de {totalRead} leída(s) del dispositivo, sincronizada(s) con la nube.";
-            AppendLog($"✅ Solicitud remota completada: {summary}");
-            await _remoteSyncCoordinator.CompleteAsync(request.Id, success: true, summary, CancellationToken.None);
+            var pushOk = await _syncService.TriggerSyncNowAsync();
+            if (pushOk)
+            {
+                var summary = $"{savedCount} marcación(es) nueva(s) de {totalRead} leída(s) del dispositivo, sincronizada(s) con la nube.";
+                AppendLog($"✅ Solicitud remota completada: {summary}");
+                await _remoteSyncCoordinator.CompleteAsync(request.Id, success: true, summary, CancellationToken.None);
+            }
+            else
+            {
+                const string message = "Se descargaron las marcaciones del dispositivo, pero falló la subida a la nube. Se reintentará solo en el siguiente ciclo.";
+                AppendLog($"⚠️ Solicitud remota: {message}");
+                await _remoteSyncCoordinator.CompleteAsync(request.Id, success: false, message, CancellationToken.None);
+            }
         }
-        else
+        catch (Exception ex)
         {
-            const string message = "Se descargaron las marcaciones del dispositivo, pero falló la subida a la nube. Se reintentará solo en el siguiente ciclo.";
-            AppendLog($"⚠️ Solicitud remota: {message}");
-            await _remoteSyncCoordinator.CompleteAsync(request.Id, success: false, message, CancellationToken.None);
+            Log.Error(ex, "Error inesperado al procesar una solicitud de sincronización remota (RequestId={RequestId})", request.Id);
+            AppendLog($"⚠️ Solicitud remota fallida por un error inesperado: {ex.Message}");
+            try
+            {
+                await _remoteSyncCoordinator.CompleteAsync(
+                    request.Id, success: false, $"Error inesperado en la PC: {ex.Message}", CancellationToken.None);
+            }
+            catch (Exception completeEx)
+            {
+                // Si hasta reportar el fallo falla (p. ej. sin internet en ese instante), no
+                // hay nada más que hacer aquí — se registra y se deja así; el Dashboard
+                // seguirá mostrando "Sincronizando…" hasta que expire por su cuenta.
+                Log.Warning(completeEx, "No se pudo reportar el fallo de la solicitud remota {RequestId} de vuelta a Supabase", request.Id);
+            }
         }
     }
 

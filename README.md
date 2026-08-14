@@ -349,6 +349,22 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   esperando hasta el próximo ciclo automático (`IntervalSeconds`), y un "Desconectar"
   manual ni siquiera tocaba `Device.Status` localmente. Ahora los tres empujan el cambio a
   Supabase de inmediato, mismo criterio que ya existía para marcaciones nuevas.
+- **Fix crítico: crash de la app por actualizar la UI desde un hilo de fondo** —
+  reportado por el usuario con la ventana de error de Windows
+  (`TaskScheduler.UnobservedTaskException` → `NotSupportedException`: "Este tipo de
+  CollectionView no admite cambios en el SourceCollection de un subproceso distinto del
+  subproceso Dispatcher"), disparado al procesar una solicitud remota de sincronización
+  desde el Dashboard. Causa real: `OnRemoteSyncRequested` solo marshalizaba al Dispatcher
+  el primer `AppendLog`; el fire-and-forget de `ProcessRemoteSyncRequestAsync` (que toca
+  `AttendanceRecords`, `LogEntries` y varias propiedades observables vía `ConnectAsync`/
+  `DownloadAttendanceCoreAsync`) quedaba corriendo en el hilo de sondeo de
+  `RemoteSyncRequestPollingService` — WPF lo rechaza, y como nadie observaba esa excepción
+  (Task sin `await`), terminaba re-lanzada por el finalizer y tumbaba la app entera. Se
+  encontró y corrigió el mismo patrón en `OnAttendancePunchReceived` (marcaciones en
+  tiempo real) antes de que también fallara. Ambos ahora inician toda la cadena async
+  dentro de un único bloque marshalizado al Dispatcher; `ProcessRemoteSyncRequestAsync`
+  además gana un try/catch general (defensivo ante cualquier excepción futura no
+  relacionada con hilos, dado que se invoca fire-and-forget).
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Navegación completa de la UI (Fase 3 del diseño visual — Sucursales, Empleados,
