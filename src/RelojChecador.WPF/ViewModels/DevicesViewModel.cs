@@ -693,7 +693,17 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
     /// Guardia de reentrancia compartida (<see cref="_isDownloading"/>): con la descarga
     /// automática corriendo cada 10s, es real que dos de estos tres caminos coincidan si
     /// el dispositivo tarda en responder — sin esto, dos descargas simultáneas pisarían
-    /// AttendanceRecords entre sí.</summary>
+    /// AttendanceRecords entre sí.
+    ///
+    /// CAUSA REAL reportada por el usuario ("dice Conectado pero no trae las últimas
+    /// checadas ni al presionar 'Descargar asistencias' a mano"): un fallo real de lectura
+    /// (el reloj dejó de responder de verdad — cambio de IP por DHCP, se reinició, perdió
+    /// red, etc.) nunca tocaba <see cref="IsConnected"/>. La UI se quedaba mostrando
+    /// "Conectado" para siempre (nadie lo volvía a evaluar), y como TryAutoReconnectAsync
+    /// solo actúa cuando IsConnected es false, el auto-reconnect (cada 15s) jamás
+    /// intentaba una reconexión real — quedaba en un punto muerto silencioso hasta que
+    /// alguien presionara "Desconectar" y "Conectar" a mano. Ahora un fallo real aquí
+    /// marca la conexión como caída de verdad, para que el ciclo de 15s la retome sola.</summary>
     private async Task<(bool Success, string? Error, int TotalRead, int SavedCount)> DownloadAttendanceCoreAsync()
     {
         if (_isDownloading)
@@ -707,6 +717,7 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
             var result = await _deviceAdapter.DownloadAttendanceLogsAsync();
             if (result.IsFailure)
             {
+                await MarkDisconnectedDueToFailureAsync(result.Error.Message);
                 return (false, result.Error.Message, 0, 0);
             }
 
@@ -731,6 +742,30 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         {
             _isDownloading = false;
         }
+    }
+
+    /// <summary>Corrige el punto muerto descrito en el comentario de
+    /// <see cref="DownloadAttendanceCoreAsync"/>: si un intento de leer del dispositivo
+    /// falla de verdad, se corta el monitoreo en tiempo real, se marca IsConnected=false
+    /// (para que TryAutoReconnectAsync deje de considerarlo "ya conectado" y vuelva a
+    /// intentarlo en el siguiente tick de 15s) y se deja constancia + se empuja el fallo a
+    /// Supabase de inmediato. No hace nada si ya estaba marcado como desconectado (evita
+    /// registrar el mismo fallo una y otra vez cada 10s mientras el auto-reconnect sigue
+    /// sin lograrlo).</summary>
+    private async Task MarkDisconnectedDueToFailureAsync(string reason)
+    {
+        if (!IsConnected)
+        {
+            return;
+        }
+
+        AppendLog($"⚠️ Se perdió la comunicación real con el dispositivo: {reason}");
+        _ = _deviceAdapter.StopRealTimeMonitoringAsync();
+        _ = _deviceAdapter.DisconnectAsync();
+        IsMonitoringRealTime = false;
+        IsConnected = false;
+
+        await TryPersistCommunicationResultAsync(succeeded: false);
     }
 
     /// <summary>Se dispara cuando <see cref="RemoteSyncRequestCoordinator"/> detecta una

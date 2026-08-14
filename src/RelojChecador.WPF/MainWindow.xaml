@@ -43,6 +43,20 @@
         <Border DockPanel.Dock="Top" Padding="16,10" Background="{DynamicResource BrushSurface}"
                 BorderBrush="{DynamicResource BrushBorder}" BorderThickness="0,0,0,1">
             <DockPanel>
+                <!-- Logotipo del negocio ("Drive In Car Wash") — pedido explícito del
+                     usuario: "en la parte izquierda de arriba que haga contraste al tema
+                     día y noche". Se monta sobre una tarjeta blanca fija (nunca
+                     DynamicResource) a propósito: el logo trae colores oscuros (azul
+                     marino) sobre fondo blanco opaco — en modo oscuro, puesto directo
+                     sobre el fondo de la barra, se perdería casi por completo (mismo
+                     error de contraste que ya se corrigió en el instalador, ver
+                     v1.18.1). Una tarjeta blanca constante garantiza el mismo contraste
+                     fuerte sin importar el tema activo. -->
+                <Border DockPanel.Dock="Left" Background="White" CornerRadius="6" Padding="8,4"
+                        BorderBrush="{DynamicResource BrushBorder}" BorderThickness="1" Margin="0,0,12,0">
+                    <Image Source="Assets/DriveInLogo.png" Height="28" Stretch="Uniform"
+                           ToolTip="Drive In Car Wash" />
+                </Border>
                 <TextBlock DockPanel.Dock="Left" Text="Reloj Checador" FontWeight="Bold" FontSize="17"
                            VerticalAlignment="Center" Foreground="{DynamicResource BrushText}" />
                 <Button DockPanel.Dock="Right" x:Name="DarkModeToggleButton" Style="{StaticResource GhostButton}"

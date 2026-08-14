@@ -400,6 +400,24 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   `TryAutoDownloadAsync` (cada 10s mientras está conectado) trata una descarga exitosa
   —aunque traiga 0 marcaciones nuevas— como prueba real de comunicación viva y refresca el
   campo + lo empuja a Supabase de inmediato.
+- **Fix: la app se quedaba "Conectado" para siempre aunque el reloj hubiera dejado de
+  responder de verdad** — diagnosticado en vivo con el usuario (confirmó que "Descargar
+  asistencias" a mano fallaba o no traía nada nuevo pese a haber checadas reales, con la
+  pantalla mostrando "Conectado" todo el tiempo). Causa real: un fallo genuino de lectura
+  del dispositivo (`DownloadAttendanceCoreAsync`) nunca tocaba `IsConnected` — como
+  `TryAutoReconnectAsync` solo actúa cuando `IsConnected` es `false`, el auto-reconnect
+  (cada 15s) jamás volvía a intentar una reconexión real: un punto muerto silencioso hasta
+  que alguien presionara "Desconectar" y "Conectar" a mano. Ahora un fallo real de lectura
+  (manual, automático o por solicitud remota — los tres pasan por el mismo núcleo) corta
+  el monitoreo, marca `IsConnected = false` de verdad y empuja el fallo a Supabase de
+  inmediato, para que el ciclo de 15s retome la reconexión sin intervención manual.
+- **Logotipo del negocio "Drive In Car Wash"** en la esquina superior izquierda de
+  `MainWindow`, a pedido explícito del usuario ("que haga contraste al tema día y noche").
+  Recortado del archivo original (quitando el margen blanco) y montado sobre una tarjeta
+  blanca fija (`Background="White"`, nunca `DynamicResource`) — el logo trae tonos azul
+  marino que se perderían casi por completo puestos directo sobre el fondo oscuro del
+  tema noche (mismo error de contraste ya corregido en el instalador, ver v1.18.1); una
+  tarjeta blanca constante garantiza contraste fuerte sin importar el tema activo.
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Navegación completa de la UI (Fase 3 del diseño visual — Sucursales, Empleados,
@@ -412,12 +430,6 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
 - Incidencias de nómina (faltas, permisos, vacaciones) — resto de Fases 5-6
 - Razón social real para el instalador (el ícono/logotipo de marca "GalaCheck" ya se
   resolvió — ver "Hecho")
-- Logotipo del negocio ("Drive In Car Wash") en la esquina superior izquierda de las
-  ventanas de la app, con contraste correcto en modo claro y oscuro — pedido explícito del
-  usuario, bloqueado: el archivo se envió como imagen embebida en el chat, no como archivo
-  en el equipo (a diferencia de los otros logos, que sí se guardaron en
-  `Documents/PROYECTOS`) — no se pudo localizar en disco para usarlo. Pendiente de que el
-  usuario lo guarde ahí.
 
 ## Convenciones
 
