@@ -51,6 +51,17 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
     private bool _autoReconnectSuspended;
     private bool _isConnecting;
 
+    // Descarga automática (pedido explícito del usuario: que "el botón de descarga
+    // asistencia se actualice por sí solo" cada 5-10s, sin depender de que el monitoreo en
+    // tiempo real esté funcionando ni de que alguien presione el botón — ni siquiera de una
+    // señal remota del Dashboard). Complementa, no reemplaza, al monitoreo en tiempo real
+    // (AttendancePunchReceived) y a la solicitud remota (RemoteSyncRequestCoordinator): es
+    // una tercera vía, puramente local, que no depende de que ninguna de las otras dos esté
+    // funcionando. Nunca duplica marcaciones — PersistAttendanceAsync ya deduplica (ExistsAsync
+    // + índice único como respaldo), así que solapar con tiempo real es seguro.
+    private readonly DispatcherTimer _autoDownloadTimer;
+    private bool _isDownloading;
+
     [ObservableProperty]
     private string _statusMessage = "Cargando dispositivos...";
 
@@ -110,6 +121,10 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         _autoReconnectTimer.Tick += async (_, _) => await TryAutoReconnectAsync();
         _autoReconnectTimer.Start();
 
+        _autoDownloadTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
+        _autoDownloadTimer.Tick += async (_, _) => await TryAutoDownloadAsync();
+        _autoDownloadTimer.Start();
+
         // Igual que _deviceAdapter.AttendancePunchReceived: se dispara en el hilo del
         // RemoteSyncRequestPollingService, no en el de UI — el handler hace su propio
         // marshaling (ver OnRemoteSyncRequested). RemoteSyncRequestCoordinator es
@@ -124,6 +139,7 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         _deviceAdapter.AttendancePunchReceived -= OnAttendancePunchReceived;
         _remoteSyncCoordinator.SyncRequested -= OnRemoteSyncRequested;
         _autoReconnectTimer.Stop();
+        _autoDownloadTimer.Stop();
     }
 
     /// <summary>Se ejecuta cada 15s (ver _autoReconnectTimer) y también una vez al cargar
@@ -140,6 +156,35 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
 
         AppendLog("🔄 Reintentando conectar automáticamente...");
         await ConnectAsync();
+    }
+
+    /// <summary>Se ejecuta cada 10s (ver _autoDownloadTimer) mientras haya un dispositivo
+    /// conectado — descarga del reloj y sube a la nube exactamente igual que el botón
+    /// "Descargar asistencias", sin que nadie tenga que presionarlo. Deliberadamente
+    /// silenciosa cuando no hay nada nuevo (no deja rastro en la bitácora cada 10s aunque
+    /// no haya pasado nada) — solo se registra cuando de verdad hay marcaciones nuevas o
+    /// algo salió mal, igual que el resto de los timers automáticos de este ViewModel.</summary>
+    private async Task TryAutoDownloadAsync()
+    {
+        if (!IsConnected)
+        {
+            return;
+        }
+
+        var (success, _, totalRead, savedCount) = await DownloadAttendanceCoreAsync();
+        if (!success)
+        {
+            // Sin log a propósito: un fallo puntual de una descarga automática cada 10s no
+            // debe inundar la bitácora — si el dispositivo realmente se desconectó, eso ya
+            // se refleja en IsConnected y lo recoge el auto-reconnect (cada 15s).
+            return;
+        }
+
+        if (savedCount > 0)
+        {
+            AppendLog($"🔄 Descarga automática: {savedCount} marcación(es) nueva(s) de {totalRead} leída(s).");
+            await _syncService.TriggerSyncNowAsync();
+        }
     }
 
     /// <summary>Se invoca desde el hilo del adaptador (background), nunca desde el de UI —
@@ -529,34 +574,51 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
 
     /// <summary>Núcleo reutilizable de "Descargar asistencias": lee del dispositivo,
     /// refresca <see cref="AttendanceRecords"/> y persiste cada registro nuevo en la base
-    /// local. Reutilizado tanto por el <c>[RelayCommand]</c> de arriba (botón "Descargar
-    /// asistencias") como por <see cref="ProcessRemoteSyncRequestAsync"/> (solicitud
-    /// remota "Actualizar asistencias" disparada desde el Dashboard) — ninguno de los dos
-    /// duplica esta lógica.</summary>
+    /// local. Reutilizado por tres llamadores — el <c>[RelayCommand]</c> de arriba (botón
+    /// "Descargar asistencias"), <see cref="TryAutoDownloadAsync"/> (descarga automática
+    /// cada 10s) y <see cref="ProcessRemoteSyncRequestAsync"/> (solicitud remota
+    /// "Actualizar asistencias" desde el Dashboard) — ninguno duplica esta lógica.
+    /// Guardia de reentrancia compartida (<see cref="_isDownloading"/>): con la descarga
+    /// automática corriendo cada 10s, es real que dos de estos tres caminos coincidan si
+    /// el dispositivo tarda en responder — sin esto, dos descargas simultáneas pisarían
+    /// AttendanceRecords entre sí.</summary>
     private async Task<(bool Success, string? Error, int TotalRead, int SavedCount)> DownloadAttendanceCoreAsync()
     {
-        var result = await _deviceAdapter.DownloadAttendanceLogsAsync();
-        if (result.IsFailure)
+        if (_isDownloading)
         {
-            return (false, result.Error.Message, 0, 0);
+            return (false, "Ya hay una descarga en curso.", 0, 0);
         }
 
-        AttendanceRecords.Clear();
-        var savedCount = 0;
-        // Más reciente arriba — el dispositivo entrega los registros en el orden en que
-        // los tiene almacenados internamente (normalmente de llegada), no por fecha; se
-        // ordena explícitamente antes de mostrarlos para que la marcación más nueva quede
-        // primera sin depender de esa suposición.
-        foreach (var record in result.Value.OrderByDescending(r => r.TimestampUtc))
+        _isDownloading = true;
+        try
         {
-            AttendanceRecords.Add(record);
-            if (await PersistAttendanceAsync(record, source: "descarga manual"))
+            var result = await _deviceAdapter.DownloadAttendanceLogsAsync();
+            if (result.IsFailure)
             {
-                savedCount++;
+                return (false, result.Error.Message, 0, 0);
             }
-        }
 
-        return (true, null, result.Value.Count, savedCount);
+            AttendanceRecords.Clear();
+            var savedCount = 0;
+            // Más reciente arriba — el dispositivo entrega los registros en el orden en que
+            // los tiene almacenados internamente (normalmente de llegada), no por fecha; se
+            // ordena explícitamente antes de mostrarlos para que la marcación más nueva quede
+            // primera sin depender de esa suposición.
+            foreach (var record in result.Value.OrderByDescending(r => r.TimestampUtc))
+            {
+                AttendanceRecords.Add(record);
+                if (await PersistAttendanceAsync(record, source: "descarga"))
+                {
+                    savedCount++;
+                }
+            }
+
+            return (true, null, result.Value.Count, savedCount);
+        }
+        finally
+        {
+            _isDownloading = false;
+        }
     }
 
     /// <summary>Se dispara cuando <see cref="RemoteSyncRequestCoordinator"/> detecta una

@@ -232,6 +232,18 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
     `SupabaseRestClient.GetAsync/PatchAsync` y todo el ciclo de
     `RemoteSyncRequestCoordinator` (detección, guardia contra duplicados, éxito/fallo) con
     un `HttpMessageHandler` falso — sin tocar la red real.
+- **Descarga automática cada 10s** (`DevicesViewModel._autoDownloadTimer`), a pedido
+  explícito del usuario: "que el botón de descarga asistencia se actualice por sí solo",
+  sin depender de que el monitoreo en tiempo real esté funcionando ni de una señal remota
+  del Dashboard. Mientras haya un dispositivo conectado, descarga y sube a la nube
+  exactamente igual que el botón "Descargar asistencias" — es una TERCERA vía puramente
+  local, independiente de las otras dos (monitoreo en tiempo real, solicitud remota desde
+  el Dashboard), así que sigue funcionando aunque cualquiera de esas otras dos falle en
+  silencio. Deliberadamente silenciosa en la bitácora cuando no hay nada nuevo (no
+  registra cada 10s sin motivo). `DownloadAttendanceCoreAsync` (el núcleo compartido por
+  los tres caminos: botón manual, este timer, y la solicitud remota) gana una guardia de
+  reentrancia (`_isDownloading`) — con descargas disparándose cada 10s, es real que dos
+  caminos coincidan si el dispositivo tarda en responder.
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Confirmar el login real del Dashboard (requiere que el usuario cree su primera cuenta
