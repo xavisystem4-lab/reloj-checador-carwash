@@ -13,6 +13,7 @@ public partial class AddDeviceDialog : Window
     public string? SerialNumber => string.IsNullOrWhiteSpace(SerialTextBox.Text) ? null : SerialTextBox.Text.Trim();
     public string? MacAddress => string.IsNullOrWhiteSpace(MacTextBox.Text) ? null : MacTextBox.Text.Trim();
     public Branch? SelectedBranch => BranchComboBox.SelectedItem as Branch;
+    public string? CommunicationKey => string.IsNullOrEmpty(CommunicationKeyPasswordBox.Password) ? null : CommunicationKeyPasswordBox.Password;
 
     public AddDeviceDialog(IReadOnlyList<Branch> branches)
     {

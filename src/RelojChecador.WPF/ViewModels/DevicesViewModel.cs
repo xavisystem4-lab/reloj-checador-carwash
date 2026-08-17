@@ -76,6 +76,7 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
     private readonly IAttendanceDeviceAdapter _deviceAdapter;
     private readonly SupabaseSyncBackgroundService _syncService;
     private readonly RemoteSyncRequestCoordinator _remoteSyncCoordinator;
+    private readonly IDeviceCredentialStore _credentialStore;
 
     // Guardia de reentrancia para "Enviar empleados al reloj" — evita que un doble clic (o
     // que el usuario navegue de pestaña y vuelva) dispare dos lotes de SSR_SetUserInfo al
@@ -168,7 +169,8 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         IUnitOfWork unitOfWork,
         IAttendanceDeviceAdapter deviceAdapter,
         SupabaseSyncBackgroundService syncService,
-        RemoteSyncRequestCoordinator remoteSyncCoordinator)
+        RemoteSyncRequestCoordinator remoteSyncCoordinator,
+        IDeviceCredentialStore credentialStore)
     {
         _deviceRepository = deviceRepository;
         _branchRepository = branchRepository;
@@ -179,6 +181,7 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         _deviceAdapter = deviceAdapter;
         _syncService = syncService;
         _remoteSyncCoordinator = remoteSyncCoordinator;
+        _credentialStore = credentialStore;
 
         // El adaptador es Singleton (una sola instancia para toda la app — ver comentario de
         // clase) pero este ViewModel es Scoped (una instancia por ventana); por eso hay que
@@ -473,15 +476,25 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
 
     public async Task<IReadOnlyList<Branch>> GetBranchesAsync() => await _branchRepository.ListAsync();
 
+    /// <param name="communicationKey">Clave de comunicación del dispositivo (algunos equipos
+    /// EBKN/ZK la exigen para aceptar la conexión — ver ZKTecoDeviceAdapter.ConnectAsync).
+    /// Vacía/null = sin clave, comportamiento de siempre. Nunca se guarda en la base de
+    /// datos local: se guarda en Windows Credential Manager (ver IDeviceCredentialStore) y
+    /// solo se persiste en el dispositivo la REFERENCIA hacia esa entrada.</param>
     public async Task<string?> CreateDeviceAsync(
         string name, string brand, string model, string ipAddress, int tcpPort, Guid branchId,
-        string timeZoneId, string? serialNumber, string? macAddress)
+        string timeZoneId, string? serialNumber, string? macAddress, string? communicationKey = null)
     {
         try
         {
             var device = Device.Register(name, brand, model, ipAddress, tcpPort, branchId, timeZoneId, serialNumber, macAddress);
             await _deviceRepository.AddAsync(device);
             await _unitOfWork.SaveChangesAsync();
+
+            if (!string.IsNullOrWhiteSpace(communicationKey))
+            {
+                await SaveCommunicationKeyAsync(device, communicationKey);
+            }
 
             Devices.Add(device);
             SelectedDevice = device;
@@ -517,10 +530,14 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
     /// en sí (nombre/IP/puerto/etc.) sin esperar a que eso ocurra — pedido explícito del
     /// usuario: "cada vez que yo cambie los parámetros... este siempre debe actualizar en
     /// Supabase", no solo cuando además se reconecta con éxito.</summary>
+    /// <param name="communicationKey">Igual que en CreateDeviceAsync — vacío/null significa
+    /// "no cambiar la clave ya guardada" (nunca se muestra la clave existente de vuelta en
+    /// la pantalla de edición, así que dejar el campo en blanco no puede interpretarse como
+    /// "quitar la clave"). Solo se guarda/reemplaza si el usuario escribió algo nuevo.</param>
     /// <returns>Un mensaje de error comprensible si algo salió mal, o null si se guardó correctamente.</returns>
     public async Task<string?> UpdateDeviceAsync(
         Guid deviceId, string name, string brand, string model, string ipAddress, int tcpPort,
-        Guid branchId, string timeZoneId, string? serialNumber, string? macAddress)
+        Guid branchId, string timeZoneId, string? serialNumber, string? macAddress, string? communicationKey = null)
     {
         try
         {
@@ -532,6 +549,12 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
 
             device.UpdateDetails(name, brand, model, branchId, timeZoneId, serialNumber, macAddress);
             device.UpdateNetworkSettings(ipAddress, tcpPort);
+
+            if (!string.IsNullOrWhiteSpace(communicationKey))
+            {
+                await SaveCommunicationKeyAsync(device, communicationKey);
+            }
+
             await _unitOfWork.SaveChangesAsync();
             await _syncService.TriggerSyncNowAsync();
 
@@ -560,6 +583,24 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
             Log.Error(ex, "Error inesperado al actualizar el dispositivo {DeviceId}", deviceId);
             return "Ocurrió un error inesperado al guardar. Revisa el registro de errores.";
         }
+    }
+
+    /// <summary>Guarda la clave en Windows Credential Manager y asigna la referencia al
+    /// dispositivo. Usa el Id del dispositivo como referencia estable — sobrescribir la
+    /// clave de un dispositivo ya existente reutiliza la misma entrada en vez de dejar
+    /// huérfanas las anteriores. Un fallo al guardar la clave nunca debe impedir guardar el
+    /// resto de los datos del dispositivo (IP/puerto/etc.) — solo se registra en el log.</summary>
+    private async Task SaveCommunicationKeyAsync(Device device, string communicationKey)
+    {
+        var reference = $"device-{device.Id}";
+        var saveResult = await _credentialStore.SaveAsync(reference, communicationKey);
+        if (saveResult.IsFailure)
+        {
+            Log.Warning("No se pudo guardar la clave de comunicación del dispositivo {DeviceId}: {Error}", device.Id, saveResult.Error.Message);
+            return;
+        }
+
+        device.AssignCredentialReference(reference);
     }
 
     partial void OnSelectedDeviceChanged(Device? value)
@@ -676,7 +717,15 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
 
         try
         {
-            var connectionInfo = new DeviceConnectionInfo(SelectedDevice.IpAddress, SelectedDevice.TcpPort);
+            // Si el dispositivo tiene una clave de comunicación guardada (ver
+            // SaveCommunicationKeyAsync), se recupera aquí y se manda al adaptador —
+            // algunos equipos (reportado por el usuario, un EBKN/EN-260 real) no aceptan
+            // Connect_Net sin ella. Sin clave guardada (el caso normal), se conecta igual
+            // que siempre.
+            string? communicationKey = SelectedDevice.CredentialReference is { } reference
+                ? await _credentialStore.GetAsync(reference, token)
+                : null;
+            var connectionInfo = new DeviceConnectionInfo(SelectedDevice.IpAddress, SelectedDevice.TcpPort, communicationKey);
             var result = await _deviceAdapter.ConnectAsync(connectionInfo, token);
 
             if (result.IsFailure)

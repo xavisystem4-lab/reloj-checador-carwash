@@ -10,6 +10,7 @@ using RelojChecador.Infrastructure.Cloud;
 using RelojChecador.Infrastructure.Data;
 using RelojChecador.Infrastructure.Devices.ZKTeco;
 using RelojChecador.Infrastructure.Logging;
+using RelojChecador.Infrastructure.Security;
 using RelojChecador.Infrastructure.Updates;
 using RelojChecador.WPF.Services;
 using RelojChecador.WPF.ViewModels;
@@ -87,6 +88,7 @@ public partial class App : System.Windows.Application
                     // campo. Si algún día hace falta volver al simulador (desarrollo sin
                     // hardware a la mano), esta es la única línea que hay que cambiar.
                     services.AddSingleton<IAttendanceDeviceAdapter, ZKTecoDeviceAdapter>();
+                    services.AddSingleton<IDeviceCredentialStore, WindowsCredentialStore>();
 
                     var supabaseOptions = context.Configuration.GetSection("Supabase").Get<SupabaseSyncOptions>()
                         ?? new SupabaseSyncOptions();

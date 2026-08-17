@@ -23,6 +23,9 @@ public partial class EditDeviceDialog : Window
     public string? SerialNumber => string.IsNullOrWhiteSpace(SerialTextBox.Text) ? null : SerialTextBox.Text.Trim();
     public string? MacAddress => string.IsNullOrWhiteSpace(MacTextBox.Text) ? null : MacTextBox.Text.Trim();
     public Branch? SelectedBranch => BranchComboBox.SelectedItem as Branch;
+    // Vacío = "no cambiar la clave ya guardada" — nunca se precarga la clave existente
+    // aquí (no se muestra un secreto ya guardado de vuelta en la pantalla).
+    public string? CommunicationKey => string.IsNullOrEmpty(CommunicationKeyPasswordBox.Password) ? null : CommunicationKeyPasswordBox.Password;
 
     public EditDeviceDialog(Device device, IReadOnlyList<Branch> branches)
     {

@@ -38,7 +38,8 @@ public partial class DevicesView : UserControl
 
         var error = await viewModel.CreateDeviceAsync(
             dialog.DeviceName, dialog.Brand, dialog.Model, dialog.IpAddress, dialog.TcpPort,
-            dialog.SelectedBranch.Id, dialog.SelectedBranch.TimeZoneId, dialog.SerialNumber, dialog.MacAddress);
+            dialog.SelectedBranch.Id, dialog.SelectedBranch.TimeZoneId, dialog.SerialNumber, dialog.MacAddress,
+            dialog.CommunicationKey);
 
         if (error is not null)
         {
@@ -62,7 +63,8 @@ public partial class DevicesView : UserControl
 
         var error = await viewModel.UpdateDeviceAsync(
             dialog.DeviceId, dialog.DeviceName, dialog.Brand, dialog.Model, dialog.IpAddress, dialog.TcpPort,
-            dialog.SelectedBranch.Id, dialog.SelectedBranch.TimeZoneId, dialog.SerialNumber, dialog.MacAddress);
+            dialog.SelectedBranch.Id, dialog.SelectedBranch.TimeZoneId, dialog.SerialNumber, dialog.MacAddress,
+            dialog.CommunicationKey);
 
         if (error is not null)
         {

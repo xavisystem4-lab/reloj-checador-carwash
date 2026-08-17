@@ -186,6 +186,19 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
 
             try
             {
+                // Algunos equipos (reportado por el usuario con un modelo EBKN/EN-260 real
+                // que no aceptaba Connect_Net) exigen la "clave de comunicación" configurada
+                // en el propio dispositivo antes de aceptar la conexión — hay que fijarla
+                // ANTES de Connect_Net, nunca después. SetCommPassword es el nombre de
+                // método más citado del SDK para esto (misma convención que el resto de
+                // nombres de método sin verificar contra hardware real documentados en esta
+                // clase, ej. MapVerifyMode) — no se probó todavía contra un equipo que
+                // realmente la exija.
+                if (!string.IsNullOrEmpty(connection.CommunicationPassword))
+                {
+                    _zk!.SetCommPassword(connection.CommunicationPassword);
+                }
+
                 bool ok = _zk!.Connect_Net(connection.IpAddress, connection.TcpPort);
                 if (!ok)
                 {
