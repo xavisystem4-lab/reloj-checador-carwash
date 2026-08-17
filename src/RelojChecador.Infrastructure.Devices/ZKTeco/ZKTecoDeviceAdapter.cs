@@ -77,6 +77,18 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
     private DateTime _realTimeSinceDeviceLocal;
     private readonly SemaphoreSlim _logAccessLock = new(1, 1);
 
+    // Tiempos de espera para Connect_Net/Disconnect (reportado por el usuario: la app se
+    // congelaba mostrando "No responde" al abrir o al editar un dispositivo). Connect_Net
+    // no tiene límite de tiempo propio — si el reloj está apagado o inalcanzable puede
+    // tardar decenas de segundos. RunWithTimeoutAsync no puede "abortar" esa llamada nativa
+    // a media ejecución (no existe forma segura de hacerlo en .NET moderno sin arriesgar el
+    // proceso — Thread.Abort ya no existe), pero SÍ hace que quien espera el resultado
+    // (la UI) deje de esperar a tiempo y pueda seguir usándose de inmediato; el hilo
+    // huérfano de Task.Run simplemente termina solo cuando el SDK finalmente responda o
+    // el sistema operativo agote su propio timeout de TCP.
+    private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan DisconnectTimeout = TimeSpan.FromSeconds(5);
+
     public string Brand => "ZKTeco";
 
     public event EventHandler<RawAttendanceRecord>? AttendancePunchReceived;
@@ -129,16 +141,49 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
         }
     }
 
-    public async Task<Result> ConnectAsync(DeviceConnectionInfo connection, CancellationToken cancellationToken = default)
+    /// <summary>Corre <paramref name="operation"/> en un hilo de fondo (Task.Run) y le pone
+    /// un límite de tiempo real — sin esto, una llamada COM/nativa bloqueante (como
+    /// Connect_Net contra un reloj apagado o inalcanzable) puede tardar decenas de segundos
+    /// sin que el <see cref="CancellationToken"/> de Task.Run sirva de nada, porque ese
+    /// token solo evita que la llamada EMPIECE si ya estaba cancelada — no interrumpe una
+    /// llamada síncrona ya en marcha. Al agotarse <paramref name="timeout"/> quien llamó a
+    /// este método deja de esperar y recibe un error de inmediato (la UI queda libre); el
+    /// hilo de <c>Task.Run</c> sigue corriendo de fondo, huérfano, hasta que el SDK termine
+    /// por su cuenta — no hay forma segura de abortar una llamada nativa a media ejecución
+    /// en .NET moderno (Thread.Abort ya no existe), así que esto es lo mejor posible sin
+    /// arriesgar el proceso.</summary>
+    private static async Task<Result> RunWithTimeoutAsync(
+        Func<Result> operation, TimeSpan timeout, CancellationToken cancellationToken)
     {
-        var comResult = EnsureComObject();
-        if (comResult.IsFailure)
+        var work = Task.Run(operation, cancellationToken);
+        var timeoutTask = Task.Delay(timeout, cancellationToken);
+        var finished = await Task.WhenAny(work, timeoutTask);
+
+        if (finished == work)
         {
-            return Result.Failure(comResult.Error);
+            return await work;
         }
 
-        return await Task.Run(() =>
+        return Result.Failure(Error.Unexpected(
+            $"El dispositivo no respondió en {timeout.TotalSeconds:0}s."));
+    }
+
+    public async Task<Result> ConnectAsync(DeviceConnectionInfo connection, CancellationToken cancellationToken = default)
+    {
+        // EnsureComObject() (carga zkemkeeper.dll + sus dependencias nativas la primera vez)
+        // se mueve DENTRO del Task.Run a propósito — reportado por el usuario: la app se
+        // congelaba con "No responde" al conectar. Antes se llamaba de forma síncrona en el
+        // hilo que invocara ConnectAsync (típicamente el de UI), y esa primera carga de la
+        // DLL puede tardar varios segundos; ahora corre en el hilo de fondo igual que el
+        // resto, y además queda cubierta por el mismo tiempo de espera.
+        return await RunWithTimeoutAsync(() =>
         {
+            var comResult = EnsureComObject();
+            if (comResult.IsFailure)
+            {
+                return Result.Failure(comResult.Error);
+            }
+
             try
             {
                 bool ok = _zk!.Connect_Net(connection.IpAddress, connection.TcpPort);
@@ -154,12 +199,23 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
             {
                 return Result.Failure(Error.Unexpected($"Connect_Net falló: {ex.Message}"));
             }
-        }, cancellationToken);
+        }, ConnectTimeout, cancellationToken);
     }
 
     public async Task<Result> DisconnectAsync(CancellationToken cancellationToken = default)
     {
-        await StopRealTimeMonitoringAsync(cancellationToken);
+        // StopRealTimeMonitoringAsync ya usa Task.Run por su cuenta (ver más abajo) — no
+        // hace falta envolverla aquí también, pero si el monitoreo estuviera colgado no debe
+        // impedir que el resto de Desconectar avance: un timeout ahí no debe tumbar todo el
+        // método (Desconectar SIEMPRE debe poder terminar).
+        try
+        {
+            await StopRealTimeMonitoringAsync(cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            _ = ex;
+        }
 
         if (_zk is null)
         {
@@ -167,7 +223,7 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
             return Result.Success();
         }
 
-        return await Task.Run(() =>
+        return await RunWithTimeoutAsync(() =>
         {
             try
             {
@@ -186,7 +242,7 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
             }
 
             return Result.Success();
-        }, cancellationToken);
+        }, DisconnectTimeout, cancellationToken);
     }
 
     /// <summary>Independiente del SDK de ZKTeco a propósito — un ping ICMP es el mismo

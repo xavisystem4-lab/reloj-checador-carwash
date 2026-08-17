@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Net.NetworkInformation;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -87,6 +88,17 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
     // "Conectar" a mano). Este ViewModel es Scoped a un único scope que vive toda la
     // sesión de la app (ver App.xaml.cs, _mainWindowScope) — el timer sigue corriendo sin
     // importar en qué pestaña esté el usuario, no solo mientras ve Dispositivos.
+    //
+    // IMPORTANTE (corregido — reportado por el usuario: la app se congelaba con "No
+    // responde" al abrir o al editar un dispositivo): este timer y _autoDownloadTimer se
+    // CREAN aquí pero YA NO se arrancan en el constructor. Antes sí arrancaban de
+    // inmediato, y como MainWindow recibe DevicesViewModel directo en su constructor, eso
+    // significaba un intento de conexión automático contra el reloj real en cuanto se abría
+    // la ventana principal — antes de que el usuario tocara nada, y antes de que
+    // ConnectAsync() tuviera ningún tiempo de espera real. Ahora ambos timers arrancan
+    // recién dentro de ConnectAsync() (el usuario presionó "Conectar" al menos una vez) y
+    // se detienen POR COMPLETO en DisconnectAsync()/OnSelectedDeviceChanged()/Dispose() —
+    // nunca vuelven a correr solos hasta el siguiente "Conectar" explícito.
     private readonly DispatcherTimer _autoReconnectTimer;
     private bool _autoReconnectSuspended;
     private bool _isConnecting;
@@ -99,8 +111,21 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
     // una tercera vía, puramente local, que no depende de que ninguna de las otras dos esté
     // funcionando. Nunca duplica marcaciones — PersistAttendanceAsync ya deduplica (ExistsAsync
     // + índice único como respaldo), así que solapar con tiempo real es seguro.
+    //
+    // Igual que _autoReconnectTimer: se crea aquí pero arranca solo dentro de ConnectAsync().
     private readonly DispatcherTimer _autoDownloadTimer;
     private bool _isDownloading;
+
+    // Cancelación real de la conexión en curso (reportado por el usuario: al cambiar de
+    // dispositivo, editar uno, o perder la red, un intento de Connect_Net colgado seguía
+    // vivo de fondo contra el reloj anterior). Se crea uno nuevo en cada ConnectAsync() —
+    // cancelando y desechando el anterior primero si quedaba alguno vivo — y se cancela en
+    // DisconnectAsync(), OnSelectedDeviceChanged(), OnNetworkAvailabilityChanged() (red
+    // perdida) y Dispose(). No puede abortar una llamada COM ya en marcha a media ejecución
+    // (ver comentario de RunWithTimeoutAsync en ZKTecoDeviceAdapter), pero sí evita que se
+    // sigan disparando intentos nuevos y deja que el que esté esperando el resultado
+    // (RunWithTimeoutAsync ya tiene su propio tiempo de espera) suelte la UI de inmediato.
+    private CancellationTokenSource? _connectionCts;
 
     [ObservableProperty]
     private string _statusMessage = "Cargando dispositivos...";
@@ -161,13 +186,13 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         // manejador colgado apuntando a un ViewModel ya descartado.
         _deviceAdapter.AttendancePunchReceived += OnAttendancePunchReceived;
 
+        // Se crean SIN arrancar — ver el comentario junto a los campos. Arrancan recién
+        // dentro de ConnectAsync(), cuando el usuario presiona "Conectar" por primera vez.
         _autoReconnectTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(15) };
         _autoReconnectTimer.Tick += async (_, _) => await TryAutoReconnectAsync();
-        _autoReconnectTimer.Start();
 
         _autoDownloadTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
         _autoDownloadTimer.Tick += async (_, _) => await TryAutoDownloadAsync();
-        _autoDownloadTimer.Start();
 
         // Igual que _deviceAdapter.AttendancePunchReceived: se dispara en el hilo del
         // RemoteSyncRequestPollingService, no en el de UI — el handler hace su propio
@@ -176,14 +201,65 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         // adaptador: este ViewModel es Scoped, un ViewModel nuevo por ventana no debe
         // dejar un manejador colgado apuntando a uno ya descartado.
         _remoteSyncCoordinator.SyncRequested += OnRemoteSyncRequested;
+
+        // Red perdida (requisito explícito del usuario: "si se pierde la conexión a
+        // internet o a la red local, deben detenerse inmediatamente todos los procesos de
+        // conexión y sincronización"). Se dispara en un hilo de .NET distinto al de UI, así
+        // que el handler hace su propio marshaling (igual que AttendancePunchReceived).
+        NetworkChange.NetworkAvailabilityChanged += OnNetworkAvailabilityChanged;
     }
 
     public void Dispose()
     {
         _deviceAdapter.AttendancePunchReceived -= OnAttendancePunchReceived;
         _remoteSyncCoordinator.SyncRequested -= OnRemoteSyncRequested;
+        NetworkChange.NetworkAvailabilityChanged -= OnNetworkAvailabilityChanged;
         _autoReconnectTimer.Stop();
         _autoDownloadTimer.Stop();
+        _connectionCts?.Cancel();
+        _connectionCts?.Dispose();
+    }
+
+    /// <summary>Se dispara en cuanto Windows detecta que se perdió (o volvió) la red — no
+    /// depende de esperar a que fallen 2-3 descargas seguidas (~30s, ver
+    /// DownloadAttendanceCoreAsync) para reaccionar. Al perderse: cancela cualquier
+    /// operación en curso, detiene los timers automáticos por completo y marca desconectado
+    /// de inmediato. Al recuperarse: NO reconecta por sí solo aquí (evita reconectar en
+    /// medio de un evento de red que puede repetirse varias veces en un segundo) — solo
+    /// vuelve a arrancar _autoReconnectTimer si el usuario no había desconectado a mano, y
+    /// el timer se encarga de reintentar en su siguiente ciclo (máximo 15s después),
+    /// respetando el mismo tiempo de espera acotado que cualquier otro intento de conexión.</summary>
+    private void OnNetworkAvailabilityChanged(object? sender, NetworkAvailabilityEventArgs e)
+    {
+        System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+        {
+            if (!e.IsAvailable)
+            {
+                if (!IsConnected && !_autoReconnectTimer.IsEnabled)
+                {
+                    return; // Nada que detener — no había ninguna conexión/timer activo.
+                }
+
+                AppendLog("🔌 Se perdió la red — deteniendo conexión y sincronización con el dispositivo.");
+                _connectionCts?.Cancel();
+                _autoReconnectTimer.Stop();
+                _autoDownloadTimer.Stop();
+                IsConnected = false;
+                IsMonitoringRealTime = false;
+                return;
+            }
+
+            // Red recuperada: si había un dispositivo seleccionado y el usuario no lo había
+            // desconectado a mano, se reactiva el auto-reconnect para que retome solo, sin
+            // forzar un intento inmediato aquí mismo (evita una ráfaga de intentos si la red
+            // parpadea varias veces seguidas al reconectar).
+            if (SelectedDevice is not null && !_autoReconnectSuspended && !_autoReconnectTimer.IsEnabled)
+            {
+                AppendLog("🔌 Red recuperada — se reintentará conectar en el siguiente ciclo.");
+                _autoReconnectTimer.Start();
+                _autoDownloadTimer.Start();
+            }
+        });
     }
 
     /// <summary>Se ejecuta cada 15s (ver _autoReconnectTimer) y también una vez al cargar
@@ -381,10 +457,12 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
             RefreshStatusMessage();
             SelectedDevice = Devices.FirstOrDefault();
 
-            // Primer intento inmediato al abrir la app — sin esto, el usuario tendría que
-            // esperar hasta 15s (el intervalo de _autoReconnectTimer) para la primera
-            // conexión automática, en vez de verla arrancar de inmediato.
-            await TryAutoReconnectAsync();
+            // Corregido — reportado por el usuario: la app se congelaba con "No responde" al
+            // abrir, porque aquí mismo se disparaba un intento de conexión automático contra
+            // el reloj real antes de que la ventana terminara de mostrarse. Ya NO se conecta
+            // solo al cargar: solo se listan y se selecciona el primero para que el panel de
+            // diagnóstico tenga algo que mostrar — la conexión real empieza únicamente cuando
+            // el usuario presiona "Conectar" (ver ConnectAsync).
         }
         catch (Exception ex)
         {
@@ -491,6 +569,17 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         // activos: como el adaptador es una sola instancia compartida (ver comentario de
         // clase), sin esto quedaría "conectado" de fondo al reloj anterior aunque la
         // pantalla ya no lo muestre así.
+        //
+        // Requisito explícito del usuario: no debe quedar ninguna conexión o proceso del
+        // dispositivo ANTERIOR corriendo al cambiar de selección (esto también dispara al
+        // editar un dispositivo — UpdateDeviceAsync reasigna SelectedDevice al terminar de
+        // guardar). Se cancela cualquier intento en curso y se detienen los timers por
+        // completo — el dispositivo recién seleccionado NO se conecta solo: hace falta que
+        // el usuario presione "Conectar" explícitamente, igual que al abrir la app.
+        _connectionCts?.Cancel();
+        _autoReconnectTimer.Stop();
+        _autoDownloadTimer.Stop();
+
         if (IsConnected)
         {
             _ = _deviceAdapter.StopRealTimeMonitoringAsync();
@@ -512,8 +601,9 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         InfoAttendanceLogCount = null;
         AttendanceRecords.Clear();
 
-        // El dispositivo recién seleccionado empieza sin suspensión — un "Desconectar"
-        // sobre el dispositivo ANTERIOR no debe impedir que este nuevo se autoconecte.
+        // El dispositivo recién seleccionado empieza sin suspensión — así que si el usuario
+        // presiona "Conectar" sobre él, el auto-reconnect seguirá intentando por su cuenta
+        // después, sin quedar bloqueado por un "Desconectar" hecho sobre el anterior.
         _autoReconnectSuspended = false;
     }
 
@@ -567,10 +657,27 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         // es la forma natural de decirle a la app "vuelve a intentar mantenerte conectado".
         _autoReconnectSuspended = false;
         _isConnecting = true;
+
+        // Un token nuevo por cada intento — si quedaba uno anterior vivo (no debería, pero
+        // por si un "Conectar" se disparó dos veces seguidas) se cancela y se desecha antes,
+        // nunca se dejan dos intentos corriendo a la vez contra el mismo dispositivo.
+        _connectionCts?.Cancel();
+        _connectionCts?.Dispose();
+        _connectionCts = new CancellationTokenSource();
+        var token = _connectionCts.Token;
+
+        // Los timers automáticos arrancan aquí, no en el constructor — ver el comentario
+        // junto a los campos. Arrancan con el primer "Conectar" (a mano o disparado por el
+        // propio auto-reconnect una vez que ya arrancó antes) y de ahí en adelante siguen
+        // el mismo comportamiento de siempre (reintentar cada 15s / descargar cada 10s)
+        // hasta que el usuario presione "Desconectar" o cambie de dispositivo.
+        _autoReconnectTimer.Start();
+        _autoDownloadTimer.Start();
+
         try
         {
             var connectionInfo = new DeviceConnectionInfo(SelectedDevice.IpAddress, SelectedDevice.TcpPort);
-            var result = await _deviceAdapter.ConnectAsync(connectionInfo);
+            var result = await _deviceAdapter.ConnectAsync(connectionInfo, token);
 
             if (result.IsFailure)
             {
@@ -599,7 +706,7 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
 
             // Al conectar, arranca solo el monitoreo en vivo — no hay que presionar nada
             // aparte para que una marcación aparezca en la lista casi al instante.
-            var monitorResult = await _deviceAdapter.StartRealTimeMonitoringAsync();
+            var monitorResult = await _deviceAdapter.StartRealTimeMonitoringAsync(token);
             IsMonitoringRealTime = monitorResult.IsSuccess;
             AppendLog(monitorResult.IsSuccess
                 ? "Monitoreo en tiempo real activo: las marcaciones nuevas aparecerán solas."
@@ -661,6 +768,17 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         // _autoReconnectTimer) queda suspendido hasta que vuelva a presionar "Conectar" —
         // si no, este botón no serviría para nada, el timer reconectaría solo segundos después.
         _autoReconnectSuspended = true;
+
+        // Requisito explícito del usuario: "Desconectar" debe detener POR COMPLETO
+        // conexiones, tareas en segundo plano, reintentos, temporizadores y sincronización
+        // — no solo dejar de reconectar. Se cancela cualquier intento en curso (aunque no
+        // pueda abortar una llamada COM ya en marcha, ver RunWithTimeoutAsync, sí evita que
+        // la UI siga esperándola) y se detienen los timers por completo, no solo se
+        // suspenden — vuelven a arrancar recién con el siguiente "Conectar".
+        _connectionCts?.Cancel();
+        _autoReconnectTimer.Stop();
+        _autoDownloadTimer.Stop();
+
         await _deviceAdapter.StopRealTimeMonitoringAsync();
         IsMonitoringRealTime = false;
         await _deviceAdapter.DisconnectAsync();
