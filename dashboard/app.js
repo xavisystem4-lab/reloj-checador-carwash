@@ -32,6 +32,7 @@ const dashboardScreen = document.getElementById('dashboard-screen');
 const loginForm = document.getElementById('login-form');
 const emailInput = document.getElementById('email-input');
 const passwordInput = document.getElementById('password-input');
+const passwordToggle = document.getElementById('password-toggle');
 const loginError = document.getElementById('login-error');
 const loginButton = document.getElementById('login-button');
 const userNameButton = document.getElementById('user-name-button');
@@ -90,6 +91,7 @@ async function init() {
   toInput.value = toDateInputValue(today);
 
   loginForm.addEventListener('submit', onLoginSubmit);
+  passwordToggle.addEventListener('click', onPasswordToggleClick);
   logoutButton.addEventListener('click', onLogoutClick);
   refreshButton.addEventListener('click', () => { loadReport(); loadDevicesStatus(); });
   exportButton.addEventListener('click', onExportClick);
@@ -180,6 +182,21 @@ async function onLoginSubmit(event) {
   }
 
   passwordInput.value = '';
+  setPasswordVisible(false); // por si quedó "mostrar" activo, no dejar el campo visible al volver a entrar
+}
+
+// ---- "Ojito" de mostrar/ocultar contraseña ----
+function onPasswordToggleClick() {
+  setPasswordVisible(passwordInput.type === 'password');
+}
+
+function setPasswordVisible(visible) {
+  passwordInput.type = visible ? 'text' : 'password';
+  passwordToggle.setAttribute('aria-pressed', String(visible));
+  passwordToggle.setAttribute('aria-label', visible ? 'Ocultar contraseña' : 'Mostrar contraseña');
+  passwordToggle.title = visible ? 'Ocultar contraseña' : 'Mostrar contraseña';
+  passwordToggle.querySelector('.icon-eye').style.display = visible ? 'none' : '';
+  passwordToggle.querySelector('.icon-eye-off').style.display = visible ? '' : 'none';
 }
 
 function mapAuthError(error) {
