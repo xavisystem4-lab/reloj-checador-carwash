@@ -751,6 +751,10 @@ function mapVerifyMethod(method) {
     case 'Password': return 'Contraseña';
     case 'Card': return 'Tarjeta';
     case 'Face': return 'Rostro';
+    // Capturada a mano desde "Marcar asistencia manual" (app de escritorio, pantalla
+    // Asistencia) — nunca viene del reloj físico, ver AttendanceVerifyMethod.Manual del
+    // repo principal.
+    case 'Manual': return 'Manual';
     default: return 'Desconocido';
   }
 }
