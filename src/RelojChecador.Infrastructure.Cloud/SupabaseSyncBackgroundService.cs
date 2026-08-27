@@ -40,28 +40,48 @@ public sealed class SupabaseSyncBackgroundService(
     // asistencias al mismo tiempo podrían pisarse entre sí.
     private readonly SemaphoreSlim _runLock = new(1, 1);
 
+    // Antes de esto, un false aquí terminaba ExecuteAsync para siempre (BackgroundService no
+    // se reinicia solo) — si la app arrancaba sin ServiceRoleKey configurada, activarla más
+    // tarde (ver "Conectar con nube"/SupabaseLocalConfigStore) nunca reactivaba el ciclo
+    // automático sin reiniciar la app entera. Se guarda para solo loguear el cambio de
+    // estado UNA vez, no en cada vuelta del sondeo.
+    private bool? _wasConfiguredLastTick;
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (!options.IsConfigured)
-        {
-            logger.LogInformation(
-                "Sincronización con Supabase deshabilitada (falta Url o ServiceRoleKey en " +
-                "%LocalAppData%\\RelojChecador\\appsettings.Local.json) — la app sigue funcionando " +
-                "100% local, sin nube por ahora.");
-            status.MarkDisabled();
-            return;
-        }
-
-        logger.LogInformation(
-            "Sincronización con Supabase activa. Intervalo: {IntervalSeconds}s.", options.IntervalSeconds);
-
         while (!stoppingToken.IsCancellationRequested)
         {
-            await RunCycleAsync(stoppingToken);
+            if (!options.IsConfigured)
+            {
+                if (_wasConfiguredLastTick != false)
+                {
+                    logger.LogInformation(
+                        "Sincronización con Supabase deshabilitada (falta Url o ServiceRoleKey en " +
+                        "%LocalAppData%\\RelojChecador\\appsettings.Local.json) — la app sigue funcionando " +
+                        "100% local, sin nube por ahora. Se revisa de nuevo cada pocos segundos por si se " +
+                        "activa desde \"Conectar con nube\" sin necesidad de reiniciar.");
+                    _wasConfiguredLastTick = false;
+                }
+                status.MarkDisabled();
+            }
+            else
+            {
+                if (_wasConfiguredLastTick != true)
+                {
+                    logger.LogInformation(
+                        "Sincronización con Supabase activa. Intervalo: {IntervalSeconds}s.", options.IntervalSeconds);
+                    _wasConfiguredLastTick = true;
+                }
+                await RunCycleAsync(stoppingToken);
+            }
 
             try
             {
-                await Task.Delay(TimeSpan.FromSeconds(options.IntervalSeconds), stoppingToken);
+                // Mientras no esté configurado, sondea cada 5s (barato, sin red) en vez de
+                // esperar IntervalSeconds completo — así "Conectar con nube" se siente
+                // instantáneo la primera vez que alguien lo usa.
+                var delaySeconds = options.IsConfigured ? options.IntervalSeconds : 5;
+                await Task.Delay(TimeSpan.FromSeconds(delaySeconds), stoppingToken);
             }
             catch (OperationCanceledException)
             {

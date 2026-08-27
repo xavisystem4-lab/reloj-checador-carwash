@@ -16,17 +16,24 @@ La app funciona 100% local sin esto — es opcional, no bloquea nada. Para activ
    copia la **`service_role` key** (Settings → API → Project API keys). Es una clave
    secreta con acceso total de escritura — nunca la compartas, nunca la pegues en un
    chat, nunca la subas a git.
-2. Crea (o edita) el archivo `%LocalAppData%\RelojChecador\appsettings.Local.json` en la
-   máquina de esa sucursal, con este contenido:
-   ```json
-   {
-     "Supabase": {
-       "ServiceRoleKey": "PEGA_AQUI_LA_SERVICE_ROLE_KEY"
-     }
-   }
-   ```
-3. Reinicia la app. En los logs (`%LocalAppData%\RelojChecador\logs\`) debe aparecer
-   `Sincronización con Supabase activa.` en vez de `...deshabilitada`.
+2. En la app, presiona **"Conectar con nube"** (barra superior). Como todavía no está
+   configurada, se abre un diálogo que pide justo esa clave — pégala y presiona
+   "Enlazar". Queda activa de inmediato, en la misma sesión, sin reiniciar la app (ver
+   `SupabaseLocalConfigStore`/`UpdateViewModel.TryLinkCloudAsync`).
+
+Por debajo, esto escribe (o corrige) el archivo `%LocalAppData%\RelojChecador\
+appsettings.Local.json` con este contenido — si por algún motivo hace falta hacerlo a
+mano (o corregirlo directo, p. ej. una clave pegada mal) también es válido editarlo así y
+reiniciar la app:
+```json
+{
+  "Supabase": {
+    "ServiceRoleKey": "PEGA_AQUI_LA_SERVICE_ROLE_KEY"
+  }
+}
+```
+En los logs (`%LocalAppData%\RelojChecador\logs\`) debe aparecer
+`Sincronización con Supabase activa.` en vez de `...deshabilitada`.
 
 Este archivo vive fuera de la carpeta de instalación y fuera del repositorio a propósito
 — sobrevive a reinstalaciones/actualizaciones (mismo criterio que la base SQLite local y

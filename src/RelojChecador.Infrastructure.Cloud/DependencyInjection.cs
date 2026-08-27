@@ -10,16 +10,25 @@ public static class DependencyInjection
     /// simplemente no hace nada en ese caso (ver SupabaseSyncBackgroundService.ExecuteAsync),
     /// para no romper el arranque de la app cuando todavía no hay credenciales de Supabase
     /// configuradas en esta instalación.</summary>
+    /// <param name="localSettingsFilePath">Ruta a appsettings.Local.json (ver App.xaml.cs) —
+    /// se necesita aquí para registrar <see cref="SupabaseLocalConfigStore"/>, que el botón
+    /// "Conectar con nube" usa para guardar la service_role key la primera vez sin que el
+    /// usuario tenga que editar el archivo a mano (ver UpdateViewModel).</param>
     public static IServiceCollection AddRelojChecadorCloudSync(
-        this IServiceCollection services, SupabaseSyncOptions options)
+        this IServiceCollection services, SupabaseSyncOptions options, string localSettingsFilePath)
     {
         services.AddSingleton(options);
         services.AddSingleton<SupabaseSyncStatus>();
+        services.AddSingleton(new SupabaseLocalConfigStore(localSettingsFilePath));
 
-        if (options.IsConfigured)
-        {
-            services.AddHttpClient<SupabaseRestClient>();
-        }
+        // Registrado SIEMPRE, sin importar IsConfigured al arrancar — un HttpClient con
+        // nombre no se puede agregar a un IServiceProvider ya construido, así que si esto
+        // se omitiera aquí, "Conectar con nube" nunca podría activar la sincronización
+        // dentro de la MISMA sesión tras guardar la clave (haría falta reiniciar la app,
+        // justo lo que este botón busca evitar). SupabaseRestClient sigue autoprotegiéndose
+        // en su constructor (revisa IsConfigured) — nunca se construye de verdad hasta que
+        // options.ServiceRoleKey tenga un valor real.
+        services.AddHttpClient<SupabaseRestClient>();
 
         // Registrado como Singleton (no solo como IHostedService) y AddHostedService
         // apunta a esa MISMA instancia — así el botón "Conectar con nube" de la UI puede

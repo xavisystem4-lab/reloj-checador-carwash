@@ -1,0 +1,64 @@
+<Window x:Class="RelojChecador.WPF.Views.ConnectCloudDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Conectar con la nube" Height="440" Width="460"
+        MinHeight="380" MinWidth="400"
+        WindowStartupLocation="CenterOwner" ResizeMode="CanResizeWithGrip"
+        ShowInTaskbar="False">
+    <!-- ScrollViewer + CanResizeWithGrip: mismo arreglo aplicado a los demás diálogos de la
+         app (ver Add/EditDeviceDialog, Add/EditBranchDialog) — un diálogo de alto fijo sin
+         esto puede recortar contenido bajo texto grande de Windows. -->
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,14">
+            <TextBlock Text="Enlazar esta PC con la nube" FontSize="16" FontWeight="Bold" Margin="0,0,0,6" />
+            <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource BrushTextSecondary}" FontSize="12.5">
+                Esto sube automáticamente empleados, dispositivos y asistencias a Supabase para que
+                el Dashboard web pueda mostrarlos. La app sigue funcionando 100% local sin esto —
+                es opcional.
+            </TextBlock>
+        </StackPanel>
+
+        <StackPanel Grid.Row="1" Margin="0,0,0,12">
+            <TextBlock TextWrapping="Wrap" FontSize="12.5" Margin="0,0,0,8">
+                1. Abre el panel de Supabase y copia la clave <Run FontWeight="Bold">service_role</Run>
+                (Settings → API → Project API keys).
+            </TextBlock>
+            <Button Content="🔗 Abrir el panel de Supabase" HorizontalAlignment="Left" Click="OnOpenDashboardClick" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="2" Margin="0,0,0,10">
+            <TextBlock Text="2. Pega aquí la clave service_role *" FontWeight="SemiBold" Margin="0,0,0,2" />
+            <PasswordBox x:Name="ServiceRoleKeyPasswordBox" Padding="4" />
+        </StackPanel>
+
+        <!-- Misma advertencia que el README del proyecto (Infrastructure.Cloud/README.md) —
+             es una clave secreta con acceso total de escritura, sin RLS. -->
+        <Border Grid.Row="3" Background="{DynamicResource BrushWarningSurface}" CornerRadius="8" Padding="10" Margin="0,0,0,10">
+            <TextBlock FontSize="11.5" TextWrapping="Wrap" Foreground="{DynamicResource BrushWarning}">
+                Es una clave secreta con acceso total de escritura a la base de datos del negocio —
+                nunca la compartas, nunca la pegues en un chat ni la subas a ningún repositorio. Se
+                guarda cifrada solo en esta PC (fuera de la carpeta de instalación), nunca en la base
+                de datos ni en la nube.
+            </TextBlock>
+        </Border>
+
+        <TextBlock Grid.Row="4" x:Name="ErrorTextBlock" Foreground="{DynamicResource BrushDanger}" TextWrapping="Wrap"
+                    Visibility="Collapsed" Margin="0,0,0,10" />
+
+        <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="Cancelar" Width="90" Margin="0,0,8,0" Click="OnCancelClick" IsCancel="True" />
+            <Button Content="Enlazar" Width="100" Style="{StaticResource PrimaryButton}" Click="OnSaveClick" IsDefault="True" />
+        </StackPanel>
+    </Grid>
+    </ScrollViewer>
+</Window>

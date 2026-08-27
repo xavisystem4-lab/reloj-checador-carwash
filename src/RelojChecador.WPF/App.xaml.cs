@@ -92,7 +92,7 @@ public partial class App : System.Windows.Application
 
                     var supabaseOptions = context.Configuration.GetSection("Supabase").Get<SupabaseSyncOptions>()
                         ?? new SupabaseSyncOptions();
-                    services.AddRelojChecadorCloudSync(supabaseOptions);
+                    services.AddRelojChecadorCloudSync(supabaseOptions, localSettingsPath);
                     services.AddRelojChecadorUpdates();
 
                     // Singleton, no Scoped: el tema es un estado global de la app (una sola
