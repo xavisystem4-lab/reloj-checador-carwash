@@ -75,6 +75,32 @@
             </DockPanel>
         </Border>
 
+        <!-- Banner con el mensaje COMPLETO de error de sincronización (antes solo vivía en
+             el ToolTip del punto rojo de arriba) — encontrado hoy mismo diagnosticando en
+             vivo con el usuario "no sube nada a Supabase": el mismo comentario de
+             RefreshCloudSyncStatusMessage ya advertía que ir por el error a punta de
+             capturas de pantalla es lento, y en la práctica el ToolTip resultó peor
+             todavía — en una sesión de control remoto (TeamViewer/AnyDesk y similares) el
+             hover no siempre se transmite, así que ni el usuario podía ver su propio
+             mensaje de error de forma confiable. Visible solo cuando de verdad hay un
+             error (CloudSyncStatusKind == "Error") — el resto del tiempo no ocupa espacio
+             ni compite con la barra de arriba. -->
+        <Border DockPanel.Dock="Top" Padding="16,8" Background="{DynamicResource BrushDangerSurface}"
+                BorderBrush="{DynamicResource BrushBorder}" BorderThickness="0,0,0,1">
+            <Border.Style>
+                <Style TargetType="Border">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding CloudSyncStatusKind}" Value="Error">
+                            <Setter Property="Visibility" Value="Visible" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Border.Style>
+            <TextBlock Text="{Binding CloudSyncStatusMessage}" TextWrapping="Wrap" FontSize="12.5"
+                       Foreground="{DynamicResource BrushDanger}" />
+        </Border>
+
         <!-- Barra de versión / actualización — visible siempre, sin importar la pestaña
              activa: buscar actualizaciones no es una operación de ninguna pantalla en
              particular. -->
