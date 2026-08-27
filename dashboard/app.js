@@ -630,10 +630,11 @@ async function loadReport() {
 
 /// Resuelve nombres de sucursal, dispositivo y empleado para cada marcación. La
 /// resolución de empleado tiene dos vías, en este orden: (1) Attendance.employee_id ya
-/// vinculado directamente, (2) EmployeeDeviceMapping (device_id + pin) — la app de
-/// escritorio todavía no resuelve esto automáticamente al guardar cada marcación (ver
-/// DevicesViewModel.PersistAttendanceAsync en el repo principal), así que hoy casi
-/// siempre caerá en la vía 2, o en "sin vincular" si tampoco hay mapeo.
+/// vinculado directamente — desde v1.31.0 la app de escritorio SÍ lo resuelve al guardar
+/// cada marcación (ver DevicesViewModel.ResolveEmployeeAndBranchAsync en el repo
+/// principal), así que hoy es la vía normal; (2) EmployeeDeviceMapping (device_id + pin)
+/// queda como respaldo para marcaciones más viejas que se guardaron antes de ese cambio,
+/// o en "sin vincular" si tampoco hay mapeo.
 async function enrichAttendances(attendances) {
   if (attendances.length === 0) {
     return [];
