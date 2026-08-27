@@ -794,17 +794,27 @@ public sealed partial class EmployeesViewModel : ObservableObject
         string.Join(' ', name.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries));
 
     public sealed record EmployeeCatalogReplaceOutcome(
-        int Created, int Updated, int Removed, IReadOnlyList<string> BranchesCreated, string? Error)
+        int Created, int Updated, int Removed, int Linked, IReadOnlyList<string> BranchesCreated,
+        IReadOnlyList<string> PinWarnings, string? Error)
     {
         public bool Success => Error is null;
     }
 
     /// <summary>Ejecuta el reemplazo real: crea sucursales que hagan falta, luego
-    /// actualiza/crea cada fila del catálogo, y por último da de baja a quien no apareció —
+    /// actualiza/crea cada fila del catálogo (vinculando su PIN al reloj de su sucursal si
+    /// la fila trae uno — ver más abajo), y por último da de baja a quien no apareció —
     /// todo en un solo SaveChangesAsync, así que si algo falla a mitad de camino no queda
     /// nada a medias. Actualizar NUNCA borra un sueldo/tarifa ya capturado solo porque el
     /// archivo nuevo no lo trae (se conserva el valor existente en ese caso) — mismo
-    /// criterio de "null nunca sobreescribe un dato real" que el resto del proyecto.</summary>
+    /// criterio de "null nunca sobreescribe un dato real" que el resto del proyecto.
+    ///
+    /// El PIN de la fila solo crea/corrige el vínculo LOCAL (EmployeeDeviceMapping) — nunca
+    /// se conecta a ningún dispositivo físico aquí (este flujo no tiene por qué depender de
+    /// tener el reloj conectado). Para que el PIN llegue de verdad al reloj, "Enviar
+    /// empleados al reloj" (Empleados) ahora revisa TODOS los vínculos existentes de esa
+    /// sucursal — no solo a quien nunca tuvo vínculo — y sube al dispositivo a cualquiera
+    /// que el reloj real todavía no tenga, sin importar si el vínculo vino de aquí, de
+    /// "Vincular a dispositivo" a mano, o de un envío automático anterior.</summary>
     public async Task<EmployeeCatalogReplaceOutcome> ApplyCatalogReplaceAsync(EmployeeCatalogReplacePreview preview)
     {
         try
@@ -827,18 +837,40 @@ public sealed partial class EmployeesViewModel : ObservableObject
                 branchesCreated.Add(areaName);
             }
 
+            // Devices por sucursal — para resolver "a cuál reloj vincular el PIN de esta
+            // fila" cuando la trae. Solo se resuelve sin ambigüedad si la sucursal tiene
+            // EXACTAMENTE un dispositivo; si tiene 0 o 2+, se reporta como advertencia (no
+            // como error que aborte todo el reemplazo) y esa fila en particular se queda
+            // sin vincular — el resto del archivo sigue su curso normal.
+            var devicesByBranch = (await _deviceRepository.ListAsync())
+                .GroupBy(d => d.BranchId)
+                .ToDictionary(g => g.Key, g => g.ToList());
+
+            // Estado de vínculos ya existentes, mutable a lo largo de todo el reemplazo —
+            // varias filas del mismo archivo pueden interactuar entre sí (p. ej. dos
+            // personas que "intercambian" PIN), así que se actualiza en memoria en cada
+            // vuelta, no solo se lee una vez al principio.
+            var existingMappings = (await _mappingRepository.ListAsync()).ToList();
+            var mappingByDeviceAndEmployee = existingMappings
+                .ToDictionary(m => (m.DeviceId, m.EmployeeId), m => m);
+            var pinOwnerByDeviceAndPin = existingMappings
+                .ToDictionary(m => (m.DeviceId, m.DeviceUserPin), m => m.EmployeeId);
+
             var today = DateOnly.FromDateTime(DateTime.Now);
             var created = 0;
             var updated = 0;
+            var linked = 0;
+            var pinWarnings = new List<string>();
 
             foreach (var previewRow in preview.Rows)
             {
                 var row = previewRow.Row;
                 var branchId = branchIdsByName[row.Area];
+                Employee employee;
 
                 if (previewRow.ExistingMatch is null)
                 {
-                    var employee = Employee.Create(
+                    employee = Employee.Create(
                         EmployeeNumber.Create(row.Number), row.FullName, branchId,
                         row.HireDate ?? today, row.WeeklySalary, department: null, row.Position, row.OvertimeHourlyRate);
                     if (row.Status != EmploymentStatus.Active)
@@ -854,7 +886,7 @@ public sealed partial class EmployeesViewModel : ObservableObject
                 }
                 else
                 {
-                    var employee = await _employeeRepository.GetByIdAsync(previewRow.ExistingMatch.Id)
+                    employee = await _employeeRepository.GetByIdAsync(previewRow.ExistingMatch.Id)
                         ?? throw new InvalidOperationException(
                             $"No se encontró a \"{row.FullName}\" — la lista pudo haber cambiado. Cierra este diálogo y vuelve a intentar.");
 
@@ -884,6 +916,49 @@ public sealed partial class EmployeesViewModel : ObservableObject
                     }
                     updated++;
                 }
+
+                if (string.IsNullOrWhiteSpace(row.Pin))
+                {
+                    continue;
+                }
+
+                if (!devicesByBranch.TryGetValue(branchId, out var branchDevices) || branchDevices.Count != 1)
+                {
+                    pinWarnings.Add(branchDevices is null or { Count: 0 }
+                        ? $"\"{row.FullName}\": PIN {row.Pin} no se vinculó — su sucursal (\"{row.Area}\") no tiene ningún reloj registrado."
+                        : $"\"{row.FullName}\": PIN {row.Pin} no se vinculó — su sucursal (\"{row.Area}\") tiene varios relojes, vincúlalo a mano desde Empleados.");
+                    continue;
+                }
+
+                var deviceId = branchDevices[0].Id;
+
+                if (pinOwnerByDeviceAndPin.TryGetValue((deviceId, row.Pin), out var pinOwnerId) && pinOwnerId != employee.Id)
+                {
+                    pinWarnings.Add($"\"{row.FullName}\": PIN {row.Pin} ya lo usa otro empleado en ese reloj — no se vinculó, elige un PIN distinto.");
+                    continue;
+                }
+
+                if (mappingByDeviceAndEmployee.TryGetValue((deviceId, employee.Id), out var existingMapping))
+                {
+                    if (existingMapping.DeviceUserPin != row.Pin)
+                    {
+                        var trackedMapping = await _mappingRepository.GetByIdAsync(existingMapping.Id)
+                            ?? throw new InvalidOperationException(
+                                $"No se encontró el vínculo de \"{row.FullName}\" — la lista pudo haber cambiado. Cierra este diálogo y vuelve a intentar.");
+                        pinOwnerByDeviceAndPin.Remove((deviceId, existingMapping.DeviceUserPin));
+                        trackedMapping.UpdatePin(row.Pin);
+                        pinOwnerByDeviceAndPin[(deviceId, row.Pin)] = employee.Id;
+                        linked++;
+                    }
+                }
+                else
+                {
+                    var newMapping = EmployeeDeviceMapping.Create(employee.Id, deviceId, row.Pin);
+                    await _mappingRepository.AddAsync(newMapping);
+                    mappingByDeviceAndEmployee[(deviceId, employee.Id)] = newMapping;
+                    pinOwnerByDeviceAndPin[(deviceId, row.Pin)] = employee.Id;
+                    linked++;
+                }
             }
 
             var removed = 0;
@@ -900,22 +975,22 @@ public sealed partial class EmployeesViewModel : ObservableObject
 
             await _unitOfWork.SaveChangesAsync();
             await ReloadAsync();
-            return new EmployeeCatalogReplaceOutcome(created, updated, removed, branchesCreated, Error: null);
+            return new EmployeeCatalogReplaceOutcome(created, updated, removed, linked, branchesCreated, pinWarnings, Error: null);
         }
         catch (DomainException ex)
         {
-            return new EmployeeCatalogReplaceOutcome(0, 0, 0, [], ex.Message);
+            return new EmployeeCatalogReplaceOutcome(0, 0, 0, 0, [], [], ex.Message);
         }
         catch (DbUpdateException ex)
         {
             Log.Warning(ex, "No se pudo aplicar el reemplazo de catálogo de empleados.");
-            return new EmployeeCatalogReplaceOutcome(0, 0, 0, [],
+            return new EmployeeCatalogReplaceOutcome(0, 0, 0, 0, [], [],
                 "No se pudo guardar — revisa que no haya números de empleado duplicados dentro del archivo ni contra alguien que ya existe.");
         }
         catch (Exception ex)
         {
             Log.Error(ex, "Error inesperado al reemplazar el catálogo de empleados.");
-            return new EmployeeCatalogReplaceOutcome(0, 0, 0, [], "Ocurrió un error inesperado al guardar. Revisa el registro de errores.");
+            return new EmployeeCatalogReplaceOutcome(0, 0, 0, 0, [], [], "Ocurrió un error inesperado al guardar. Revisa el registro de errores.");
         }
     }
 }

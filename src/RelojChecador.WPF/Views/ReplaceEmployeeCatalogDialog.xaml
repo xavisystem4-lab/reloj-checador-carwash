@@ -25,8 +25,10 @@
             y da de baja (lógica, nunca borra — conserva historial y vínculos al reloj) a quien ya no
             aparece. La coincidencia es por NOMBRE EXACTO — revisa con cuidado la lista de "Se dará de baja"
             antes de aplicar. Columnas esperadas:
-            Number,FullName,Area,Position,HireDate,Status,WeeklySalary,OvertimeHourlyRate,Notes
-            (HireDate en AAAA-MM-DD, opcional; Status "Activo"/"Inactivo", opcional = Activo).
+            Number,FullName,Area,Position,HireDate,Status,WeeklySalary,OvertimeHourlyRate,Notes,Pin
+            (HireDate en AAAA-MM-DD, opcional; Status "Activo"/"Inactivo", opcional = Activo; Pin solo
+            dígitos, opcional — si viene, vincula a esa persona con el reloj de su sucursal y, al darle
+            después "Enviar empleados al reloj" en Empleados, ese PIN se sube de verdad al dispositivo).
         </TextBlock>
 
         <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,10">
@@ -74,6 +76,7 @@
                         <DataGridTextColumn Header="Puesto" Binding="{Binding Row.Position}" Width="110" />
                         <DataGridTextColumn Header="Ingreso" Binding="{Binding Row.HireDate, StringFormat='{}{0:dd/MM/yyyy}'}" Width="90" />
                         <DataGridTextColumn Header="Estado" Binding="{Binding Row.Status}" Width="70" />
+                        <DataGridTextColumn Header="PIN" Binding="{Binding Row.Pin}" Width="60" />
                         <DataGridTextColumn Header="Alertas" Binding="{Binding AlertsText}" Width="180" />
                     </DataGrid.Columns>
                 </DataGrid>

@@ -5,7 +5,7 @@ namespace RelojChecador.Application.Tests.Employees;
 
 public class EmployeeCatalogReplaceParserTests
 {
-    private const string Header = "Number,FullName,Area,Position,HireDate,Status,WeeklySalary,OvertimeHourlyRate,Notes";
+    private const string Header = "Number,FullName,Area,Position,HireDate,Status,WeeklySalary,OvertimeHourlyRate,Notes,Pin";
 
     [Fact]
     public void Parse_FilaCompletaYValida_DevuelveLaFilaConLosValoresCorrectos()
@@ -13,7 +13,7 @@ public class EmployeeCatalogReplaceParserTests
         var lines = new[]
         {
             Header,
-            "EMP-001,Adrian Uribe Garcia,Drive In Car Wash,Gerencia,2023-12-07,Activo,3800,135.71,Nota",
+            "EMP-001,Adrian Uribe Garcia,Drive In Car Wash,Gerencia,2023-12-07,Activo,3800,135.71,Nota,7",
         };
 
         var result = EmployeeCatalogReplaceParser.Parse(lines);
@@ -29,6 +29,7 @@ public class EmployeeCatalogReplaceParserTests
         Assert.Equal(3800m, row.WeeklySalary);
         Assert.Equal(135.71m, row.OvertimeHourlyRate);
         Assert.Equal("Nota", row.Notes);
+        Assert.Equal("7", row.Pin);
     }
 
     [Fact]
@@ -37,7 +38,7 @@ public class EmployeeCatalogReplaceParserTests
         var lines = new[]
         {
             Header,
-            "EMP-201,Javier Galaviz,Drive In Car Wash,,,Activo,,,",
+            "EMP-201,Javier Galaviz,Drive In Car Wash,,,Activo,,,,",
         };
 
         var result = EmployeeCatalogReplaceParser.Parse(lines);
@@ -52,7 +53,7 @@ public class EmployeeCatalogReplaceParserTests
         var lines = new[]
         {
             Header,
-            "EMP-001,Adrian Uribe,Drive In Car Wash,,07/12/2023,Activo,,,",
+            "EMP-001,Adrian Uribe,Drive In Car Wash,,07/12/2023,Activo,,,,",
         };
 
         var result = EmployeeCatalogReplaceParser.Parse(lines);
@@ -73,7 +74,7 @@ public class EmployeeCatalogReplaceParserTests
         var lines = new[]
         {
             Header,
-            $"EMP-001,Adrian Uribe,Drive In Car Wash,,,{statusText},,,",
+            $"EMP-001,Adrian Uribe,Drive In Car Wash,,,{statusText},,,,",
         };
 
         var result = EmployeeCatalogReplaceParser.Parse(lines);
@@ -88,7 +89,7 @@ public class EmployeeCatalogReplaceParserTests
         var lines = new[]
         {
             Header,
-            "EMP-001,Adrian Uribe,Drive In Car Wash,,,DeVacaciones,,,",
+            "EMP-001,Adrian Uribe,Drive In Car Wash,,,DeVacaciones,,,,",
         };
 
         var result = EmployeeCatalogReplaceParser.Parse(lines);
@@ -104,8 +105,8 @@ public class EmployeeCatalogReplaceParserTests
         var lines = new[]
         {
             Header,
-            "EMP-001,Adrian Uribe,Drive In Car Wash,,,,,,",
-            "EMP-001,Otra Persona,Drive In Car Wash,,,,,,",
+            "EMP-001,Adrian Uribe,Drive In Car Wash,,,,,,,",
+            "EMP-001,Otra Persona,Drive In Car Wash,,,,,,,",
         };
 
         var result = EmployeeCatalogReplaceParser.Parse(lines);
@@ -122,7 +123,7 @@ public class EmployeeCatalogReplaceParserTests
         var lines = new[]
         {
             Header,
-            "EMP-001,Adrian Uribe,Drive In Car Wash,,,,,,",
+            "EMP-001,Adrian Uribe,Drive In Car Wash,,,,,,,",
         };
 
         var result = EmployeeCatalogReplaceParser.Parse(lines);
@@ -133,9 +134,9 @@ public class EmployeeCatalogReplaceParserTests
     }
 
     [Theory]
-    [InlineData(",Adrian Uribe,Drive In Car Wash,,,,,,")] // Number vacío
-    [InlineData("EMP-001,,Drive In Car Wash,,,,,,")] // FullName vacío
-    [InlineData("EMP-001,Adrian Uribe,,,,,,,")] // Area vacía
+    [InlineData(",Adrian Uribe,Drive In Car Wash,,,,,,,")] // Number vacío
+    [InlineData("EMP-001,,Drive In Car Wash,,,,,,,")] // FullName vacío
+    [InlineData("EMP-001,Adrian Uribe,,,,,,,,")] // Area vacía
     public void Parse_ConCampoObligatorioVacio_ReportaErrorYNoAgregaLaFila(string line)
     {
         var lines = new[] { Header, line };
@@ -144,6 +145,52 @@ public class EmployeeCatalogReplaceParserTests
 
         Assert.Empty(result.Rows);
         Assert.Single(result.Errors);
+    }
+
+    [Fact]
+    public void Parse_ConPinValido_LoAsignaALaFila()
+    {
+        var lines = new[]
+        {
+            Header,
+            "EMP-001,Adrian Uribe,Drive In Car Wash,,,,,,,42",
+        };
+
+        var result = EmployeeCatalogReplaceParser.Parse(lines);
+
+        var row = Assert.Single(result.Rows);
+        Assert.Equal("42", row.Pin);
+    }
+
+    [Fact]
+    public void Parse_ConPinVacio_DevuelveNull()
+    {
+        var lines = new[]
+        {
+            Header,
+            "EMP-001,Adrian Uribe,Drive In Car Wash,,,,,,,",
+        };
+
+        var result = EmployeeCatalogReplaceParser.Parse(lines);
+
+        var row = Assert.Single(result.Rows);
+        Assert.Null(row.Pin);
+    }
+
+    [Fact]
+    public void Parse_ConPinConLetras_ReportaError()
+    {
+        var lines = new[]
+        {
+            Header,
+            "EMP-001,Adrian Uribe,Drive In Car Wash,,,,,,,EMP-001",
+        };
+
+        var result = EmployeeCatalogReplaceParser.Parse(lines);
+
+        Assert.Empty(result.Rows);
+        Assert.Single(result.Errors);
+        Assert.Contains("Pin", result.Errors[0]);
     }
 
     [Fact]

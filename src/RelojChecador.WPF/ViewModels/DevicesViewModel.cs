@@ -1259,24 +1259,25 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
     /// EmployeesView.xaml.cs, OnSendEmployeesToDeviceClick — orquesta Conectar → esto →
     /// Desconectar sobre esta misma instancia de DevicesViewModel, compartida entre
     /// pestañas dentro de una misma ventana). Escribe Nombre+PIN en la memoria del
-    /// dispositivo vía SSR_SetUserInfo (<see cref="IAttendanceDeviceAdapter.CreateOrUpdateUserAsync"/>)
-    /// para cada empleado activo de la sucursal del dispositivo que todavía no tiene
-    /// vínculo (<see cref="EmployeeDeviceMapping"/>) con él. Solo prepara el PIN para que
-    /// la persona pueda enrolar su huella en el reloj — nunca sube huellas, eso sigue
-    /// siendo un paso físico en el dispositivo.
+    /// dispositivo vía SSR_SetUserInfo (<see cref="IAttendanceDeviceAdapter.CreateOrUpdateUserAsync"/>).
+    /// Solo prepara el PIN para que la persona pueda enrolar su huella en el reloj — nunca
+    /// sube huellas, eso sigue siendo un paso físico en el dispositivo.
     ///
-    /// El PIN se asigna en automático (nunca el "Number" del negocio, p. ej. "EMP-001":
-    /// el teclado del reloj es numérico y ese formato lo rechazaría) — decisión confirmada
-    /// con el usuario. Para no chocar con usuarios que ya existan físicamente en el reloj
-    /// desde antes de que existiera este vínculo local, primero se descarga la lista real
-    /// del dispositivo (<see cref="IAttendanceDeviceAdapter.DownloadUsersAsync"/>) y se
-    /// evita cualquier PIN que ya esté ocupado ahí, además de los que ya están en
-    /// <see cref="EmployeeDeviceMapping"/> localmente.
-    ///
-    /// A propósito NO es <c>[RelayCommand]</c>: ya no hay ningún botón enlazado directo a
-    /// esto en XAML (se quitó de Dispositivos) — el único llamador orquesta el flujo
-    /// completo (conectar/enviar/desconectar) a mano y necesita el resultado estructurado
-    /// para mostrar un resumen, no solo lo que quede en la Bitácora.</summary>
+    /// Este método es el único punto que de verdad reconcilia la base local con la memoria
+    /// FÍSICA del reloj (<see cref="IAttendanceDeviceAdapter.DownloadUsersAsync"/>), sin
+    /// importar de dónde salió el vínculo local (<see cref="EmployeeDeviceMapping"/>):
+    /// <list type="bullet">
+    /// <item>quien todavía no tiene vínculo → se le asigna un PIN nuevo en automático (nunca
+    /// el "Number" del negocio, p. ej. "EMP-001": el teclado del reloj es numérico y ese
+    /// formato lo rechazaría) y se crea el vínculo;</item>
+    /// <item>quien YA tiene vínculo local pero su PIN todavía no aparece en la lista real del
+    /// reloj — pedido explícito del usuario al agregar la columna Pin a "Reemplazar
+    /// catálogo" ("de esa manera suba la información al reloj checador"): ese flujo solo
+    /// crea el vínculo local, nunca toca el dispositivo por sí mismo (podría no estar ni
+    /// conectado en ese momento) — se sube con el PIN que ya tenía asignado, sin tocar el
+    /// vínculo.</item>
+    /// </list>
+    /// A quien ya está vinculado Y ya aparece en el reloj no se le vuelve a enviar nada.</summary>
     public async Task<SendEmployeesOutcome> SendEmployeesToDeviceAsync()
     {
         var device = SelectedDevice;
@@ -1314,36 +1315,21 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
 
             var allMappings = await _mappingRepository.ListAsync();
             var deviceMappings = allMappings.Where(m => m.DeviceId == device.Id).ToList();
-            var alreadyLinkedEmployeeIds = deviceMappings.Select(m => m.EmployeeId).ToHashSet();
+            var mappingByEmployeeId = deviceMappings.ToDictionary(m => m.EmployeeId, m => m);
 
-            var toSend = pending.Where(e => !alreadyLinkedEmployeeIds.Contains(e.Id)).ToList();
-            if (toSend.Count == 0)
-            {
-                AppendLog("Todos los empleados activos de esta sucursal ya están vinculados a este dispositivo.");
-                return new SendEmployeesOutcome(0, 0, [], null);
-            }
-
-            // PINs ocupados: los que ya están vinculados localmente + los que ya existan
-            // físicamente en el reloj (por ejemplo, gente enrolada a mano antes de que
-            // existiera este botón) — nunca se asume que el reloj está "limpio".
-            var usedPins = new HashSet<int>();
-            foreach (var mapping in deviceMappings)
-            {
-                if (int.TryParse(mapping.DeviceUserPin, out var pinFromMapping))
-                {
-                    usedPins.Add(pinFromMapping);
-                }
-            }
-
+            // PINs realmente en el reloj — determina tanto qué evitar al asignar en
+            // automático como quién, aunque ya tenga vínculo local, todavía no llegó de
+            // verdad al dispositivo (p. ej. un PIN cargado por "Reemplazar catálogo" antes
+            // de conectar el reloj). Si la descarga falla, se asume que el reloj podría no
+            // tener a nadie todavía — CreateOrUpdateUserAsync es "crear o actualizar", así
+            // que reenviar a alguien que ya estaba no hace daño.
+            var devicePins = new HashSet<string>();
             var deviceUsersResult = await _deviceAdapter.DownloadUsersAsync();
             if (deviceUsersResult.IsSuccess)
             {
                 foreach (var deviceUser in deviceUsersResult.Value)
                 {
-                    if (int.TryParse(deviceUser.DeviceUserPin, out var pinFromDevice))
-                    {
-                        usedPins.Add(pinFromDevice);
-                    }
+                    devicePins.Add(deviceUser.DeviceUserPin);
                 }
             }
             else
@@ -1352,13 +1338,59 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
                           "se continúa solo con los PINs ya vinculados localmente.");
             }
 
-            AppendLog($"📤 Enviando {toSend.Count} empleado(s) nuevo(s) al reloj...");
+            var usedPins = new HashSet<int>();
+            foreach (var mapping in deviceMappings)
+            {
+                if (int.TryParse(mapping.DeviceUserPin, out var pinFromMapping))
+                {
+                    usedPins.Add(pinFromMapping);
+                }
+            }
+            foreach (var pin in devicePins)
+            {
+                if (int.TryParse(pin, out var pinFromDevice))
+                {
+                    usedPins.Add(pinFromDevice);
+                }
+            }
 
-            var nextPin = 1;
+            var toAutoAssign = pending.Where(e => !mappingByEmployeeId.ContainsKey(e.Id)).ToList();
+            var toPushExisting = pending
+                .Where(e => mappingByEmployeeId.TryGetValue(e.Id, out var m) && !devicePins.Contains(m.DeviceUserPin))
+                .ToList();
+            var totalToSend = toAutoAssign.Count + toPushExisting.Count;
+
+            if (totalToSend == 0)
+            {
+                AppendLog("Todos los empleados activos de esta sucursal ya están en el reloj.");
+                return new SendEmployeesOutcome(0, 0, [], null);
+            }
+
+            AppendLog($"📤 Enviando {totalToSend} empleado(s) al reloj...");
+
             var sentCount = 0;
             var failedNames = new List<string>();
 
-            foreach (var employee in toSend)
+            // Primero quien ya tenía PIN asignado localmente (p. ej. por "Reemplazar
+            // catálogo") pero el reloj todavía no lo tiene — se respeta ese PIN, nunca se
+            // reasigna uno distinto.
+            foreach (var employee in toPushExisting)
+            {
+                var mapping = mappingByEmployeeId[employee.Id];
+                var record = new DeviceUserRecord(mapping.DeviceUserPin, employee.FullName, PrivilegeLevel: 0, IsEnabled: true);
+                var result = await _deviceAdapter.CreateOrUpdateUserAsync(record);
+
+                if (result.IsFailure)
+                {
+                    failedNames.Add($"{employee.FullName} ({result.Error.Message})");
+                    continue;
+                }
+
+                sentCount++;
+            }
+
+            var nextPin = 1;
+            foreach (var employee in toAutoAssign)
             {
                 while (usedPins.Contains(nextPin))
                 {
@@ -1383,14 +1415,14 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
 
             await _unitOfWork.SaveChangesAsync();
 
-            AppendLog($"✅ Enviado(s) {sentCount} de {toSend.Count} empleado(s) nuevo(s) al reloj (PIN asignado en automático). " +
+            AppendLog($"✅ Enviado(s) {sentCount} de {totalToSend} empleado(s) al reloj. " +
                       "Falta enrolar su huella físicamente en el dispositivo.");
             if (failedNames.Count > 0)
             {
                 AppendLog($"⚠️ No se pudo enviar a: {string.Join(", ", failedNames)}.");
             }
 
-            return new SendEmployeesOutcome(sentCount, toSend.Count, failedNames, null);
+            return new SendEmployeesOutcome(sentCount, totalToSend, failedNames, null);
         }
         catch (Exception ex)
         {

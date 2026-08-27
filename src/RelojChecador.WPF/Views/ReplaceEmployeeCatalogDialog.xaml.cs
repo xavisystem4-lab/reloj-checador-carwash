@@ -26,8 +26,9 @@ public partial class ReplaceEmployeeCatalogDialog : Window
     }
 
     /// <summary>Genera un CSV de ejemplo con el encabezado exacto que espera este flujo
-    /// (9 columnas, distinto del de "Importar desde CSV" — 7 columnas) más una fila de
-    /// muestra — mismo pedido que el botón equivalente de ImportEmployeesDialog.</summary>
+    /// (10 columnas, distinto del de "Importar desde CSV" — 7 columnas) más una fila de
+    /// muestra — mismo pedido que el botón equivalente de ImportEmployeesDialog. La columna
+    /// Pin es opcional (déjala vacía si aún no se le asigna reloj a esa persona).</summary>
     private void OnExportTemplateClick(object sender, RoutedEventArgs e)
     {
         var saveDialog = new SaveFileDialog
@@ -41,8 +42,8 @@ public partial class ReplaceEmployeeCatalogDialog : Window
         }
 
         const string template =
-            "Number,FullName,Area,Position,HireDate,Status,WeeklySalary,OvertimeHourlyRate,Notes\r\n" +
-            "EMP-001,Nombre Ejemplo,Drive In Car Wash,Puesto ejemplo,2024-01-15,Activo,3500,125,Borra esta fila de ejemplo antes de importar\r\n";
+            "Number,FullName,Area,Position,HireDate,Status,WeeklySalary,OvertimeHourlyRate,Notes,Pin\r\n" +
+            "EMP-001,Nombre Ejemplo,Drive In Car Wash,Puesto ejemplo,2024-01-15,Activo,3500,125,Borra esta fila de ejemplo antes de importar,1\r\n";
 
         try
         {
@@ -172,9 +173,15 @@ public partial class ReplaceEmployeeCatalogDialog : Window
         var branchesMessage = outcome.BranchesCreated.Count > 0
             ? $"\n\nSucursales nuevas creadas: {string.Join(", ", outcome.BranchesCreated)}."
             : "";
+        var pinMessage = outcome.Linked > 0
+            ? $"\n\n{outcome.Linked} PIN vinculado(s) a su reloj — usa \"Enviar empleados al reloj\" (en Empleados) para que esa información llegue de verdad al dispositivo físico."
+            : "";
+        var pinWarningsMessage = outcome.PinWarnings.Count > 0
+            ? "\n\n⚠️ PIN no vinculados:\n" + string.Join("\n", outcome.PinWarnings)
+            : "";
         MessageBox.Show(
             this,
-            $"Listo: {outcome.Created} nuevo(s), {outcome.Updated} actualizado(s), {outcome.Removed} dado(s) de baja.{branchesMessage}",
+            $"Listo: {outcome.Created} nuevo(s), {outcome.Updated} actualizado(s), {outcome.Removed} dado(s) de baja.{branchesMessage}{pinMessage}{pinWarningsMessage}",
             "Reemplazo completado", MessageBoxButton.OK, MessageBoxImage.Information);
 
         DialogResult = true;

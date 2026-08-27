@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Linq;
 using RelojChecador.Application.Common;
 using RelojChecador.Domain.Employees;
 
@@ -20,6 +21,7 @@ public sealed record EmployeeCatalogRow(
     decimal? WeeklySalary,
     decimal? OvertimeHourlyRate,
     string? Notes,
+    string? Pin,
     IReadOnlyList<string> Alerts)
 {
     public bool HasAlerts => Alerts.Count > 0;
@@ -37,7 +39,16 @@ public sealed record EmployeeCatalogParseResult(IReadOnlyList<EmployeeCatalogRow
 /// ACTUALIZA a quien ya existe y coincide por nombre, CREA a quien es nuevo, y DA DE BAJA
 /// (lógica, nunca borra) a quien ya no aparece — pedido explícito del usuario: "el excel que
 /// te pasé es el único registro que quiero actualmente". Columnas esperadas:
-/// <c>Number,FullName,Area,Position,HireDate,Status,WeeklySalary,OvertimeHourlyRate,Notes</c>.
+/// <c>Number,FullName,Area,Position,HireDate,Status,WeeklySalary,OvertimeHourlyRate,Notes,Pin</c>.
+///
+/// <c>Pin</c> (agregada a pedido explícito del usuario: "quiero que agregue la columna PIN
+/// ... para que el PIN lo detecte el sistema al importarlo") es OPCIONAL y, si viene, debe
+/// ser solo dígitos — el teclado del reloj checador es numérico, igual criterio que
+/// DevicesViewModel.SendEmployeesToDeviceAsync al asignar PIN automático. Esta clase solo
+/// valida el formato; vincularlo de verdad (crear/actualizar EmployeeDeviceMapping, y que
+/// "Enviar empleados al reloj" lo suba de verdad al dispositivo) pasa después, en
+/// EmployeesViewModel.ApplyCatalogReplaceAsync, que también valida que el PIN no choque con
+/// el de otro empleado en el mismo reloj.
 ///
 /// <c>HireDate</c> (formato ISO <c>yyyy-MM-dd</c>) es OPCIONAL a propósito: para un empleado
 /// nuevo, vacío usa la fecha de hoy (mismo criterio que EmployeeImportParser); para uno que
@@ -53,7 +64,7 @@ public sealed record EmployeeCatalogParseResult(IReadOnlyList<EmployeeCatalogRow
 public static class EmployeeCatalogReplaceParser
 {
     private static readonly string[] ExpectedHeader =
-        ["Number", "FullName", "Area", "Position", "HireDate", "Status", "WeeklySalary", "OvertimeHourlyRate", "Notes"];
+        ["Number", "FullName", "Area", "Position", "HireDate", "Status", "WeeklySalary", "OvertimeHourlyRate", "Notes", "Pin"];
 
     public static EmployeeCatalogParseResult Parse(IReadOnlyList<string> lines)
     {
@@ -133,6 +144,12 @@ public static class EmployeeCatalogReplaceParser
                 continue;
             }
 
+            if (!TryParseOptionalPin(fields[9], out var pin))
+            {
+                errors.Add($"Línea {lineNumber}: Pin \"{fields[9]}\" debe ser solo dígitos (el teclado del reloj es numérico), o estar vacío.");
+                continue;
+            }
+
             var alerts = new List<string>();
             if (weeklySalary is null)
             {
@@ -141,7 +158,7 @@ public static class EmployeeCatalogReplaceParser
 
             rows.Add(new EmployeeCatalogRow(
                 lineNumber, number, fullName, area, position, hireDate, status,
-                weeklySalary, overtimeHourlyRate, notes, alerts));
+                weeklySalary, overtimeHourlyRate, notes, pin, alerts));
         }
 
         return new EmployeeCatalogParseResult(rows, errors);
@@ -203,6 +220,29 @@ public static class EmployeeCatalogReplaceParser
         if (decimal.TryParse(trimmed, NumberStyles.Number, CultureInfo.InvariantCulture, out var parsed) && parsed >= 0)
         {
             value = parsed;
+            return true;
+        }
+
+        value = null;
+        return false;
+    }
+
+    /// <summary>Vacío → <c>null</c> ("sin vincular a un reloj todavía"). Si viene, debe ser
+    /// solo dígitos — el teclado del reloj checador es numérico, un PIN con letras o
+    /// símbolos (p. ej. "EMP-001") lo rechazaría de verdad al enrolar, mismo motivo por el
+    /// que "Enviar empleados al reloj" nunca usa el Number del negocio como PIN.</summary>
+    private static bool TryParseOptionalPin(string raw, out string? value)
+    {
+        var trimmed = raw.Trim();
+        if (trimmed.Length == 0)
+        {
+            value = null;
+            return true;
+        }
+
+        if (trimmed.All(char.IsDigit))
+        {
+            value = trimmed;
             return true;
         }
 
