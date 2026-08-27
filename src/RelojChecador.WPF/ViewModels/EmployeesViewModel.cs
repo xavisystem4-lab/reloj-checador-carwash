@@ -680,4 +680,242 @@ public sealed partial class EmployeesViewModel : ObservableObject
             return new EmployeeImportOutcome(0, [], "Ocurrió un error inesperado al importar. Revisa el registro de errores.");
         }
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // "Reemplazar catálogo maestro" — a diferencia de "Importar desde CSV" (arriba, que
+    // solo agrega gente NUEVA y nunca toca a quien ya existe, regla explícita del usuario),
+    // este flujo trata al archivo como la fuente de verdad completa: actualiza a quien
+    // coincide por nombre, crea a quien es nuevo, y da de baja (lógica, nunca borra) a
+    // quien ya no aparece. Pedido explícito del usuario tras subir un catálogo más completo
+    // (Excel con fecha de ingreso real, estatus, etc.): "el excel que te pasé es el único
+    // registro que quiero actualmente". Ver EmployeeCatalogReplaceParser para el formato.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public sealed record EmployeeCatalogPreviewRow(EmployeeCatalogRow Row, Employee? ExistingMatch, bool BranchExists)
+    {
+        public bool WillCreate => ExistingMatch is null;
+        public string Action => WillCreate ? "Crear" : "Actualizar";
+
+        public IReadOnlyList<string> AllAlerts =>
+        [
+            .. Row.Alerts,
+            .. BranchExists ? [] : (string[]) [$"Se creará la sucursal \"{Row.Area}\"."],
+        ];
+
+        public string AlertsText => string.Join(" · ", AllAlerts);
+    }
+
+    /// <summary>Un empleado ya existente que NO aparece (por nombre) en el catálogo nuevo —
+    /// se dará de baja (EmploymentStatus.Terminated) al aplicar, salvo que esté protegido
+    /// (ver <see cref="PrepareCatalogReplacePreviewAsync"/>).</summary>
+    public sealed record EmployeeCatalogRemovalRow(Employee Employee, string BranchName)
+    {
+        public string DisplayText => $"{Employee.Number.Value} — {Employee.FullName} ({BranchName})";
+    }
+
+    public sealed record EmployeeCatalogReplacePreview(
+        IReadOnlyList<EmployeeCatalogPreviewRow> Rows,
+        IReadOnlyList<EmployeeCatalogRemovalRow> ToRemove,
+        IReadOnlyList<string> ParseErrors,
+        IReadOnlyList<string> BranchesToCreate)
+    {
+        public int TotalRows => Rows.Count;
+        public int ToCreate => Rows.Count(r => r.WillCreate);
+        public int ToUpdate => Rows.Count(r => !r.WillCreate);
+    }
+
+    /// <summary>Arma la vista previa completa: parsea el archivo, cruza cada fila contra la
+    /// base local por NOMBRE COMPLETO (no por número — el catálogo nuevo trae su propia
+    /// numeración, que puede no coincidir con la que ya está en uso), y calcula quién NO
+    /// aparece en el archivo y por lo tanto se daría de baja. La coincidencia es por nombre
+    /// EXACTO (normalizado: espacios colapsados, sin distinguir mayúsculas) a propósito —
+    /// nunca intenta adivinar con coincidencia parcial (dos personas distintas podrían
+    /// compartir un nombre de pila) — por eso la vista previa existe: revisa "Se dará de
+    /// baja" con cuidado antes de aplicar, sobre todo si un nombre en la base es más corto
+    /// que el del archivo nuevo (p. ej. "Nathalia" vs "Nathalia Trujillo Figueroa" NO
+    /// coinciden solos, hay que protegerlo a mano si no se quiere dar de baja el registro
+    /// viejo).
+    ///
+    /// <paramref name="protectedNames"/>: nombres que deben conservarse tal cual aunque no
+    /// estén en el archivo — p. ej. alguien dado de alta directo en el reloj que nunca pasó
+    /// por ningún catálogo. No toca la base de datos, solo la consulta.</summary>
+    public async Task<EmployeeCatalogReplacePreview> PrepareCatalogReplacePreviewAsync(
+        IReadOnlyList<string> csvLines, IReadOnlyList<string> protectedNames)
+    {
+        var parseResult = EmployeeCatalogReplaceParser.Parse(csvLines);
+
+        var existingBranchNames = (await _branchRepository.ListAsync())
+            .Select(b => b.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var existingByName = new Dictionary<string, Employee>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in _allRows)
+        {
+            existingByName.TryAdd(NormalizeName(row.Employee.FullName), row.Employee);
+        }
+
+        var matchedEmployeeIds = new HashSet<Guid>();
+        var previewRows = new List<EmployeeCatalogPreviewRow>();
+        var branchesToCreate = new List<string>();
+
+        foreach (var row in parseResult.Rows)
+        {
+            existingByName.TryGetValue(NormalizeName(row.FullName), out var match);
+            if (match is not null)
+            {
+                matchedEmployeeIds.Add(match.Id);
+            }
+
+            var branchExists = existingBranchNames.Contains(row.Area);
+            if (!branchExists && !branchesToCreate.Contains(row.Area, StringComparer.OrdinalIgnoreCase))
+            {
+                branchesToCreate.Add(row.Area);
+            }
+
+            previewRows.Add(new EmployeeCatalogPreviewRow(row, match, branchExists));
+        }
+
+        var protectedSet = protectedNames
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .Select(NormalizeName)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var toRemove = _allRows
+            .Where(r => r.Employee.Status != EmploymentStatus.Terminated)
+            .Where(r => !matchedEmployeeIds.Contains(r.Employee.Id))
+            .Where(r => !protectedSet.Contains(NormalizeName(r.Employee.FullName)))
+            .Select(r => new EmployeeCatalogRemovalRow(r.Employee, r.BranchName))
+            .ToList();
+
+        return new EmployeeCatalogReplacePreview(previewRows, toRemove, parseResult.Errors, branchesToCreate);
+    }
+
+    private static string NormalizeName(string name) =>
+        string.Join(' ', name.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries));
+
+    public sealed record EmployeeCatalogReplaceOutcome(
+        int Created, int Updated, int Removed, IReadOnlyList<string> BranchesCreated, string? Error)
+    {
+        public bool Success => Error is null;
+    }
+
+    /// <summary>Ejecuta el reemplazo real: crea sucursales que hagan falta, luego
+    /// actualiza/crea cada fila del catálogo, y por último da de baja a quien no apareció —
+    /// todo en un solo SaveChangesAsync, así que si algo falla a mitad de camino no queda
+    /// nada a medias. Actualizar NUNCA borra un sueldo/tarifa ya capturado solo porque el
+    /// archivo nuevo no lo trae (se conserva el valor existente en ese caso) — mismo
+    /// criterio de "null nunca sobreescribe un dato real" que el resto del proyecto.</summary>
+    public async Task<EmployeeCatalogReplaceOutcome> ApplyCatalogReplaceAsync(EmployeeCatalogReplacePreview preview)
+    {
+        try
+        {
+            var branchIdsByName = (await _branchRepository.ListAsync())
+                .ToDictionary(b => b.Name, b => b.Id, StringComparer.OrdinalIgnoreCase);
+
+            var branchesCreated = new List<string>();
+            foreach (var areaName in preview.BranchesToCreate)
+            {
+                if (branchIdsByName.ContainsKey(areaName))
+                {
+                    continue; // ya se creó como parte de esta misma corrida
+                }
+
+                var code = new string(areaName.Where(char.IsLetterOrDigit).ToArray()).ToUpperInvariant();
+                var branch = Branch.Create(code, areaName, "America/Tijuana", legalEntityName: null, address: null);
+                await _branchRepository.AddAsync(branch);
+                branchIdsByName[areaName] = branch.Id;
+                branchesCreated.Add(areaName);
+            }
+
+            var today = DateOnly.FromDateTime(DateTime.Now);
+            var created = 0;
+            var updated = 0;
+
+            foreach (var previewRow in preview.Rows)
+            {
+                var row = previewRow.Row;
+                var branchId = branchIdsByName[row.Area];
+
+                if (previewRow.ExistingMatch is null)
+                {
+                    var employee = Employee.Create(
+                        EmployeeNumber.Create(row.Number), row.FullName, branchId,
+                        row.HireDate ?? today, row.WeeklySalary, department: null, row.Position, row.OvertimeHourlyRate);
+                    if (row.Status != EmploymentStatus.Active)
+                    {
+                        employee.ChangeStatus(row.Status);
+                    }
+                    if (!string.IsNullOrWhiteSpace(row.Notes))
+                    {
+                        employee.UpdateNotes(row.Notes);
+                    }
+                    await _employeeRepository.AddAsync(employee);
+                    created++;
+                }
+                else
+                {
+                    var employee = await _employeeRepository.GetByIdAsync(previewRow.ExistingMatch.Id)
+                        ?? throw new InvalidOperationException(
+                            $"No se encontró a \"{row.FullName}\" — la lista pudo haber cambiado. Cierra este diálogo y vuelve a intentar.");
+
+                    employee.UpdatePersonalInfo(row.FullName, department: null, row.Position);
+                    if (row.HireDate is { } hireDate)
+                    {
+                        employee.UpdateHireDate(hireDate);
+                    }
+                    if (employee.BranchId != branchId)
+                    {
+                        employee.TransferToBranch(branchId);
+                    }
+                    if (!string.Equals(employee.Number.Value, row.Number, StringComparison.OrdinalIgnoreCase))
+                    {
+                        employee.ChangeNumber(EmployeeNumber.Create(row.Number));
+                    }
+                    if (row.WeeklySalary is not null || row.OvertimeHourlyRate is not null)
+                    {
+                        employee.UpdateCompensation(
+                            row.WeeklySalary ?? employee.WeeklySalary,
+                            row.OvertimeHourlyRate ?? employee.OvertimeHourlyRate);
+                    }
+                    employee.ChangeStatus(row.Status);
+                    if (!string.IsNullOrWhiteSpace(row.Notes))
+                    {
+                        employee.UpdateNotes(row.Notes);
+                    }
+                    updated++;
+                }
+            }
+
+            var removed = 0;
+            foreach (var removal in preview.ToRemove)
+            {
+                var employee = await _employeeRepository.GetByIdAsync(removal.Employee.Id);
+                if (employee is null)
+                {
+                    continue;
+                }
+                employee.ChangeStatus(EmploymentStatus.Terminated);
+                removed++;
+            }
+
+            await _unitOfWork.SaveChangesAsync();
+            await ReloadAsync();
+            return new EmployeeCatalogReplaceOutcome(created, updated, removed, branchesCreated, Error: null);
+        }
+        catch (DomainException ex)
+        {
+            return new EmployeeCatalogReplaceOutcome(0, 0, 0, [], ex.Message);
+        }
+        catch (DbUpdateException ex)
+        {
+            Log.Warning(ex, "No se pudo aplicar el reemplazo de catálogo de empleados.");
+            return new EmployeeCatalogReplaceOutcome(0, 0, 0, [],
+                "No se pudo guardar — revisa que no haya números de empleado duplicados dentro del archivo ni contra alguien que ya existe.");
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Error inesperado al reemplazar el catálogo de empleados.");
+            return new EmployeeCatalogReplaceOutcome(0, 0, 0, [], "Ocurrió un error inesperado al guardar. Revisa el registro de errores.");
+        }
+    }
 }

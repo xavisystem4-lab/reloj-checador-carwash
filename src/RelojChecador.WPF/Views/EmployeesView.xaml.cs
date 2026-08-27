@@ -61,6 +61,17 @@ public partial class EmployeesView : UserControl
         dialog.ShowDialog();
     }
 
+    private void OnReplaceCatalogClick(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not EmployeesViewModel viewModel)
+        {
+            return;
+        }
+
+        var dialog = new ReplaceEmployeeCatalogDialog(viewModel) { Owner = Window.GetWindow(this) };
+        dialog.ShowDialog();
+    }
+
     private async void OnEditEmployeeClick(object sender, RoutedEventArgs e)
     {
         if (DataContext is not EmployeesViewModel viewModel || (sender as FrameworkElement)?.DataContext is not EmployeeRow row)

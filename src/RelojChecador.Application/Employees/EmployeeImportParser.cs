@@ -1,5 +1,5 @@
 using System.Globalization;
-using System.Text;
+using RelojChecador.Application.Common;
 
 namespace RelojChecador.Application.Employees;
 
@@ -58,7 +58,7 @@ public static class EmployeeImportParser
             return new EmployeeImportResult(rows, errors);
         }
 
-        var header = SplitCsvLine(lines[0]);
+        var header = CsvLineParser.SplitLine(lines[0]);
         if (!HeaderMatches(header))
         {
             errors.Add($"El encabezado no coincide con el esperado ({string.Join(",", ExpectedHeader)}).");
@@ -74,7 +74,7 @@ public static class EmployeeImportParser
             }
 
             var lineNumber = i + 1; // 1-based, coincide con lo que vería el usuario al abrir el archivo
-            var fields = SplitCsvLine(line);
+            var fields = CsvLineParser.SplitLine(line);
             if (fields.Length != ExpectedHeader.Length)
             {
                 errors.Add($"Línea {lineNumber}: se esperaban {ExpectedHeader.Length} columnas, se encontraron {fields.Length}.");
@@ -148,55 +148,4 @@ public static class EmployeeImportParser
     }
 
     private static string? NullIfEmpty(string value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
-
-    /// <summary>Parseo CSV mínimo: separa por comas respetando comillas dobles (misma
-    /// regla de escape que ya usan los <c>CsvEscape</c> de este proyecto — <c>""</c>
-    /// dentro de un campo entrecomillado es una comilla literal). No soporta saltos de
-    /// línea dentro de un campo — suficiente para archivos generados por esta misma app o
-    /// exportados desde Excel/Google Sheets.</summary>
-    private static string[] SplitCsvLine(string line)
-    {
-        var fields = new List<string>();
-        var current = new StringBuilder();
-        var inQuotes = false;
-
-        for (var i = 0; i < line.Length; i++)
-        {
-            var c = line[i];
-            if (inQuotes)
-            {
-                if (c == '"')
-                {
-                    if (i + 1 < line.Length && line[i + 1] == '"')
-                    {
-                        current.Append('"');
-                        i++;
-                    }
-                    else
-                    {
-                        inQuotes = false;
-                    }
-                }
-                else
-                {
-                    current.Append(c);
-                }
-            }
-            else if (c == '"')
-            {
-                inQuotes = true;
-            }
-            else if (c == ',')
-            {
-                fields.Add(current.ToString());
-                current.Clear();
-            }
-            else
-            {
-                current.Append(c);
-            }
-        }
-        fields.Add(current.ToString());
-        return [.. fields];
-    }
 }

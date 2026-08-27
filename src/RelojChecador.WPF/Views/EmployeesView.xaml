@@ -19,7 +19,12 @@
 
         <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,12">
             <Button Content="+ Nuevo empleado" Style="{StaticResource PrimaryButton}" Click="OnAddEmployeeClick" Margin="0,0,8,0" />
-            <Button Content="⬆ Importar desde CSV" Click="OnImportEmployeesClick" Margin="0,0,16,0" />
+            <Button Content="⬆ Importar desde CSV" Click="OnImportEmployeesClick" Margin="0,0,8,0" />
+            <!-- Distinto de "Importar desde CSV" a propósito: ese solo agrega gente nueva,
+                 nunca toca a quien ya existe (regla explícita del usuario) — esto trata el
+                 archivo como el catálogo COMPLETO (actualiza/crea/da de baja), pedido
+                 explícito tras subir un catálogo más completo. -->
+            <Button Content="🔁 Reemplazar catálogo" Click="OnReplaceCatalogClick" Margin="0,0,16,0" />
             <!-- "Eliminar" es baja lógica (ver EmployeesViewModel.DeleteEmployeeAsync): el
                  empleado se oculta de la lista por defecto, no se borra — este checkbox
                  los vuelve a mostrar sin recargar la base de datos. -->

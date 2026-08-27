@@ -147,6 +147,17 @@ public sealed class Employee : AuditableEntity
         Touch();
     }
 
+    /// <summary>Corrige la fecha de ingreso — normalmente se fija una sola vez al dar de
+    /// alta (ver <see cref="Create"/>), pero un catálogo importado después con datos más
+    /// completos (ver EmployeesViewModel.ApplyCatalogReplaceAsync) puede traer la fecha
+    /// real cuando la que se usó al crear el registro localmente fue solo un placeholder
+    /// (la fecha de la importación, no la fecha real de ingreso del empleado).</summary>
+    public void UpdateHireDate(DateOnly hireDate)
+    {
+        HireDate = hireDate;
+        Touch();
+    }
+
     public void TransferToBranch(Guid newBranchId)
     {
         Guard.AgainstEmptyGuid(newBranchId, nameof(newBranchId));
