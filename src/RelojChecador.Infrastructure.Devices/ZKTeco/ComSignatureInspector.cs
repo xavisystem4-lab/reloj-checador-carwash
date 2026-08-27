@@ -104,7 +104,7 @@ internal static class ComSignatureInspector
             var flags = (PARAMFLAG)elem.desc.paramdesc.wParamFlags;
             var paramName = p + 1 < names.Length && !string.IsNullOrEmpty(names[p + 1]) ? names[p + 1] : $"arg{p}";
 
-            sb.Append(paramName).Append(':').Append(DescribeVarType(elem.tdesc.vt));
+            sb.Append(paramName).Append(':').Append(DescribeTypeDesc(elem.tdesc));
             if ((flags & PARAMFLAG.PARAMFLAG_FIN) != 0) sb.Append("[in]");
             if ((flags & PARAMFLAG.PARAMFLAG_FOUT) != 0) sb.Append("[out]");
             if (p < funcDesc.cParams - 1) sb.Append(", ");
@@ -117,14 +117,38 @@ internal static class ComSignatureInspector
     /// <summary>vt trae el tipo base combinado con "modificadores" (VT_BYREF, VT_ARRAY) como
     /// bits aparte — VarEnum no está marcado [Flags] en el BCL, así que un cast directo no
     /// se lee bien (imprime el número crudo). Se separan a mano para que "por referencia"
-    /// quede explícito, que es justo el dato que más importa para reproducir la llamada.</summary>
-    private static string DescribeVarType(short vt)
+    /// quede explícito.
+    ///
+    /// VT_PTR/VT_SAFEARRAY no dicen nada por sí solos ("puntero a... ¿qué?") — el tipo real
+    /// vive en OTRO TYPEDESC al que apunta <see cref="TYPEDESC.lpValue"/>, así que se sigue
+    /// esa cadena de forma recursiva (p. ej. "VT_PTR->VT_BSTR" = un BSTR* de verdad, no un
+    /// puntero crudo a memoria) — sin esto, tres parámetros salieron como el mismo "VT_PTR"
+    /// indistinguible entre sí en el primer diagnóstico real (caso real: GetUserTmpExStr,
+    /// ver DownloadUserTemplatesAsync), sin aportar suficiente para reconstruir la llamada
+    /// con confianza.</summary>
+    private static string DescribeTypeDesc(TYPEDESC tdesc, int depth = 0)
     {
-        const short VT_BYREF = 0x4000;
-        const short VT_ARRAY = 0x2000;
-        var baseType = (VarEnum)(vt & ~(VT_BYREF | VT_ARRAY));
-        var suffix = (vt & VT_BYREF) != 0 ? " BYREF" : "";
-        suffix += (vt & VT_ARRAY) != 0 ? " ARRAY" : "";
+        const short VT_BYREF = unchecked((short)0x4000);
+        const short VT_ARRAY = unchecked((short)0x2000);
+        var baseType = (VarEnum)(tdesc.vt & ~(VT_BYREF | VT_ARRAY));
+        var suffix = (tdesc.vt & VT_BYREF) != 0 ? " BYREF" : "";
+        suffix += (tdesc.vt & VT_ARRAY) != 0 ? " ARRAY" : "";
+
+        // Límite de profundidad puramente defensivo — una cadena de TYPEDESC real nunca
+        // debería anidar tanto, pero esto es diagnóstico, nunca debe colgarse ni reventar.
+        if (depth < 5 && (baseType == VarEnum.VT_PTR || baseType == VarEnum.VT_SAFEARRAY) && tdesc.lpValue != IntPtr.Zero)
+        {
+            try
+            {
+                var inner = Marshal.PtrToStructure<TYPEDESC>(tdesc.lpValue);
+                return $"{baseType}{suffix}->{DescribeTypeDesc(inner, depth + 1)}";
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                return $"{baseType}{suffix}->(no se pudo seguir: {ex.Message})";
+            }
+        }
+
         return baseType + suffix;
     }
 }
