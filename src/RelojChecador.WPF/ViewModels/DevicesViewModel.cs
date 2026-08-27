@@ -156,6 +156,18 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
     [ObservableProperty] private int? _infoUserCount;
     [ObservableProperty] private int? _infoAttendanceLogCount;
 
+    // Todos los dispositivos de la base local, incluidos los deshabilitados (ver
+    // DeleteDeviceAsync — "eliminar" es baja lógica, nunca borra el registro ni su
+    // historial). Devices (la colección que se bindea a la UI) es un subconjunto filtrado de
+    // esta lista — mismo criterio que EmployeesViewModel._allRows/ShowTerminatedEmployees.
+    private List<Device> _allDevices = [];
+
+    /// <summary>Por defecto los dispositivos deshabilitados se ocultan de la lista — este
+    /// toggle los vuelve a mostrar sin necesidad de recargar la base de datos otra vez
+    /// (filtra en memoria sobre _allDevices, ver ApplyDeviceVisibilityFilter).</summary>
+    [ObservableProperty]
+    private bool _showDisabledDevices;
+
     public ObservableCollection<Device> Devices { get; } = [];
     public ObservableCollection<RawAttendanceRecord> AttendanceRecords { get; } = [];
     public ObservableCollection<string> LogEntries { get; } = [];
@@ -450,12 +462,8 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
     {
         try
         {
-            var devices = await _deviceRepository.ListAsync();
-            Devices.Clear();
-            foreach (var device in devices)
-            {
-                Devices.Add(device);
-            }
+            _allDevices = (await _deviceRepository.ListAsync()).ToList();
+            ApplyDeviceVisibilityFilter();
 
             RefreshStatusMessage();
             SelectedDevice = Devices.FirstOrDefault();
@@ -496,6 +504,10 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
                 await SaveCommunicationKeyAsync(device, communicationKey);
             }
 
+            // Un dispositivo recién creado nunca nace deshabilitado (Status inicial =
+            // Unknown), así que agregarlo directo a ambas listas es seguro sin tener que
+            // recalcular todo el filtro — mismo atajo que ya hacía este método antes.
+            _allDevices.Add(device);
             Devices.Add(device);
             SelectedDevice = device;
             RefreshStatusMessage();
@@ -534,10 +546,16 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
     /// "no cambiar la clave ya guardada" (nunca se muestra la clave existente de vuelta en
     /// la pantalla de edición, así que dejar el campo en blanco no puede interpretarse como
     /// "quitar la clave"). Solo se guarda/reemplaza si el usuario escribió algo nuevo.</param>
+    /// <param name="deleteCommunicationKey">Pedido explícito del usuario en "Editar
+    /// dispositivo": una casilla separada para BORRAR la clave ya guardada, distinta de
+    /// dejar el campo en blanco (que significa "no tocarla"). Si ambos vienen con valor
+    /// (raro — la UI no debería permitirlo, ver EditDeviceDialog), guardar la nueva gana:
+    /// no tendría sentido borrar y reemplazar en la misma operación.</param>
     /// <returns>Un mensaje de error comprensible si algo salió mal, o null si se guardó correctamente.</returns>
     public async Task<string?> UpdateDeviceAsync(
         Guid deviceId, string name, string brand, string model, string ipAddress, int tcpPort,
-        Guid branchId, string timeZoneId, string? serialNumber, string? macAddress, string? communicationKey = null)
+        Guid branchId, string timeZoneId, string? serialNumber, string? macAddress,
+        string? communicationKey = null, bool deleteCommunicationKey = false)
     {
         try
         {
@@ -554,16 +572,16 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
             {
                 await SaveCommunicationKeyAsync(device, communicationKey);
             }
+            else if (deleteCommunicationKey)
+            {
+                await DeleteCommunicationKeyAsync(device);
+            }
 
             await _unitOfWork.SaveChangesAsync();
             await _syncService.TriggerSyncNowAsync();
 
-            var devices = await _deviceRepository.ListAsync();
-            Devices.Clear();
-            foreach (var d in devices)
-            {
-                Devices.Add(d);
-            }
+            _allDevices = (await _deviceRepository.ListAsync()).ToList();
+            ApplyDeviceVisibilityFilter();
 
             RefreshStatusMessage();
             SelectedDevice = Devices.FirstOrDefault(d => d.Id == deviceId) ?? Devices.FirstOrDefault();
@@ -601,6 +619,107 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         }
 
         device.AssignCredentialReference(reference);
+    }
+
+    /// <summary>Borra la clave guardada de Windows Credential Manager y limpia la referencia
+    /// en el dispositivo — pedido explícito del usuario: "Editar dispositivo" necesitaba una
+    /// forma de QUITAR la clave, no solo reemplazarla (dejar el campo en blanco al editar
+    /// nunca borra nada, ver UpdateDeviceAsync). Si el dispositivo no tenía ninguna clave
+    /// guardada (CredentialReference nulo), no hay nada que hacer.</summary>
+    private async Task DeleteCommunicationKeyAsync(Device device)
+    {
+        if (string.IsNullOrEmpty(device.CredentialReference))
+        {
+            return;
+        }
+
+        var deleteResult = await _credentialStore.DeleteAsync(device.CredentialReference);
+        if (deleteResult.IsFailure)
+        {
+            Log.Warning("No se pudo borrar la clave de comunicación del dispositivo {DeviceId}: {Error}", device.Id, deleteResult.Error.Message);
+            return;
+        }
+
+        device.ClearCredentialReference();
+    }
+
+    /// <summary>Para que "Editar dispositivo" pueda mostrar "Ya hay una clave guardada" en vez
+    /// de dejar la pantalla ambigua sobre si existe una o no.</summary>
+    public bool HasCommunicationKey(Device device) => !string.IsNullOrEmpty(device.CredentialReference);
+
+    /// <summary>Reconstruye <see cref="Devices"/> a partir de <see cref="_allDevices"/>
+    /// aplicando el filtro "Mostrar dispositivos deshabilitados" — mismo criterio que
+    /// EmployeesViewModel.ApplyVisibilityFilter/ShowTerminatedEmployees: "eliminar" un
+    /// dispositivo (ver DeleteDeviceAsync) es una baja lógica, nunca borra su historial, así
+    /// que por defecto se oculta de la lista pero puede volver a mostrarse sin recargar la
+    /// base de datos.</summary>
+    private void ApplyDeviceVisibilityFilter()
+    {
+        IEnumerable<Device> visible = ShowDisabledDevices
+            ? _allDevices
+            : _allDevices.Where(d => d.Status != DeviceStatus.Disabled);
+
+        Devices.Clear();
+        foreach (var device in visible)
+        {
+            Devices.Add(device);
+        }
+    }
+
+    partial void OnShowDisabledDevicesChanged(bool value) => ApplyDeviceVisibilityFilter();
+
+    /// <summary>Da de baja un dispositivo — baja lógica, igual criterio que
+    /// EmployeesViewModel.DeleteEmployeeAsync: el registro se conserva (con todo su
+    /// historial de asistencias y vínculos a empleados), solo se marca Disabled y se oculta
+    /// de la lista por defecto. Nunca se borra de verdad: las marcaciones ya descargadas de
+    /// ese dispositivo seguirían referenciando su Id — un borrado físico las dejaría
+    /// huérfanas o rompería el reporte histórico.</summary>
+    /// <returns>Un mensaje de error comprensible si algo salió mal, o null si se guardó correctamente.</returns>
+    public async Task<string?> DeleteDeviceAsync(Guid deviceId)
+    {
+        try
+        {
+            var device = await _deviceRepository.GetByIdAsync(deviceId);
+            if (device is null)
+            {
+                return "No se encontró el dispositivo — puede que la lista esté desactualizada. Cierra y vuelve a abrir esta pantalla.";
+            }
+
+            // Si el dispositivo que se está dando de baja es el seleccionado y sigue
+            // conectado/monitoreando en tiempo real, hay que cortar esa conexión primero —
+            // mismo motivo que OnSelectedDeviceChanged: no debe quedar nada corriendo de
+            // fondo contra un dispositivo que la app ya no debería tocar.
+            if (SelectedDevice?.Id == deviceId && IsConnected)
+            {
+                _connectionCts?.Cancel();
+                _autoReconnectTimer.Stop();
+                _autoDownloadTimer.Stop();
+                await _deviceAdapter.StopRealTimeMonitoringAsync();
+                await _deviceAdapter.DisconnectAsync();
+                IsConnected = false;
+                IsMonitoringRealTime = false;
+            }
+
+            device.Disable();
+            await _unitOfWork.SaveChangesAsync();
+
+            _allDevices = (await _deviceRepository.ListAsync()).ToList();
+            ApplyDeviceVisibilityFilter();
+
+            RefreshStatusMessage();
+            SelectedDevice = Devices.FirstOrDefault();
+            return null;
+        }
+        catch (DbUpdateException ex)
+        {
+            Log.Warning(ex, "No se pudo dar de baja el dispositivo (DeviceId={DeviceId})", deviceId);
+            return "No se pudo dar de baja el dispositivo. Verifica los datos e intenta de nuevo.";
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Error inesperado al dar de baja el dispositivo {DeviceId}", deviceId);
+            return "Ocurrió un error inesperado al guardar. Revisa el registro de errores.";
+        }
     }
 
     partial void OnSelectedDeviceChanged(Device? value)
@@ -1403,8 +1522,17 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
     private void AppendLog(string message) =>
         LogEntries.Insert(0, $"{DateTime.Now:HH:mm:ss} — {message}");
 
-    private void RefreshStatusMessage() =>
-        StatusMessage = Devices.Count == 0
-            ? "Aún no hay dispositivos registrados."
+    private void RefreshStatusMessage()
+    {
+        if (_allDevices.Count == 0)
+        {
+            StatusMessage = "Aún no hay dispositivos registrados.";
+            return;
+        }
+
+        var hiddenCount = _allDevices.Count - Devices.Count;
+        StatusMessage = hiddenCount > 0
+            ? $"{Devices.Count} de {_allDevices.Count} dispositivo(s) — {hiddenCount} deshabilitado(s) oculto(s) (\"Mostrar deshabilitados\")."
             : $"{Devices.Count} dispositivo(s) registrado(s) en la base local.";
+    }
 }

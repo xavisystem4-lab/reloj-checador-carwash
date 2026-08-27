@@ -26,8 +26,11 @@ public partial class EditDeviceDialog : Window
     // Vacío = "no cambiar la clave ya guardada" — nunca se precarga la clave existente
     // aquí (no se muestra un secreto ya guardado de vuelta en la pantalla).
     public string? CommunicationKey => string.IsNullOrEmpty(CommunicationKeyPasswordBox.Password) ? null : CommunicationKeyPasswordBox.Password;
+    // Pedido explícito del usuario: forma explícita de BORRAR la clave guardada, distinta de
+    // "dejar el campo en blanco" (que nunca borra nada, ver CommunicationKey de arriba).
+    public bool DeleteCommunicationKey => DeleteCommunicationKeyCheckBox.IsChecked == true;
 
-    public EditDeviceDialog(Device device, IReadOnlyList<Branch> branches)
+    public EditDeviceDialog(Device device, IReadOnlyList<Branch> branches, bool hasCommunicationKey)
     {
         InitializeComponent();
         DeviceId = device.Id;
@@ -43,6 +46,38 @@ public partial class EditDeviceDialog : Window
         PortTextBox.Text = device.TcpPort.ToString();
         SerialTextBox.Text = device.SerialNumber;
         MacTextBox.Text = device.MacAddress;
+
+        // Sin esto, la pantalla nunca decía si el dispositivo ya tenía una clave guardada o
+        // no — había que abrir Windows Credential Manager a mano para saberlo. Si no hay
+        // ninguna, no tiene sentido ofrecer "eliminarla": se deshabilita la casilla.
+        if (hasCommunicationKey)
+        {
+            CommunicationKeyStatusTextBlock.Text = "🔒 Ya hay una clave guardada para este dispositivo.";
+        }
+        else
+        {
+            CommunicationKeyStatusTextBlock.Text = "Este dispositivo no tiene ninguna clave de comunicación guardada.";
+            DeleteCommunicationKeyCheckBox.IsEnabled = false;
+        }
+
+        CommunicationKeyPasswordBox.PasswordChanged += OnCommunicationKeyPasswordChanged;
+    }
+
+    // Escribir una clave nueva y pedir "eliminar la guardada" al mismo tiempo no tiene
+    // sentido — se excluyen mutuamente en ambas direcciones (ver también
+    // OnDeleteCommunicationKeyChecked) en vez de dejar que la última acción del usuario gane
+    // en silencio dentro de UpdateDeviceAsync.
+    private void OnCommunicationKeyPasswordChanged(object sender, RoutedEventArgs e)
+    {
+        if (!string.IsNullOrEmpty(CommunicationKeyPasswordBox.Password))
+        {
+            DeleteCommunicationKeyCheckBox.IsChecked = false;
+        }
+    }
+
+    private void OnDeleteCommunicationKeyChecked(object sender, RoutedEventArgs e)
+    {
+        CommunicationKeyPasswordBox.Password = string.Empty;
     }
 
     private void OnCancelClick(object sender, RoutedEventArgs e)

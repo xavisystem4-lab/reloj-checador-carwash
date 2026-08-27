@@ -1,9 +1,16 @@
 <Window x:Class="RelojChecador.WPF.Views.EditDeviceDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Editar dispositivo" Height="560" Width="440"
-        WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
+        Title="Editar dispositivo" Height="640" Width="440"
+        MinHeight="420" MinWidth="380"
+        WindowStartupLocation="CenterOwner" ResizeMode="CanResizeWithGrip"
         ShowInTaskbar="False">
+    <!-- ScrollViewer alrededor de todo el contenido: con texto grande de Windows (DPI/
+         accesibilidad) o al agregar más campos con el tiempo, un diálogo de alto fijo sin
+         esto recorta silenciosamente lo de más abajo (el botón "Guardar" incluido) en vez de
+         mostrar una barra de scroll — bug real reportado por el usuario en un diálogo
+         hermano (AddBranchDialog). -->
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
     <Grid Margin="20">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -14,8 +21,6 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
@@ -73,16 +78,31 @@
 
         <StackPanel Grid.Row="6" Margin="0,0,0,10">
             <TextBlock Text="Clave de comunicación (opcional)" FontWeight="SemiBold" Margin="0,0,0,2" />
+            <!-- Indicador de si ya hay una clave guardada — antes la pantalla no decía nada
+                 al respecto, así que no había forma de saber si el dispositivo tenía una sin
+                 abrir Windows Credential Manager a mano. x:Name en vez de binding: este
+                 diálogo no usa MVVM, se llena en el code-behind (ver constructor). -->
+            <TextBlock x:Name="CommunicationKeyStatusTextBlock" FontSize="11.5" FontStyle="Italic" Margin="0,0,0,4" />
             <TextBlock Text="Déjala en blanco para no cambiar la que ya está guardada. Se guarda cifrada en Windows, nunca en la base de datos." FontSize="11" Opacity="0.7" TextWrapping="Wrap" Margin="0,0,0,4" />
             <PasswordBox x:Name="CommunicationKeyPasswordBox" Padding="4" />
+            <!-- Pedido explícito del usuario: antes solo se podía REEMPLAZAR la clave
+                 (escribiendo una nueva) — dejar el campo en blanco nunca la borraba, así que
+                 no había ninguna forma de quitarla del todo. Checkbox aparte, no un botón,
+                 para que "Cancelar" siga deshaciendo la intención de borrar igual que
+                 cualquier otro campo del formulario. Se deshabilita solo si no hay ninguna
+                 clave que borrar (ver constructor) y se excluye mutuamente con escribir una
+                 nueva (ver OnCommunicationKeyPasswordChanged en el code-behind). -->
+            <CheckBox x:Name="DeleteCommunicationKeyCheckBox" Content="Eliminar la clave guardada (dejar el dispositivo sin clave de comunicación)"
+                      Margin="0,8,0,0" FontSize="12.5" Checked="OnDeleteCommunicationKeyChecked" />
         </StackPanel>
 
-        <TextBlock Grid.Row="8" x:Name="ErrorTextBlock" Foreground="{DynamicResource BrushDanger}" TextWrapping="Wrap"
+        <TextBlock Grid.Row="7" x:Name="ErrorTextBlock" Foreground="{DynamicResource BrushDanger}" TextWrapping="Wrap"
                     Visibility="Collapsed" Margin="0,0,0,10" />
 
-        <StackPanel Grid.Row="10" Orientation="Horizontal" HorizontalAlignment="Right">
+        <StackPanel Grid.Row="8" Orientation="Horizontal" HorizontalAlignment="Right">
             <Button Content="Cancelar" Width="90" Margin="0,0,8,0" Click="OnCancelClick" IsCancel="True" />
             <Button Content="Guardar" Width="90" Style="{StaticResource PrimaryButton}" Click="OnSaveClick" IsDefault="True" />
         </StackPanel>
     </Grid>
+    </ScrollViewer>
 </Window>

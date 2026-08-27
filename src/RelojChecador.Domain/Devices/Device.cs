@@ -128,6 +128,18 @@ public sealed class Device : AuditableEntity
         Touch();
     }
 
+    /// <summary>Quita la referencia a la clave de comunicación guardada — se usa cuando el
+    /// usuario pide explícitamente eliminarla desde "Editar dispositivo" (a diferencia de
+    /// dejar el campo en blanco al editar, que significa "no cambiar la que ya está
+    /// guardada", ver EditDeviceDialog). El secreto en sí vive fuera de esta entidad (Windows
+    /// Credential Manager, ver IDeviceCredentialStore) — quien llama es responsable de
+    /// borrarlo ahí también antes de llamar a este método, o quedaría huérfano.</summary>
+    public void ClearCredentialReference()
+    {
+        CredentialReference = null;
+        Touch();
+    }
+
     /// <summary>Registra una comunicación exitosa (no solo un ping — comunicación completa).</summary>
     public void RecordSuccessfulCommunication(DateTime atUtc)
     {

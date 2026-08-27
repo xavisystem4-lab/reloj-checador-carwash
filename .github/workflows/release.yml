@@ -1,0 +1,79 @@
+name: Release
+
+# Publica un GitHub Release real cuando se empuja un tag "vX.Y.Z" — a diferencia de
+# build.yml (que compila/prueba en cada push a main pero solo sube el instalador como
+# artifact del propio run, con retención limitada y sin URL pública estable), este
+# workflow es el que RelojChecador.Infrastructure.Updates.GitHubUpdateChecker necesita:
+# consulta GET /repos/{owner}/{repo}/releases/latest y busca un asset "RelojChecador-Setup*.exe"
+# ahí — sin un Release real publicado, el autoactualizador de la app nunca ve nada nuevo
+# aunque main ya tenga el cambio. Antes esto se hacía a mano (o no se hacía); con esto,
+# "sube una versión nueva" es: bump Directory.Build.props + installer/RelojChecador.iss,
+# commit, `git tag vX.Y.Z && git push --tags` — el resto es automático.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write  # necesario para crear el Release y subir el asset
+
+jobs:
+  build-and-release:
+    name: Compilar, empaquetar y publicar el Release (Windows)
+    runs-on: windows-latest
+    steps:
+      - name: Descargar código
+        uses: actions/checkout@v4
+
+      - name: Instalar .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restaurar dependencias
+        run: dotnet restore
+
+      - name: Compilar (Release)
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Ejecutar pruebas
+        run: dotnet test --configuration Release --no-build --logger "trx;LogFileName=test-results.trx"
+
+      - name: Publicar RelojChecador.WPF (self-contained win-x86)
+        # win-x86, no win-x64: zkemkeeper.dll (SDK real de ZKTeco, ver
+        # third-party/zkteco-sdk/README.md) es un COM server de 32 bits — un proceso de
+        # 64 bits no puede activarlo por interop.
+        run: >
+          dotnet publish src/RelojChecador.WPF/RelojChecador.WPF.csproj
+          -c Release -r win-x86 --self-contained true
+          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+          -o installer/publish
+
+      - name: Instalar Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Compilar el instalador (Setup.exe) con Inno Setup
+        shell: pwsh
+        run: |
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          & $iscc installer\RelojChecador.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC.exe falló con código $LASTEXITCODE" }
+
+      - name: Verificar que el tag coincide con installer/RelojChecador.iss
+        # Evita el error más tonto posible: taguear v1.21.0 pero olvidar actualizar
+        # MyAppVersion en el .iss, publicando sin querer un Release "v1.21.0" con un
+        # instalador que sigue diciendo 1.20.2 por dentro.
+        shell: pwsh
+        run: |
+          $tagVersion = "${{ github.ref_name }}".TrimStart("v", "V")
+          $expectedAsset = "installer/output/RelojChecador-Setup-$tagVersion.exe"
+          if (-not (Test-Path $expectedAsset)) {
+            throw "El tag es ${{ github.ref_name }} pero no se generó '$expectedAsset' — revisa MyAppVersion en installer/RelojChecador.iss."
+          }
+
+      - name: Publicar el Release en GitHub
+        uses: softprops/action-gh-release@v2
+        with:
+          files: installer/output/RelojChecador-Setup-*.exe
+          generate_release_notes: true

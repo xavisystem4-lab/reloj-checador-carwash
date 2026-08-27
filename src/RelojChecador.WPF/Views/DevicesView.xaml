@@ -38,16 +38,34 @@
             <DockPanel Grid.Column="0">
                 <Button DockPanel.Dock="Top" Content="+ Nuevo dispositivo" Style="{StaticResource PrimaryButton}" Margin="0,0,0,10"
                         HorizontalAlignment="Stretch" Click="OnAddDeviceClick" />
+                <!-- "Eliminar" es baja lógica (ver DevicesViewModel.DeleteDeviceAsync): el
+                     dispositivo se oculta de la lista por defecto, no se borra — este
+                     checkbox lo vuelve a mostrar sin recargar la base de datos, mismo
+                     criterio que "Mostrar dados de baja" en Empleados. -->
+                <CheckBox DockPanel.Dock="Top" Content="Mostrar deshabilitados" Margin="0,0,0,10" FontSize="12.5"
+                          IsChecked="{Binding ShowDisabledDevices, Mode=TwoWay}" />
                 <ListBox ItemsSource="{Binding Devices}" SelectedItem="{Binding SelectedDevice, Mode=TwoWay}">
                     <ListBox.ItemTemplate>
                         <DataTemplate>
                             <StackPanel Margin="4">
-                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
-                                <TextBlock FontSize="12" Foreground="{DynamicResource BrushTextSecondary}">
+                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                <TextBlock FontSize="12" Foreground="{DynamicResource BrushTextSecondary}" TextTrimming="CharacterEllipsis">
                                     <Run Text="{Binding IpAddress, Mode=OneWay}" />
                                     <Run Text=":" />
                                     <Run Text="{Binding TcpPort, Mode=OneWay}" />
                                 </TextBlock>
+                                <!-- Pedido explícito del usuario: editar/eliminar accesibles
+                                     directo desde la lista, sin tener que seleccionar el
+                                     dispositivo y bajar hasta el panel de diagnóstico de la
+                                     derecha. El DataContext de estos botones es el Device de
+                                     la fila (heredado dentro de la plantilla), igual patrón
+                                     que los botones por fila de EmployeesView. -->
+                                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                    <Button Content="✏️ Editar" Padding="6,3" FontSize="11.5" Margin="0,0,6,0"
+                                            Click="OnEditDeviceListItemClick" />
+                                    <Button Content="🗑️ Eliminar" Padding="6,3" FontSize="11.5"
+                                            Click="OnDeleteDeviceListItemClick" />
+                                </StackPanel>
                             </StackPanel>
                         </DataTemplate>
                     </ListBox.ItemTemplate>

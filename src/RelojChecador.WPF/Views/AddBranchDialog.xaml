@@ -1,9 +1,15 @@
 <Window x:Class="RelojChecador.WPF.Views.AddBranchDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Nueva sucursal" Height="420" Width="420"
-        WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
+        Title="Nueva sucursal" Height="460" Width="420"
+        MinHeight="380" MinWidth="380"
+        WindowStartupLocation="CenterOwner" ResizeMode="CanResizeWithGrip"
         ShowInTaskbar="False">
+    <!-- ScrollViewer alrededor de todo el contenido: con texto grande de Windows (DPI/
+         accesibilidad), un diálogo de alto fijo sin esto recorta silenciosamente lo de más
+         abajo (el botón "Guardar" incluido) en vez de mostrar una barra de scroll — bug
+         real reportado por el usuario. -->
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
     <Grid Margin="20">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -12,7 +18,7 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
@@ -49,4 +55,5 @@
             <Button Content="Guardar" Width="90" Style="{StaticResource PrimaryButton}" Click="OnSaveClick" IsDefault="True" />
         </StackPanel>
     </Grid>
+    </ScrollViewer>
 </Window>
