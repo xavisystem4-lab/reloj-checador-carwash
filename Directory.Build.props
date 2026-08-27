@@ -19,7 +19,7 @@
          RelojChecador.Infrastructure.Updates). installer/RelojChecador.iss tiene su
          propio "MyAppVersion" (Inno Setup no puede leer un .props de MSBuild) — hay que
          mantenerlos sincronizados a mano en cada release; ver installer/README.md. -->
-    <Version>1.25.0</Version>
+    <Version>1.25.1</Version>
   </PropertyGroup>
 
 </Project>

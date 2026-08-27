@@ -122,9 +122,10 @@ public partial class EmployeesView : UserControl
         var confirmed = MessageBox.Show(
             Window.GetWindow(this),
             $"¿Enviar los empleados activos de la sucursal de \"{targetDevice.Name}\" a ese reloj?\n\n" +
-            "Esto se conecta al dispositivo, sube Nombre + PIN (asignado en automático) de quien todavía " +
-            "no esté vinculado, y se desconecta al terminar. Solo prepara el PIN — la huella se enrola " +
-            "físicamente en el dispositivo.",
+            "Esto se conecta al dispositivo y sube Nombre + PIN (asignado en automático) de quien todavía " +
+            "no esté vinculado — la conexión se queda activa después (igual que si hubieras presionado " +
+            "\"Conectar\" en Dispositivos), no se desconecta sola. Solo prepara el PIN — la huella se " +
+            "enrola físicamente en el dispositivo.",
             "Enviar empleados al reloj", MessageBoxButton.YesNo, MessageBoxImage.Question);
         if (confirmed != MessageBoxResult.Yes)
         {
@@ -148,8 +149,13 @@ public partial class EmployeesView : UserControl
                 return;
             }
 
+            // A propósito NO se desconecta al terminar — reportado por el usuario:
+            // desconectar aquí también suspendía el auto-reconnect (mismo comportamiento
+            // que "Desconectar" en Dispositivos, ver DevicesViewModel.DisconnectAsync),
+            // así que "Usuarios del reloj" (u otra acción en Dispositivos) inmediatamente
+            // después pedía conectar de nuevo. Se deja la conexión activa, igual que si el
+            // usuario hubiera presionado "Conectar" él mismo.
             var outcome = await devicesViewModel.SendEmployeesToDeviceAsync();
-            await devicesViewModel.DisconnectCommand.ExecuteAsync(null);
 
             if (!outcome.Success)
             {
