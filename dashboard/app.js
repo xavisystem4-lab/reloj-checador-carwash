@@ -5,9 +5,14 @@
 // UPDATE/DELETE desde el navegador — ver src/RelojChecador.Infrastructure.Cloud/README.md
 // del repo principal para el detalle completo de la arquitectura de sincronización).
 //
-// A propósito NO hay flujo de "crear cuenta" en este archivo: las cuentas del Dashboard
-// se crean directo en el panel de Supabase (Authentication → Users → Add user) — así
-// nunca hay una vía de auto-registro abierta para leer datos de asistencia del negocio.
+// SÍ hay auto-registro público (signup-form) — cada cuenta nueva nace con una fila espejo
+// en public.profiles (role='user' por defecto, status='approved' siempre, ver migración
+// auto_approve_new_users) y entra directo, sin aprobación manual: ver
+// dashboard/README.md, sección "Roles de cuentas (ya NO hay aprobación manual)", para la
+// historia completa (incluye dos bugs reales de producción que se corrigieron en el
+// camino) y applySessionState()/pending-screen más abajo para el único caso que sí sigue
+// bloqueando el acceso (status='rejected', o un error técnico real al consultar el
+// perfil).
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const SUPABASE_URL = 'https://vkvlucpjgvqrlvevcimq.supabase.co';
@@ -38,15 +43,52 @@ const loginButton = document.getElementById('login-button');
 const userNameButton = document.getElementById('user-name-button');
 const logoutButton = document.getElementById('logout-button');
 
+// Registro público (ver applySessionState/onSignupSubmit) — login-form y signup-form
+// viven dentro del mismo login-screen, se alternan mostrando/ocultando cada <form>, nunca
+// cambiando de pantalla.
+const showSignupButton = document.getElementById('show-signup-button');
+const showLoginButton = document.getElementById('show-login-button');
+const signupForm = document.getElementById('signup-form');
+const signupNameInput = document.getElementById('signup-name-input');
+const signupEmailInput = document.getElementById('signup-email-input');
+const signupPasswordInput = document.getElementById('signup-password-input');
+const signupPasswordConfirmInput = document.getElementById('signup-password-confirm-input');
+const signupError = document.getElementById('signup-error');
+const signupSuccess = document.getElementById('signup-success');
+const signupButton = document.getElementById('signup-button');
+
+// Pantalla de cuenta rechazada / error técnico al consultar el perfil — ver
+// applySessionState. NO se usa para "pending": ver comentario de esa función.
+const pendingScreen = document.getElementById('pending-screen');
+const pendingTitle = document.getElementById('pending-title');
+const pendingMessage = document.getElementById('pending-message');
+const pendingRetryButton = document.getElementById('pending-retry-button');
+const pendingLogoutButton = document.getElementById('pending-logout-button');
+
+const themeToggle = document.getElementById('theme-toggle');
+
 const usersButton = document.getElementById('users-button');
 const usersModal = document.getElementById('users-modal');
 const usersModalClose = document.getElementById('users-modal-close');
 const inviteForm = document.getElementById('invite-form');
 const inviteNameInput = document.getElementById('invite-name-input');
 const inviteEmailInput = document.getElementById('invite-email-input');
+const inviteRoleSelect = document.getElementById('invite-role-select');
 const inviteButton = document.getElementById('invite-button');
 const inviteError = document.getElementById('invite-error');
 const inviteSuccess = document.getElementById('invite-success');
+
+// "Dar de alta con contraseña" — alternativa a "Invitar por correo" que no manda ningún
+// correo, la cuenta queda lista para entrar de inmediato (ver onCreatePasswordSubmit).
+const createPasswordForm = document.getElementById('create-password-form');
+const createPasswordNameInput = document.getElementById('create-password-name-input');
+const createPasswordEmailInput = document.getElementById('create-password-email-input');
+const createPasswordPasswordInput = document.getElementById('create-password-password-input');
+const createPasswordRoleSelect = document.getElementById('create-password-role-select');
+const createPasswordButton = document.getElementById('create-password-button');
+const createPasswordError = document.getElementById('create-password-error');
+const createPasswordSuccess = document.getElementById('create-password-success');
+
 const usersListStatus = document.getElementById('users-list-status');
 const usersTbody = document.getElementById('users-tbody');
 
@@ -77,11 +119,18 @@ let lastLoadedRows = []; // guarda la última carga ya enriquecida, para exporta
 init();
 
 async function init() {
+  applyThemeIcons(currentTheme()); // sincroniza el ícono con lo que ya fijó el <script> del <head>
+
   const { data: { session } } = await supabase.auth.getSession();
-  applySessionState(session);
+  await applySessionState(session);
 
   supabase.auth.onAuthStateChange((_event, session) => {
-    applySessionState(session);
+    // Bug real de producción (ver dashboard/README.md, "Bug real que motivó todo esto"):
+    // onAuthStateChange dispara este callback DENTRO de una sección crítica interna del
+    // cliente de Auth (GoTrueClient) — hacer aquí mismo una consulta que necesita el
+    // token de sesión (como el select a profiles dentro de applySessionState) puede
+    // quedarse colgada/fallar. setTimeout(..., 0) la saca de esa sección crítica.
+    setTimeout(() => applySessionState(session), 0);
   });
 
   const today = new Date();
@@ -101,6 +150,15 @@ async function init() {
   toInput.addEventListener('change', () => loadReport());
   searchInput.addEventListener('input', debounce(() => renderTable(lastLoadedRows), 200));
 
+  showSignupButton.addEventListener('click', showSignupFormView);
+  showLoginButton.addEventListener('click', showLoginFormView);
+  signupForm.addEventListener('submit', onSignupSubmit);
+
+  pendingRetryButton.addEventListener('click', () => applySessionState(currentSession));
+  pendingLogoutButton.addEventListener('click', onLogoutClick);
+
+  themeToggle.addEventListener('click', toggleTheme);
+
   userNameButton.addEventListener('click', onEditOwnNameClick);
   usersButton.addEventListener('click', openUsersModal);
   usersModalClose.addEventListener('click', closeUsersModal);
@@ -108,30 +166,176 @@ async function init() {
     if (event.target === usersModal) closeUsersModal(); // clic fuera de la tarjeta
   });
   inviteForm.addEventListener('submit', onInviteSubmit);
+  createPasswordForm.addEventListener('submit', onCreatePasswordSubmit);
 }
 
 let currentSession = null;
+let currentProfile = null; // { role, status } de la PROPIA cuenta — null sin sesión
 
-function applySessionState(session) {
+/// Ver dashboard/README.md, sección "Roles de cuentas (ya NO hay aprobación manual)", para
+/// la historia completa. Resumen de lo que esta función decide hoy:
+/// - Sin sesión → pantalla de login (con el enlace a signup-form).
+/// - status='rejected' (un Admin quitó el acceso explícitamente) → pending-screen,
+///   bloqueado, sin botón "Reintentar" (no es un error, es un estado real).
+/// - Error TÉCNICO real al consultar el perfil (red, etc.) → pending-screen con
+///   "Reintentar" visible — se distingue a propósito del caso anterior para no repetir el
+///   bug real de producción documentado en el README (un deadlock de supabase-js se
+///   disfrazaba de "cuenta pendiente").
+/// - Cualquier otro caso (status='approved', o 'pending' — que hoy ya no debería ocurrir
+///   para cuentas nuevas, ver migración auto_approve_new_users) → entra normal. NO se
+///   bloquea por 'pending': fue una decisión explícita del usuario, no un olvido.
+async function applySessionState(session) {
   currentSession = session;
-  if (session) {
-    loginScreen.hidden = true;
-    dashboardScreen.hidden = false;
-    // "👤 " adentro del texto a propósito: era el botón que se confundía con
-    // "⚙️ Administrar usuarios" de al lado — con el ícono explícito en el nombre queda
-    // claro que este es "tú", no la administración de otras cuentas.
-    userNameButton.textContent = '👤 ' + displayNameFor(session.user);
-    startAutoRefresh();
-    loadBranches().then(() => loadReport());
-    loadDevicesStatus();
-    resumeActiveSyncRequestIfAny();
-  } else {
+
+  if (!session) {
+    currentProfile = null;
     stopPollingSyncRequest();
-    loginScreen.hidden = false;
+    pendingScreen.hidden = true;
     dashboardScreen.hidden = true;
+    loginScreen.hidden = false;
+    showLoginFormView();
     stopAutoRefresh();
     closeUsersModal();
+    return;
   }
+
+  pendingRetryButton.hidden = true;
+
+  let profile;
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('role, status')
+      .eq('id', session.user.id)
+      .single();
+    if (error) throw error;
+    profile = data;
+  } catch (err) {
+    console.error('No se pudo consultar el perfil de la cuenta:', err);
+    loginScreen.hidden = true;
+    dashboardScreen.hidden = true;
+    pendingScreen.hidden = false;
+    pendingTitle.textContent = 'No se pudo verificar tu cuenta';
+    pendingMessage.textContent = 'Hubo un problema técnico al consultar tu perfil — no significa que tu acceso haya sido rechazado. Intenta de nuevo.';
+    pendingRetryButton.hidden = false;
+    return;
+  }
+
+  currentProfile = profile;
+
+  if (profile.status === 'rejected') {
+    loginScreen.hidden = true;
+    dashboardScreen.hidden = true;
+    pendingScreen.hidden = false;
+    pendingTitle.textContent = 'Acceso rechazado';
+    pendingMessage.textContent = 'Un administrador quitó el acceso de esta cuenta al Dashboard.';
+    pendingRetryButton.hidden = true;
+    return;
+  }
+
+  pendingScreen.hidden = true;
+  loginScreen.hidden = true;
+  dashboardScreen.hidden = false;
+  // "👤 " adentro del texto a propósito: era el botón que se confundía con
+  // "⚙️ Administrar usuarios" de al lado — con el ícono explícito en el nombre queda
+  // claro que este es "tú", no la administración de otras cuentas.
+  userNameButton.textContent = '👤 ' + displayNameFor(session.user);
+  // Solo una cuenta admin+approved ve el panel — la Edge Function rechaza del lado del
+  // servidor cualquier acción si no se cumple esto, ocultar el botón es solo UX.
+  usersButton.hidden = !(profile.role === 'admin' && profile.status === 'approved');
+  startAutoRefresh();
+  loadBranches().then(() => loadReport());
+  loadDevicesStatus();
+  resumeActiveSyncRequestIfAny();
+}
+
+// ---- Alternar login-form / signup-form dentro de login-screen ----
+function showSignupFormView() {
+  loginForm.hidden = true;
+  loginError.hidden = true;
+  signupForm.hidden = false;
+}
+
+function showLoginFormView() {
+  signupForm.hidden = true;
+  signupError.hidden = true;
+  signupSuccess.hidden = true;
+  loginForm.hidden = false;
+}
+
+// ---- Registro público ----
+async function onSignupSubmit(event) {
+  event.preventDefault();
+  signupError.hidden = true;
+  signupSuccess.hidden = true;
+
+  const password = signupPasswordInput.value;
+  if (password !== signupPasswordConfirmInput.value) {
+    signupError.textContent = 'Las contraseñas no coinciden.';
+    signupError.hidden = false;
+    return;
+  }
+  if (password.length < 6) {
+    signupError.textContent = 'La contraseña debe tener al menos 6 caracteres.';
+    signupError.hidden = false;
+    return;
+  }
+
+  signupButton.disabled = true;
+  signupButton.textContent = 'Creando cuenta…';
+
+  const fullName = signupNameInput.value.trim();
+  const { error } = await supabase.auth.signUp({
+    email: signupEmailInput.value.trim(),
+    password,
+    options: { data: { full_name: fullName || null } },
+  });
+
+  signupButton.disabled = false;
+  signupButton.textContent = 'Crear cuenta';
+
+  if (error) {
+    signupError.textContent = mapAuthError(error);
+    signupError.hidden = false;
+    return;
+  }
+
+  // Si "Confirmar correo" está desactivado en Supabase (lo normal para este proyecto),
+  // signUp ya deja la sesión iniciada de inmediato — onAuthStateChange se encarga solo de
+  // aplicar el estado nuevo (el trigger on_auth_user_created ya creó su fila en profiles,
+  // status='approved'). No hace falta nada más aquí más que limpiar el formulario.
+  signupForm.reset();
+}
+
+// ---- Pestillo de tema día/noche ----
+const THEME_STORAGE_KEY = 'theme-preference';
+
+function currentTheme() {
+  return document.documentElement.getAttribute('data-theme'); // 'light' | 'dark' | null (sigue al sistema)
+}
+
+function isDarkModeActive(theme) {
+  return theme === 'dark' || (theme === null && window.matchMedia('(prefers-color-scheme: dark)').matches);
+}
+
+function applyThemeIcons(theme) {
+  const dark = isDarkModeActive(theme);
+  // Sol visible invita a volver a modo día (o sea, se muestra EN modo oscuro); luna
+  // visible invita a pasar a modo noche — ver los <svg> en index.html.
+  themeToggle.querySelector('.icon-sun').style.display = dark ? '' : 'none';
+  themeToggle.querySelector('.icon-moon').style.display = dark ? 'none' : '';
+}
+
+function toggleTheme() {
+  const next = isDarkModeActive(currentTheme()) ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  try {
+    localStorage.setItem(THEME_STORAGE_KEY, next);
+  } catch (e) {
+    // Almacenamiento no disponible (navegación privada, etc.) — el tema igual se aplica
+    // para esta sesión de navegación, solo no se recuerda la próxima vez.
+  }
+  applyThemeIcons(next);
 }
 
 /// El nombre visible viene de user_metadata.full_name (lo edita la propia persona con el
@@ -199,6 +403,8 @@ function setPasswordVisible(visible) {
   passwordToggle.querySelector('.icon-eye-off').style.display = visible ? '' : 'none';
 }
 
+/// Compartida entre login (onLoginSubmit) y registro (onSignupSubmit) — ambos son
+/// llamadas de auth.
 function mapAuthError(error) {
   const message = error?.message ?? '';
   if (message.includes('Invalid login credentials')) {
@@ -207,7 +413,18 @@ function mapAuthError(error) {
   if (message.includes('Email not confirmed')) {
     return 'Esta cuenta todavía no confirma su correo.';
   }
-  return 'No se pudo iniciar sesión: ' + message;
+  if (message.includes('already registered') || message.includes('already exists')) {
+    return 'Ya existe una cuenta con ese correo — intenta iniciar sesión.';
+  }
+  if (message.toLowerCase().includes('signups not allowed') || message.toLowerCase().includes('signup is disabled')) {
+    // "Allow new users to sign up" apagado en Authentication → Providers → Email del
+    // panel de Supabase — ver dashboard/README.md.
+    return 'El registro público está desactivado por ahora. Pide a un administrador que te dé de alta.';
+  }
+  if (message.includes('Password should be at least')) {
+    return 'La contraseña debe tener al menos 6 caracteres.';
+  }
+  return 'No se pudo completar la operación: ' + message;
 }
 
 async function onLogoutClick() {
@@ -264,6 +481,9 @@ function openUsersModal() {
   inviteError.hidden = true;
   inviteSuccess.hidden = true;
   inviteForm.reset();
+  createPasswordError.hidden = true;
+  createPasswordSuccess.hidden = true;
+  createPasswordForm.reset();
   loadUsersList();
 }
 
@@ -297,12 +517,23 @@ function renderUsersTable(users) {
       : '<span class="user-name-cell-empty">nunca entró</span>';
     const isSelf = user.id === currentSession?.user?.id;
 
+    // El selector de rol (y el botón de eliminar) NO aparece sobre la propia fila — para
+    // no poder degradarte o auto-eliminarte por accidente, ver dashboard/README.md.
+    const roleCell = isSelf
+      ? escapeHtml(user.role === 'admin' ? 'Admin' : 'Usuario')
+      : `<select class="user-role-select" data-id="${user.id}">
+          <option value="user" ${user.role === 'admin' ? '' : 'selected'}>Usuario</option>
+          <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>Admin</option>
+        </select>`;
+
     tr.innerHTML = `
       <td>${nameCell}</td>
       <td>${escapeHtml(user.email ?? '')}</td>
+      <td>${roleCell}</td>
       <td>${lastSignIn}</td>
       <td style="text-align:right; white-space:nowrap;">
         <button class="btn-icon" data-action="edit" data-id="${user.id}" data-name="${escapeHtml(user.full_name ?? '')}" title="Editar nombre">✏️</button>
+        <button class="btn-icon" data-action="password" data-id="${user.id}" data-email="${escapeHtml(user.email ?? '')}" title="Cambiar contraseña">🔑</button>
         ${isSelf ? '' : `<button class="btn-icon danger" data-action="delete" data-id="${user.id}" data-email="${escapeHtml(user.email ?? '')}" title="Eliminar acceso">🗑️</button>`}
       </td>
     `;
@@ -312,8 +543,50 @@ function renderUsersTable(users) {
   usersTbody.appendChild(fragment);
   usersTbody.querySelectorAll('button[data-action="edit"]').forEach(btn =>
     btn.addEventListener('click', () => onEditOtherUserName(btn.dataset.id, btn.dataset.name)));
+  usersTbody.querySelectorAll('button[data-action="password"]').forEach(btn =>
+    btn.addEventListener('click', () => onResetUserPassword(btn.dataset.id, btn.dataset.email)));
   usersTbody.querySelectorAll('button[data-action="delete"]').forEach(btn =>
     btn.addEventListener('click', () => onDeleteUser(btn.dataset.id, btn.dataset.email)));
+  usersTbody.querySelectorAll('select.user-role-select').forEach(select =>
+    select.addEventListener('change', () => onChangeUserRole(select.dataset.id, select.value, select)));
+}
+
+/// Reset de contraseña para una cuenta YA existente — el Admin decide la nueva contraseña
+/// directamente aquí, sin pasar por un correo de recuperación (distinto de "Dar de alta
+/// con contraseña", que crea la cuenta).
+async function onResetUserPassword(userId, email) {
+  const password = window.prompt(`Nueva contraseña para "${email}" (mínimo 6 caracteres):`);
+  if (password === null) return; // canceló
+  if (password.length < 6) {
+    window.alert('La contraseña debe tener al menos 6 caracteres.');
+    return;
+  }
+
+  try {
+    await callManageUsers('update_password', { user_id: userId, password });
+    window.alert('Contraseña actualizada.');
+  } catch (err) {
+    window.alert('No se pudo cambiar la contraseña: ' + err.message);
+  }
+}
+
+async function onChangeUserRole(userId, newRole, selectEl) {
+  const confirmed = window.confirm(
+    `¿Cambiar el rol de esta cuenta a "${newRole === 'admin' ? 'Admin' : 'Usuario'}"?`);
+  if (!confirmed) {
+    loadUsersList(); // revierte el <select> a su valor real recargando desde el servidor
+    return;
+  }
+
+  selectEl.disabled = true;
+  try {
+    await callManageUsers('update_role', { user_id: userId, role: newRole });
+  } catch (err) {
+    window.alert('No se pudo cambiar el rol: ' + err.message);
+    loadUsersList();
+  } finally {
+    selectEl.disabled = false;
+  }
 }
 
 async function onEditOtherUserName(userId, currentName) {
@@ -353,6 +626,7 @@ async function onInviteSubmit(event) {
     const result = await callManageUsers('invite', {
       email: inviteEmailInput.value.trim(),
       full_name: inviteNameInput.value.trim(),
+      role: inviteRoleSelect.value,
     });
     inviteSuccess.textContent =
       `Se invitó a ${result.user.email} — le llegó un correo para que defina su propia contraseña.`;
@@ -365,6 +639,37 @@ async function onInviteSubmit(event) {
   } finally {
     inviteButton.disabled = false;
     inviteButton.textContent = '+ Invitar';
+  }
+}
+
+/// Alternativa a "Invitar por correo": el Admin decide la contraseña directamente y la
+/// cuenta queda lista para entrar de inmediato, sin pasar por ningún correo de invitación
+/// (email_confirm:true del lado del servidor, ver manage-users/index.ts).
+async function onCreatePasswordSubmit(event) {
+  event.preventDefault();
+  createPasswordError.hidden = true;
+  createPasswordSuccess.hidden = true;
+  createPasswordButton.disabled = true;
+  createPasswordButton.textContent = 'Creando…';
+
+  try {
+    const result = await callManageUsers('create_with_password', {
+      email: createPasswordEmailInput.value.trim(),
+      full_name: createPasswordNameInput.value.trim(),
+      password: createPasswordPasswordInput.value,
+      role: createPasswordRoleSelect.value,
+    });
+    createPasswordSuccess.textContent =
+      `Se creó la cuenta de ${result.user.email} — ya puede iniciar sesión con esa contraseña.`;
+    createPasswordSuccess.hidden = false;
+    createPasswordForm.reset();
+    loadUsersList();
+  } catch (err) {
+    createPasswordError.textContent = 'No se pudo crear la cuenta: ' + err.message;
+    createPasswordError.hidden = false;
+  } finally {
+    createPasswordButton.disabled = false;
+    createPasswordButton.textContent = '+ Crear';
   }
 }
 
@@ -628,8 +933,6 @@ async function loadReport() {
     : `${attendances.length.toLocaleString('es-MX')} marcación(es) encontrada(s).`;
 }
 
-/// Resuelve nombres de sucursal, dispositivo y empleado para cada marcación. La
-/// resolución de empleado tiene dos vías, en este orden: (1) Attendance.employee_id ya
 /// vinculado directamente — desde v1.31.0 la app de escritorio SÍ lo resuelve al guardar
 /// cada marcación (ver DevicesViewModel.ResolveEmployeeAndBranchAsync en el repo
 /// principal), así que hoy es la vía normal; (2) EmployeeDeviceMapping (device_id + pin)

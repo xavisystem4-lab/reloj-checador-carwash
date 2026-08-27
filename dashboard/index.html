@@ -9,13 +9,43 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
+<script>
+  // Aplica el tema guardado ANTES de que el navegador pinte nada -- si esto esperara a
+  // app.js (que carga como <script type="module">, diferido), habría un parpadeo visible
+  // del tema por defecto (claro) cambiando al oscuro guardado justo después de cargar.
+  // Sin preferencia guardada, no se toca nada y manda el prefers-color-scheme del sistema
+  // (ver styles.css) -- "sistema" es un tercer estado válido, no solo claro/oscuro.
+  try {
+    var savedTheme = localStorage.getItem('theme-preference');
+    if (savedTheme === 'light' || savedTheme === 'dark') {
+      document.documentElement.setAttribute('data-theme', savedTheme);
+    }
+  } catch (e) {}
+</script>
 </head>
 <body>
+  <!-- Pestillo de tema día/noche -- visible en cualquier pantalla (login, pendiente,
+       dashboard) al ser position:fixed fuera de esos contenedores. Ver toggleTheme() en
+       app.js y el bloque de temas en styles.css. -->
+  <button id="theme-toggle" class="theme-toggle" type="button" title="Cambiar tema" aria-label="Cambiar entre modo día y noche">
+    <!-- sol: se muestra en modo oscuro (invita a volver a modo día) -->
+    <svg class="icon-sun" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+      <path fill="currentColor" d="M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10zm0-5a1 1 0 0 1 1 1v2a1 1 0 1 1-2 0V3a1 1 0 0 1 1-1zm0 18a1 1 0 0 1 1 1v2a1 1 0 1 1-2 0v-2a1 1 0 0 1 1-1zM3 11a1 1 0 1 0 0 2h2a1 1 0 1 0 0-2H3zm16 0a1 1 0 1 0 0 2h2a1 1 0 1 0 0-2h-2zM4.22 4.22a1 1 0 0 1 1.41 0l1.42 1.42a1 1 0 1 1-1.42 1.41L4.22 5.64a1 1 0 0 1 0-1.42zm12.73 12.73a1 1 0 0 1 1.41 0l1.42 1.42a1 1 0 1 1-1.41 1.41l-1.42-1.42a1 1 0 0 1 0-1.41zM19.78 4.22a1 1 0 0 1 0 1.42l-1.42 1.41a1 1 0 1 1-1.41-1.41l1.42-1.42a1 1 0 0 1 1.41 0zM7.05 16.95a1 1 0 0 1 0 1.41l-1.42 1.42a1 1 0 1 1-1.41-1.41l1.42-1.42a1 1 0 0 1 1.41 0z"/>
+    </svg>
+    <!-- luna: se muestra en modo día (invita a pasar a modo noche) -->
+    <svg class="icon-moon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" style="display:none">
+      <path fill="currentColor" d="M20.7 14.9A8.5 8.5 0 0 1 9.1 3.3a1 1 0 0 0-1.2-1.3A10.5 10.5 0 1 0 22 16.1a1 1 0 0 0-1.3-1.2z"/>
+    </svg>
+  </button>
 
   <!-- ===================== PANTALLA DE INICIO DE SESIÓN ===================== -->
-  <!-- No hay formulario de "crear cuenta" a propósito: las cuentas del Dashboard se
-       crean directamente en el panel de Supabase (Authentication → Users → Add user),
-       nunca desde aquí — ver dashboard/README.md. -->
+  <!-- Ya SÍ hay auto-registro (ver signup-form más abajo): quien se registra entra directo
+       (status='approved' desde el trigger on_auth_user_created, ya NO hay aprobación
+       manual — ver dashboard/README.md, "Roles de cuentas"). pending-screen (más abajo)
+       solo bloquea el acceso si un Admin rechazó la cuenta explícitamente, o si hubo un
+       error técnico real al consultar el perfil — ver applySessionState() en app.js.
+       Requiere "Allow new users to sign up" activo en Authentication → Providers → Email
+       del panel de Supabase. -->
   <main id="login-screen" class="login-screen">
     <!-- Decoración: gotas/burbujas del fondo tipo car wash — puramente visual, sin
          contenido, por eso aria-hidden. -->
@@ -54,7 +84,58 @@
       <div id="login-error" class="login-error" hidden></div>
 
       <button id="login-button" class="login-submit" type="submit">Iniciar sesión</button>
+      <button id="show-signup-button" class="link-button" type="button">¿No tienes cuenta? Crear una</button>
     </form>
+
+    <!-- Registro público: crea la cuenta (auth.signUp) pero queda "pending" — el trigger
+         on_auth_user_created la marca así automáticamente. No puede ver ningún dato hasta
+         que un Admin la apruebe (ver pending-screen y applySessionState en app.js). -->
+    <form id="signup-form" class="login-card" autocomplete="on" hidden>
+      <img class="login-logo" src="assets/logo.png" alt="Drive In Car Wash" />
+      <h1>Crear cuenta</h1>
+      <p class="login-subtitle">Reportes de asistencia</p>
+
+      <label for="signup-name-input">Nombre</label>
+      <input id="signup-name-input" name="name" type="text" required autocomplete="name" placeholder="Tu nombre" />
+
+      <label for="signup-email-input">Correo</label>
+      <input id="signup-email-input" name="email" type="email" required autocomplete="username" placeholder="tu@correo.com" />
+
+      <label for="signup-password-input">Contraseña</label>
+      <input id="signup-password-input" name="password" type="password" required autocomplete="new-password" placeholder="Mínimo 6 caracteres" minlength="6" />
+
+      <label for="signup-password-confirm-input">Confirmar contraseña</label>
+      <input id="signup-password-confirm-input" name="password_confirm" type="password" required autocomplete="new-password" placeholder="••••••••" minlength="6" />
+
+      <div id="signup-error" class="login-error" hidden></div>
+      <div id="signup-success" class="invite-success" hidden></div>
+
+      <button id="signup-button" class="login-submit" type="submit">Crear cuenta</button>
+      <button id="show-login-button" class="link-button" type="button">¿Ya tienes cuenta? Iniciar sesión</button>
+    </form>
+  </main>
+
+  <!-- ===================== PANTALLA: cuenta pendiente / rechazada ===================== -->
+  <main id="pending-screen" class="login-screen" hidden>
+    <div class="login-bg" aria-hidden="true">
+      <span class="drop drop-1"></span>
+      <span class="drop drop-2"></span>
+      <span class="drop drop-3"></span>
+      <span class="drop drop-4"></span>
+      <span class="drop drop-5"></span>
+      <span class="foam"></span>
+    </div>
+    <div class="login-card">
+      <img class="login-logo" src="assets/logo.png" alt="Drive In Car Wash" />
+      <h1 id="pending-title">Cuenta pendiente</h1>
+      <p id="pending-message" class="login-subtitle">
+        Tu cuenta todavía no ha sido aprobada por un administrador.
+      </p>
+      <!-- Solo visible cuando applySessionState() detectó un error TÉCNICO (red, etc.) al
+           consultar el perfil, no un estado pending/rejected genuino — ver app.js. -->
+      <button id="pending-retry-button" class="login-submit" type="button" hidden>Reintentar</button>
+      <button id="pending-logout-button" class="login-submit" type="button">Cerrar sesión</button>
+    </div>
   </main>
 
   <!-- ===================== DASHBOARD (solo tras iniciar sesión) ===================== -->
@@ -172,11 +253,13 @@
   </div>
 
   <!-- ===================== MODAL: gestión de usuarios del Dashboard ===================== -->
-  <!-- Cualquier persona con sesión iniciada puede invitar/editar/eliminar otras cuentas —
-       modelo de confianza deliberadamente simple (ver manage-users Edge Function): un solo
-       negocio pequeño, no un sistema con roles jerárquicos. Invitar SIEMPRE manda un correo
-       de Supabase para que la persona invitada defina su propia contraseña — esta pantalla
-       nunca crea ni ve contraseñas de nadie. -->
+  <!-- Solo un Admin abre este panel (el botón "⚙️ Administrar usuarios" se oculta para
+       cualquier otra cuenta, ver applySessionState en app.js) — la Edge Function
+       manage-users además rechaza del lado del servidor cualquier acción de aquí si quien
+       llama no es admin+approved, así que ocultar el botón es solo UX, no la protección
+       real. "Invitar por correo" manda un correo de Supabase para que la persona defina su
+       propia contraseña; "Dar de alta con contraseña" la asigna aquí mismo, sin invitación
+       — ver dashboard/README.md. -->
   <div id="users-modal" class="modal-overlay" hidden>
     <div class="modal-card">
       <div class="modal-header">
@@ -184,14 +267,36 @@
         <button id="users-modal-close" class="modal-close" type="button" aria-label="Cerrar">✕</button>
       </div>
 
+      <h3 class="modal-section-title">Invitar por correo</h3>
       <form id="invite-form" class="invite-form">
         <input id="invite-name-input" type="text" placeholder="Nombre" required />
         <input id="invite-email-input" type="email" placeholder="correo@ejemplo.com" required />
+        <select id="invite-role-select">
+          <option value="user" selected>Usuario</option>
+          <option value="admin">Admin</option>
+        </select>
         <button id="invite-button" class="btn btn-primary" type="submit">+ Invitar</button>
       </form>
       <div id="invite-error" class="login-error" hidden></div>
       <div id="invite-success" class="invite-success" hidden></div>
 
+      <h3 class="modal-section-title">Dar de alta con contraseña</h3>
+      <!-- A propósito NO manda invitación por correo: la cuenta queda lista para entrar
+           de inmediato con la contraseña que se escriba aquí. -->
+      <form id="create-password-form" class="invite-form">
+        <input id="create-password-name-input" type="text" placeholder="Nombre" required />
+        <input id="create-password-email-input" type="email" placeholder="correo@ejemplo.com" required />
+        <input id="create-password-password-input" type="password" placeholder="Contraseña (mín. 6)" required minlength="6" />
+        <select id="create-password-role-select">
+          <option value="user" selected>Usuario</option>
+          <option value="admin">Admin</option>
+        </select>
+        <button id="create-password-button" class="btn btn-primary" type="submit">+ Crear</button>
+      </form>
+      <div id="create-password-error" class="login-error" hidden></div>
+      <div id="create-password-success" class="invite-success" hidden></div>
+
+      <h3 class="modal-section-title">Con acceso</h3>
       <div id="users-list-status" class="table-status">Cargando…</div>
       <div class="users-table-scroll">
         <table class="users-table">
@@ -199,6 +304,7 @@
             <tr>
               <th>Nombre</th>
               <th>Correo</th>
+              <th>Rol</th>
               <th>Último acceso</th>
               <th></th>
             </tr>

@@ -25,8 +25,15 @@
   --shadow-lg: 0 24px 64px rgba(9, 40, 74, 0.16);
 }
 
+/* Tres estados de tema (ver theme-toggle en index.html/app.js):
+   1. Sin preferencia guardada -> sigue prefers-color-scheme del sistema (bloque de abajo,
+      con :not([data-theme="light"]) para que un "claro" explícito le gane incluso en un
+      sistema oscuro).
+   2. data-theme="light" guardado -> fuerza claro aunque el sistema esté en oscuro.
+   3. data-theme="dark" guardado -> fuerza oscuro aunque el sistema esté en claro (bloque
+      final, gana siempre por ir después en la cascada). */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #0A0F17;
     --card: #131A25;
     --card-border: #22303F;
@@ -50,6 +57,51 @@
     --shadow-lg: 0 28px 70px rgba(0, 0, 0, 0.55);
   }
 }
+
+:root[data-theme="dark"] {
+  --bg: #0A0F17;
+  --card: #131A25;
+  --card-border: #22303F;
+  --text: #F1F4F9;
+  --muted: #9AA6B4;
+  --dim: #64707E;
+  --brand: #4C9AE8;
+  --brand-dark: #7FB6EF;
+  --brand-darker: #A9CFF5;
+  --brand-soft: #16283C;
+  --accent: #FF8A4D;
+  --accent-soft: #3A2617;
+  --green: #38C98C;
+  --green-soft: #103524;
+  --red: #FF6B6B;
+  --red-soft: #3A1717;
+  --row-border: #1C2532;
+  --input-bg: #182130;
+  --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 12px 32px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 28px 70px rgba(0, 0, 0, 0.55);
+}
+
+/* Pestillo de tema -- fixed para quedar visible sobre login/pending/dashboard por igual. */
+.theme-toggle {
+  position: fixed;
+  top: 14px;
+  right: 14px;
+  z-index: 200;
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid var(--card-border);
+  background: var(--card);
+  color: var(--muted);
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+}
+.theme-toggle:hover { color: var(--accent); transform: rotate(12deg); }
 
 * { box-sizing: border-box; }
 
@@ -90,7 +142,8 @@ body {
    hidden=true. Bug real encontrado probando el login en producción: el login nunca se
    ocultaba después de iniciar sesión aunque el estado interno ya había cambiado
    correctamente. Estas reglas fuerzan que "hidden" sí gane siempre. */
-#login-screen[hidden], #dashboard-screen[hidden] {
+#login-screen[hidden], #dashboard-screen[hidden], #pending-screen[hidden],
+#login-form[hidden], #signup-form[hidden] {
   display: none;
 }
 
@@ -224,6 +277,23 @@ body {
 }
 .login-submit:disabled { opacity: 0.6; cursor: not-allowed; box-shadow: none; }
 .login-submit:not(:disabled):hover { filter: brightness(1.06); transform: translateY(-1px); }
+
+/* Enlace de texto para alternar "Iniciar sesión" ↔ "Crear cuenta", y "Cerrar sesión" en
+   la pantalla de cuenta pendiente/rechazada — mismo botón, sin el peso visual de
+   .login-submit (no es la acción principal de la pantalla). */
+.link-button {
+  margin-top: 14px;
+  padding: 4px;
+  border: none;
+  background: transparent;
+  color: var(--brand);
+  font-size: 12.5px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: center;
+}
+.link-button:hover { text-decoration: underline; }
 
 /* ---------- Dashboard ---------- */
 .dashboard-screen { min-height: 100vh; min-height: 100dvh; }
@@ -408,6 +478,10 @@ tbody tr:hover { background: var(--brand-soft); }
   border-radius: 20px;
   font-size: 12px;
   font-weight: 700;
+  /* Variante neutra por defecto (p. ej. rol "Usuario" en la tabla de Usuarios) — las
+     variantes de abajo (-unlinked/-in/-out) la sobreescriben con su propio color. */
+  background: var(--row-border);
+  color: var(--muted);
 }
 .pill-unlinked { background: var(--red-soft); color: var(--red); }
 .pill-in { background: var(--green-soft); color: var(--green); }
@@ -451,8 +525,21 @@ tbody tr:hover { background: var(--brand-soft); }
 }
 .modal-close:hover { background: var(--brand-soft); color: var(--brand); }
 
+/* Título de cada sección del modal (Pendientes / Invitar / Dar de alta / Con acceso) —
+   mismo estilo que .filter-field label (mayúsculas discretas), pero como encabezado de
+   bloque en vez de etiqueta de campo. */
+.modal-section-title {
+  margin: 22px 0 10px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.modal-section-title:first-of-type { margin-top: 4px; }
+
 .invite-form { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
-.invite-form input {
+.invite-form input, .invite-form select {
   flex: 1;
   min-width: 140px;
   padding: 10px 12px;
@@ -463,7 +550,20 @@ tbody tr:hover { background: var(--brand-soft); }
   font-size: 13.5px;
   font-family: inherit;
 }
-.invite-form input:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 4px var(--brand-soft); }
+.invite-form select { flex: 0 0 auto; min-width: 110px; }
+.invite-form input:focus, .invite-form select:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 4px var(--brand-soft); }
+
+.pending-role-select, .user-role-select {
+  padding: 6px 8px;
+  border-radius: 7px;
+  border: 1.5px solid var(--card-border);
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: 12.5px;
+  font-family: inherit;
+}
+.user-role-select:disabled { opacity: 0.5; cursor: not-allowed; }
+.pending-table-scroll { margin-bottom: 4px; }
 .invite-success {
   margin: 0 0 14px;
   padding: 10px 12px;

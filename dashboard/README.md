@@ -12,44 +12,102 @@ modificar datos del negocio desde el navegador, sin importar qué credenciales u
 lo que escribe pasa por la app de escritorio de cada sucursal (ver
 `src/RelojChecador.Infrastructure.Cloud/README.md`).
 
-## Cómo crear el primer usuario del Dashboard (una sola vez)
+## Roles de cuentas (ya NO hay aprobación manual)
 
-A propósito **no hay formulario de "crear cuenta"** en este sitio — así nunca hay una vía
-de auto-registro abierta para leer datos de asistencia del negocio. Las cuentas se crean
-directo en el panel de Supabase:
+Desde la migración `add_user_profiles_and_approval`, cada cuenta de `auth.users` tiene una
+fila espejo en `public.profiles` con dos campos: **`role`** (`admin` o `user`) y
+**`status`** (`approved` siempre para cuentas nuevas, desde la migración
+`auto_approve_new_users`; `rejected` sigue existiendo como acción manual del Admin, ver
+abajo).
 
-1. Entra a [Authentication → Users](https://supabase.com/dashboard/project/vkvlucpjgvqrlvevcimq/auth/users)
-   en el dashboard de Supabase.
-2. Clic en **"Add user"** → **"Create new user"**.
-3. Escribe el correo y la contraseña que va a usar la persona que revisa los reportes
-   (tú decides quién — el dueño del carwash, un gerente, etc.). Márcalo como
-   "Auto Confirm User" para que pueda entrar de inmediato sin confirmar por correo.
-4. Esa misma persona entra a https://reloj-checador-carwash.netlify.app con ese correo y
-   contraseña.
+> Hubo una versión anterior (breve, en producción muy poco tiempo) donde los auto-registros
+> quedaban `pending` hasta que un Admin los aprobaba. Se quitó a pedido explícito del
+> usuario — el disparador fue un bug real (ver más abajo), pero la decisión final fue
+> quitar la aprobación por completo, no solo arreglar el bug. Si algún día hace falta
+> recuperar ese flujo, la migración vieja sigue documentada en el historial de
+> `supabase/migrations/`.
 
-Ese primer paso manual es **solo para la primera cuenta** (nadie puede entrar todavía, así
-que nadie puede usar el panel de abajo). A partir de ahí, esa persona ya puede invitar a
-las demás desde el propio Dashboard — botón **"👤 Usuarios"** en la barra superior.
+`applySessionState()` en `app.js` sigue consultando este perfil justo después de iniciar
+sesión — hoy solo bloquea el acceso si `status = 'rejected'` (un Admin quitó el acceso a
+esa cuenta explícitamente) o si hubo un **error técnico** real al consultarlo (red, etc. —
+en ese caso se distingue con un botón "Reintentar", precisamente para no repetir el bug de
+abajo). Como respaldo, las políticas RLS de
+`branches`/`employees`/`devices`/`employee_device_mappings`/`attendances`/`sync_requests`
+también exigen `status = 'approved'`.
 
-Cualquier cuenta (creada manualmente o invitada desde el panel) ve los reportes de
-**todas** las sucursales (no hay todavía separación de acceso por sucursal en el
-Dashboard; si algún día hace falta, se resuelve con una tabla de permisos + políticas RLS
-más finas, no está construido en esta versión).
+**Javier Galaviz** (`softgalaweb@gmail.com`) y **Nathalia Trujillo**
+(`rh.driveincarwash@gmail.com`) son los Admin iniciales. Solo una cuenta Admin ve el botón
+**"⚙️ Administrar usuarios"** y puede dar de alta, invitar, editar rol/contraseña/nombre o
+eliminar otras cuentas — ver la Edge Function `manage-users` más abajo.
 
-## Panel "Usuarios" (invitar / editar nombre / quitar acceso)
+### Bug real que motivó todo esto (ya corregido)
 
-Botón **"👤 Usuarios"** en la barra superior, visible para cualquiera que ya tenga sesión
-iniciada — el modelo de confianza es deliberadamente simple (un solo negocio pequeño, no
-un sistema con roles jerárquicos): cualquier persona con acceso de lectura también puede
-invitar o quitar acceso a otras.
+Justo después de construir el flujo de aprobación, Javier (ya `admin`+`approved` en la
+base) no podía iniciar sesión: veía "Cuenta pendiente" a pesar de tener acceso. La causa
+**no** era el esquema de aprobación en sí, sino un problema conocido de `supabase-js`:
+`onAuthStateChange` dispara su callback **dentro de una sección crítica interna** del
+cliente de Auth (GoTrueClient) — hacer ahí mismo una consulta que necesita el token de
+sesión (como el `select` a `profiles`) puede quedarse colgada/fallar. `app.js` trataba
+cualquier error de esa consulta igual que "no aprobado", así que el deadlock se disfrazaba
+de "cuenta pendiente". El fix (`init()` en `app.js`) difiere esa llamada con
+`setTimeout(() => applySessionState(session), 0)` para sacarla de esa sección crítica.
 
-- **Invitar**: pide nombre + correo, Supabase le manda a esa persona un correo con un
-  enlace para que **ella misma** defina su contraseña — este sitio nunca genera ni ve
-  contraseñas de nadie.
-- **Editar nombre**: el lápiz ✏️ junto a cualquier usuario; cada persona también puede
-  cambiar el suyo propio con el botón de su nombre en la esquina superior derecha.
-- **Quitar acceso**: el bote de basura 🗑️ (no aparece junto a tu propia cuenta, para no
-  poder auto-eliminarte por accidente).
+### Tercer bug real: recursión infinita en la política de `profiles`
+
+Tras el fix de arriba, el error cambió a uno más directo:
+`infinite recursion detected in policy for relation "profiles"`. La causa: la política de
+`SELECT` de `profiles` comparaba `id = auth.uid()` **o** hacía un `exists (select 1 from
+profiles ...)` para el caso "soy admin, veo todas las filas" — **una tabla no puede
+referenciarse a sí misma dentro de su propia política RLS**, Postgres lo rechaza
+estructuralmente (sin importar que lógicamente terminara en un solo nivel). El patrón
+correcto (documentado por Supabase) es mover ese chequeo a una función
+`current_user_is_admin_approved()` `SECURITY DEFINER`: al ser propiedad de `postgres`
+(dueño de la tabla), la consulta interna corre saltándose RLS por completo, sin volver a
+disparar la política. Ver migraciones `fix_profiles_rls_recursion` y
+`restrict_is_admin_approved_rpc`.
+
+## Cómo se registran nuevas cuentas
+
+**A) Auto-registro público** (enlace "¿No tienes cuenta? Crear una" en la pantalla de
+login): la persona pone su nombre, correo y contraseña — `supabase.auth.signUp()` crea la
+cuenta directo con la AnonKey y entra de inmediato (el trigger `on_auth_user_created` le
+crea automáticamente su fila en `profiles` ya con `status='approved'`).
+
+Esto requiere que **"Allow new users to sign up"** esté activo en
+[Authentication → Providers → Email](https://supabase.com/dashboard/project/vkvlucpjgvqrlvevcimq/auth/providers)
+del panel de Supabase.
+
+**B) Alta manual por un Admin, sin invitación por correo** — botón **"⚙️ Administrar
+usuarios" → "Dar de alta con contraseña"**: el Admin escribe nombre, correo, la contraseña
+que él decide, y el rol; la cuenta queda lista para entrar **de inmediato** con esa
+contraseña (`email_confirm: true` al crearla evita cualquier correo de confirmación o
+invitación). Alternativa a "Invitar por correo" (la persona define su propia contraseña
+vía el enlace que le llega por correo).
+
+Cualquier cuenta (de cualquier rol) ve los reportes de **todas** las sucursales (no hay
+todavía separación de acceso por sucursal en el Dashboard; si algún día hace falta, se
+resuelve con una tabla de permisos + políticas RLS más finas, no está construido en esta
+versión).
+
+## Panel "⚙️ Administrar usuarios" (solo Admin)
+
+Solo visible y funcional para una cuenta `role='admin'` + `status='approved'` — la Edge
+Function rechaza del lado del servidor cualquier acción de este panel si quien llama no
+cumple eso, así que ocultar el botón para el resto es solo UX, no la protección real.
+
+- **Invitar por correo**: pide nombre + correo + rol, Supabase le manda a esa persona un
+  correo con un enlace para que **ella misma** defina su contraseña.
+- **Dar de alta con contraseña**: nombre + correo + contraseña + rol — sin invitación, ver
+  arriba.
+- **Con acceso**: la tabla de cuentas. El lápiz ✏️ edita el nombre; el 🔑 cambia la
+  contraseña de esa cuenta directamente (el Admin decide la nueva, sin correo de
+  recuperación); el selector de **Rol** en la misma fila asciende/degrada entre Usuario y
+  Admin al instante (con confirmación); el bote de basura 🗑️ quita el acceso por completo.
+  Ninguno de los tres controles de "editar a otro" aparece/funciona sobre tu propia fila —
+  el selector de rol queda deshabilitado y el botón de eliminar no aparece, para no poder
+  degradarte o auto-eliminarte por accidente. Cada persona también puede cambiar su propio
+  nombre con el botón de su nombre en la esquina superior derecha (eso sí sigue sin pasar
+  por la Edge Function — ver `onEditOwnNameClick` en `app.js`).
 
 Todo esto corre a través de una Edge Function de Supabase, `manage-users`
 (`supabase/functions/manage-users/index.ts`) — es la única pieza de este proyecto que usa
@@ -57,7 +115,8 @@ la `service_role` key, y lo hace **del lado del servidor** (Supabase la inyecta 
 variable de entorno dentro de la función; nunca viaja al navegador). El sitio estático
 solo llama a la función con `supabase.functions.invoke(...)`, que adjunta el JWT de la
 sesión actual — la función (desplegada con `verify_jwt=true`) rechaza cualquier llamada
-sin una sesión válida.
+sin una sesión válida, y además (`requireAdmin()`) verifica en `profiles` que sea
+`admin`+`approved` antes de ejecutar cualquier acción.
 
 Redesplegar la función tras editarla:
 
@@ -66,17 +125,6 @@ npx supabase functions deploy manage-users --project-ref vkvlucpjgvqrlvevcimq
 ```
 
 (o usando la herramienta MCP de Supabase, como se hizo la primera vez).
-
-## Recomendado: cerrar el registro público
-
-Por defecto, Supabase permite que cualquiera se registre por su cuenta llamando
-directamente a la API de autenticación (no a través de este sitio, que no lo expone,
-pero sí con una llamada HTTP directa). Para cerrar esa puerta:
-
-1. [Authentication → Providers → Email](https://supabase.com/dashboard/project/vkvlucpjgvqrlvevcimq/auth/providers) en el dashboard de Supabase.
-2. Apaga **"Allow new users to sign up"**.
-
-Con esto, solo las cuentas que tú crees manualmente (paso anterior) pueden entrar.
 
 ## Qué muestra
 
