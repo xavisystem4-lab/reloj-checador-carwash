@@ -38,6 +38,21 @@ public class AttendanceTests
     }
 
     [Fact]
+    public void Create_ConVerifyMethodManualYEmployeeId_QuedaVinculadaDesdeElInicio()
+    {
+        // Caso real: "Marcar asistencia manual" (AttendanceViewModel.CreateManualAttendanceAsync)
+        // siempre conoce el empleado de antemano (lo elige quien captura) — a diferencia
+        // de una marcación real del dispositivo, no necesita conciliación posterior.
+        var employeeId = Guid.NewGuid();
+        var attendance = Attendance.Create(
+            Guid.NewGuid(), Guid.NewGuid(), "MANUAL", DateTime.UtcNow,
+            AttendanceVerifyMethod.Manual, punchType: 0, rawPayload: "MANUAL|Juan Pérez", employeeId);
+
+        Assert.Equal(AttendanceVerifyMethod.Manual, attendance.VerifyMethod);
+        Assert.Equal(employeeId, attendance.EmployeeId);
+    }
+
+    [Fact]
     public void Create_ConPinVacio_LanzaDomainException()
     {
         Assert.Throws<DomainException>(() =>

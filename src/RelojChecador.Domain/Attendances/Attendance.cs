@@ -3,11 +3,16 @@ using RelojChecador.Domain.Common;
 namespace RelojChecador.Domain.Attendances;
 
 /// <summary>
-/// Una marcación de asistencia ya persistida localmente, tal cual llegó de un
-/// dispositivo (por descarga manual o por el monitoreo en tiempo real —
-/// ver IAttendanceDeviceAdapter.AttendancePunchReceived). Nunca se edita ni se borra
-/// desde la UI: es un registro de auditoría de negocio (nómina, incidencias), no un dato
-/// de trabajo — la única vía de escritura es <see cref="Create"/>.
+/// Una marcación de asistencia ya persistida localmente — tal cual llegó de un
+/// dispositivo (por descarga manual o por el monitoreo en tiempo real, ver
+/// IAttendanceDeviceAdapter.AttendancePunchReceived), o capturada a mano desde la pantalla
+/// de Asistencia cuando a alguien se le olvidó checar (ver
+/// AttendanceViewModel.CreateManualAttendanceAsync — <see cref="AttendanceVerifyMethod.Manual"/>
+/// la distingue de una marcación biométrica real). Nunca se EDITA ni se BORRA desde la UI
+/// en ninguno de los dos casos: es un registro de auditoría de negocio (nómina,
+/// incidencias), no un dato de trabajo — la única vía de escritura es <see cref="Create"/>,
+/// una corrección posterior siempre es una fila NUEVA, nunca un cambio sobre una ya
+/// existente.
 ///
 /// <see cref="EmployeeId"/> es nullable a propósito: puede llegar una marcación de un PIN
 /// de dispositivo que todavía no está vinculado a ningún Employee

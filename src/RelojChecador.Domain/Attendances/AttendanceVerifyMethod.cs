@@ -12,4 +12,10 @@ public enum AttendanceVerifyMethod
     Password = 2,
     Card = 3,
     Face = 4,
+
+    /// <summary>Capturada a mano desde la pantalla de Asistencia (ver
+    /// AttendanceViewModel.CreateManualAttendanceAsync) — nunca viene de un dispositivo
+    /// real. Distinta de las demás a propósito, para que la UI/el Dashboard puedan
+    /// distinguir con claridad una corrección manual de una marcación biométrica real.</summary>
+    Manual = 5,
 }

@@ -4,11 +4,15 @@ using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 using RelojChecador.Application.Attendances;
 using RelojChecador.Application.Branches;
+using RelojChecador.Application.Common;
 using RelojChecador.Application.Devices;
 using RelojChecador.Application.EmployeeDeviceMappings;
 using RelojChecador.Application.Employees;
 using RelojChecador.Domain.Attendances;
 using RelojChecador.Domain.Branches;
+using RelojChecador.Domain.Common;
+using RelojChecador.Domain.Employees;
+using RelojChecador.Infrastructure.Cloud;
 using RelojChecador.WPF.Converters;
 using Serilog;
 
@@ -56,6 +60,8 @@ public sealed partial class AttendanceViewModel : ObservableObject
     private readonly IDeviceRepository _deviceRepository;
     private readonly IEmployeeRepository _employeeRepository;
     private readonly IEmployeeDeviceMappingRepository _mappingRepository;
+    private readonly IUnitOfWork _unitOfWork;
+    private readonly SupabaseSyncBackgroundService _syncService;
 
     private IReadOnlyList<AttendanceRow> _allRows = [];
 
@@ -79,13 +85,16 @@ public sealed partial class AttendanceViewModel : ObservableObject
 
     public AttendanceViewModel(
         IAttendanceRepository attendanceRepository, IBranchRepository branchRepository, IDeviceRepository deviceRepository,
-        IEmployeeRepository employeeRepository, IEmployeeDeviceMappingRepository mappingRepository)
+        IEmployeeRepository employeeRepository, IEmployeeDeviceMappingRepository mappingRepository,
+        IUnitOfWork unitOfWork, SupabaseSyncBackgroundService syncService)
     {
         _attendanceRepository = attendanceRepository;
         _branchRepository = branchRepository;
         _deviceRepository = deviceRepository;
         _employeeRepository = employeeRepository;
         _mappingRepository = mappingRepository;
+        _unitOfWork = unitOfWork;
+        _syncService = syncService;
     }
 
     public async Task InitializeAsync()
@@ -192,6 +201,123 @@ public sealed partial class AttendanceViewModel : ObservableObject
         StatusMessage = unresolvedCount > 0
             ? $"{filtered.Count} marcación(es) encontrada(s) ({unresolvedCount} sin vincular a empleado)."
             : $"{filtered.Count} marcación(es) encontrada(s).";
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // "Marcar asistencia manual" — pedido explícito del usuario: poder registrar a alguien
+    // que se le olvidó checar, sin depender del reloj físico, y que aparezca sincronizada
+    // en el Dashboard/nube igual que cualquier otra (aclarado explícitamente con el
+    // usuario: NO significa escribirla en la memoria del dispositivo — eso no es
+    // técnicamente posible, el reloj solo genera marcaciones de huellas/tarjeta reales que
+    // él mismo detecta). Sigue siendo create-only (ver comentario de clase de Attendance):
+    // esto agrega una fila nueva, nunca edita ni borra una existente.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>Empleados activos, para el selector del diálogo — ordenados por nombre.</summary>
+    public async Task<IReadOnlyList<Employee>> GetActiveEmployeesForManualEntryAsync()
+    {
+        var employees = await _employeeRepository.ListAsync();
+        return employees.Where(e => e.Status == EmploymentStatus.Active).OrderBy(e => e.FullName).ToList();
+    }
+
+    public sealed record ManualAttendanceOutcome(string? Error)
+    {
+        public bool Success => Error is null;
+    }
+
+    /// <summary>Crea una marcación manual. <see cref="Attendance.DeviceId"/> es un campo
+    /// obligatorio del dominio (nunca hizo falta que fuera opcional hasta ahora) — en vez
+    /// de agregar una migración de esquema para permitirlo null, se resuelve solo: el
+    /// dispositivo/PIN ya vinculado al empleado si existe (<see cref="EmployeeDeviceMapping"/>),
+    /// o si no, el único dispositivo de su sucursal (con un PIN placeholder "MANUAL", ya
+    /// que nunca se enroló ahí de verdad). Si la sucursal tiene 0 o 2+ dispositivos y el
+    /// empleado no tiene ningún vínculo, no hay forma no ambigua de resolverlo — se
+    /// reporta el error en vez de adivinar cuál usar.</summary>
+    /// <returns>Un mensaje de error comprensible si algo salió mal, o null si se guardó
+    /// correctamente.</returns>
+    public async Task<ManualAttendanceOutcome> CreateManualAttendanceAsync(
+        Guid employeeId, DateTime timestampLocal, int punchType)
+    {
+        try
+        {
+            var employee = await _employeeRepository.GetByIdAsync(employeeId);
+            if (employee is null)
+            {
+                return new ManualAttendanceOutcome(
+                    "No se encontró el empleado — puede que la lista esté desactualizada. Cierra y vuelve a abrir esta pantalla.");
+            }
+
+            if (timestampLocal > DateTime.Now.AddMinutes(5))
+            {
+                return new ManualAttendanceOutcome("La fecha y hora no puede ser en el futuro.");
+            }
+
+            var mappings = await _mappingRepository.ListAsync();
+            var employeeMapping = mappings.FirstOrDefault(m => m.EmployeeId == employeeId);
+
+            Guid deviceId;
+            string deviceUserPin;
+
+            if (employeeMapping is not null)
+            {
+                deviceId = employeeMapping.DeviceId;
+                deviceUserPin = employeeMapping.DeviceUserPin;
+            }
+            else
+            {
+                var branchDevices = (await _deviceRepository.ListAsync())
+                    .Where(d => d.BranchId == employee.BranchId)
+                    .ToList();
+
+                if (branchDevices.Count != 1)
+                {
+                    return new ManualAttendanceOutcome(branchDevices.Count == 0
+                        ? $"\"{employee.FullName}\" no está vinculado a ningún reloj y su sucursal no tiene ninguno registrado — vincúlalo primero desde Empleados."
+                        : $"\"{employee.FullName}\" no está vinculado a ningún reloj y su sucursal tiene varios — vincúlalo primero a uno específico desde Empleados.");
+                }
+
+                deviceId = branchDevices[0].Id;
+                deviceUserPin = "MANUAL";
+            }
+
+            // TimestampUtc en este proyecto NUNCA es UTC real (ver el comentario de
+            // LoadAsync más arriba) — es la hora local de pared del negocio, solo
+            // etiquetada como UTC. Una captura manual sigue la misma convención:
+            // DateTimeKind.Utc aquí es solo la marca que exige el campo, no una
+            // conversión real de huso horario.
+            var timestampUtc = DateTime.SpecifyKind(timestampLocal, DateTimeKind.Utc);
+
+            if (await _attendanceRepository.ExistsAsync(deviceId, deviceUserPin, timestampUtc))
+            {
+                return new ManualAttendanceOutcome("Ya existe una marcación idéntica (mismo dispositivo/PIN/hora) — no se creó otra.");
+            }
+
+            var rawPayload = $"MANUAL|{employee.FullName}|capturado {DateTime.Now:yyyy-MM-dd HH:mm:ss}";
+            var attendance = Attendance.Create(
+                deviceId, employee.BranchId, deviceUserPin, timestampUtc,
+                AttendanceVerifyMethod.Manual, punchType, rawPayload, employeeId);
+
+            await _attendanceRepository.AddAsync(attendance);
+            await _unitOfWork.SaveChangesAsync();
+
+            // Igual criterio que cada marcación nueva del dispositivo real (ver
+            // DevicesViewModel.PersistAndTriggerSyncAsync): no espera al ciclo automático
+            // de Supabase (hasta IntervalSeconds), la sube de inmediato para que aparezca
+            // en el Dashboard sin demora.
+            await _syncService.TriggerSyncNowAsync();
+
+            await LoadAsync();
+            return new ManualAttendanceOutcome(null);
+        }
+        catch (DomainException ex)
+        {
+            return new ManualAttendanceOutcome(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Error inesperado al crear una asistencia manual (EmployeeId={EmployeeId})", employeeId);
+            return new ManualAttendanceOutcome("Ocurrió un error inesperado al guardar. Revisa el registro de errores.");
+        }
     }
 
     /// <summary>Arma el CSV de lo que está mostrando el DataGrid ahora mismo (Attendances,

@@ -29,6 +29,7 @@ public sealed class VerifyMethodToTextConverter : IValueConverter
         AttendanceVerifyMethod.Password => "Contraseña",
         AttendanceVerifyMethod.Card => "Tarjeta",
         AttendanceVerifyMethod.Face => "Rostro",
+        AttendanceVerifyMethod.Manual => "Manual",
         _ => "Desconocido",
     };
 }

@@ -42,7 +42,13 @@
             </StackPanel>
             <StackPanel Margin="0,0,0,10" VerticalAlignment="Bottom" Orientation="Horizontal">
                 <Button Content="Actualizar" Style="{StaticResource PrimaryButton}" Click="OnRefreshClick" Margin="0,0,8,0" />
-                <Button Content="⬇ Exportar CSV" Click="OnExportCsvClick" />
+                <Button Content="⬇ Exportar CSV" Click="OnExportCsvClick" Margin="0,0,8,0" />
+                <!-- Pedido explícito del usuario: registrar a alguien a quien se le
+                     olvidó checar, sin depender del reloj físico. Se guarda como
+                     AttendanceVerifyMethod.Manual y se sube al Dashboard/nube igual que
+                     cualquier otra — nunca se escribe en la memoria del dispositivo (no
+                     es técnicamente posible). -->
+                <Button Content="+ Marcar asistencia manual" Click="OnCreateManualAttendanceClick" />
             </StackPanel>
         </WrapPanel>
 
