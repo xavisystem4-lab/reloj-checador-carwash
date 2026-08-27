@@ -1,56 +1,56 @@
 Number,FullName,Area,Position,HireDate,Status,WeeklySalary,OvertimeHourlyRate,Notes
-EMP-001,Adrian Uribe Garcia,Drive In Car Wash,Gerencia,2023-12-07,Activo,,,Sexo: Hombre | Fecha de nacimiento: 20 Diciembre 2005
-EMP-002,Angel David Gutierrez Gonzalez,Drive In Car Wash,Supervisión,2025-12-03,Activo,,,Sexo: Hombre | Fecha de nacimiento: 09 Diciembre 2008
-EMP-003,Alexander Rfael Santiago Garcia,Drive In Car Wash,Supervisión,2024-08-17,Activo,,,Sexo: Hombre | Fecha de nacimiento: 02 Febrero 2003
-EMP-004,David Salvador Tapia Castro,Drive In Car Wash,Supervisión,2026-01-05,Activo,,,Sexo: Hombre | Fecha de nacimiento: 04 Diciembre 2008
-EMP-005,Pedro Rodolfo Navarrete Romo,Drive In Car Wash,Secado,2025-02-10,Activo,,,Sexo: Hombre | Fecha de nacimiento: 11 Septiembre 2006
-EMP-006,Andres Mateo Herrera Leyva,Drive In Car Wash,Secado,2025-09-06,Activo,,,Sexo: Hombre | Fecha de nacimiento: 14 Junio 2009
-EMP-007,Jesus Guadalupe Lopez Montoya,Drive In Car Wash,Secado,2026-05-15,Activo,,,Sexo: Hombre | Fecha de nacimiento: 13 Diciembre 2008
-EMP-008,Sebastian Jimenez Cortez,Drive In Car Wash,Secado,2025-08-10,Activo,,,Sexo: Hombre | Fecha de nacimiento: 21 Junio 2009
-EMP-009,Antony Salvador Beltran Garcia,Drive In Car Wash,Secado,2025-10-25,Inactivo,,,Sexo: Hombre
-EMP-010,Jorge Luis Rodriguez Algandar,Drive In Car Wash,Secado,2026-06-08,Inactivo,,,Sexo: Hombre | Fecha de nacimiento: 06 Febrero 2009
-EMP-011,Isaac Ramon Rojo Torres,Drive In Car Wash,Secado,2026-07-17,Activo,,,Sexo: Hombre | Fecha de nacimiento: 03 Enero 2008
-EMP-012,Luis Angel Gonzalez Ramos,Drive In Car Wash,Secado,2026-08-03,Activo,,,Sexo: Hombre | Fecha de nacimiento: 26 Agosto 2000
-EMP-013,Pedro Ivan Leon Rodriguez,Drive In Car Wash,Secado,2026-06-14,Activo,,,Sexo: Hombre
-EMP-014,Salvador Tellez Valencia,Drive In Car Wash,Secado,2025-02-15,Activo,,,Sexo: Hombre
-EMP-015,Jesus Adrian Calderon Graciano,Drive In Car Wash,Tunel,2025-01-11,Activo,,,Sexo: Hombre | Fecha de nacimiento: 02 Septiembre 2009
-EMP-016,Hugo Alexis Valencia Estrella,Drive In Car Wash,Tunel,2025-10-26,Activo,,,Sexo: Hombre | Fecha de nacimiento: 02 Julio 2007
-EMP-017,Kevin Uziel Mendoza Mendoza,Drive In Car Wash,Secado,2025-11-26,Inactivo,,,Sexo: Hombre
-EMP-018,Pablo Rodrigo Aguilera Del Valle,Drive In Car Wash,Secado,2026-02-14,Activo,,,Sexo: Hombre | Fecha de nacimiento: 12 Abril 2008
-EMP-019,Kevin Favian Rodriguez,Drive In Car Wash,Secado,2026-06-15,Activo,,,Sexo: Hombre | Fecha de nacimiento: 08 Agosto 2008
-EMP-020,Felix Josue,Drive In Car Wash,Secado,2026-06-15,Activo,,,Sexo: Hombre
-EMP-021,Cristoper Ivan,Drive In Car Wash,Secado,2026-07-16,Activo,,,Sexo: Hombre
-EMP-022,Eduardo Castillo Flores,Drive In Car Wash,Secado,2026-07-10,Activo,,,Sexo: Hombre | Fecha de nacimiento: 04 Abril 2009
-EMP-023,Kevin Antonio Guardado Soto,Drive In Car Wash,Secado,2026-05-02,Activo,,,Sexo: Hombre | Fecha de nacimiento: 27 de Noviembre 2008
-EMP-024,Oswaldo Tapia Castro,Drive In Car Wash,Secado,2026-04-22,Activo,,,Sexo: Hombre | Fecha de nacimiento: 22 Junio 2005
-EMP-025,Angel Gabriel De La Torre Gutierrez,Drive In Car Wash,Secado,2026-09-30,Activo,,,Sexo: Hombre | Fecha de nacimiento: 18 Mayo 2008
-EMP-026,Jesus Jael Rios Chavez,Drive In Car Wash,Secado,2026-05-21,Activo,,,Sexo: Hombre | Fecha de nacimiento: 15 Mayo 2008
-EMP-027,Angel Norzagaray,Drive In Car Wash,Tunel,2026-07-17,Activo,,,Sexo: Hombre
-EMP-028,Bryan Francisco Rosas Soto,Drive In Car Wash,Secado,2025-01-07,Activo,,,Sexo: Hombre | Fecha de nacimiento: 30 Enero 2009
-EMP-029,Emilio Villegas Bañuelos,Drive In Car Wash,Secado,2026-03-01,Activo,,,Sexo: Hombre | Fecha de nacimiento: 19 Julio 2007
-EMP-030,Jose Pablo Rojo Torres,Drive In Car Wash,Secado,2026-07-17,Activo,,,Sexo: Hombre | Fecha de nacimiento: 17 Septiembre 2009
-EMP-031,Angel Daniel Gonzalez Hernandez,Drive In Car Wash,Secado,2026-03-28,Activo,,,Sexo: Hombre | Fecha de nacimiento: 08 Octubre 2006
-EMP-032,Luis Fernado Luna Rojas,Drive In Car Wash,Secado,2026-07-18,Activo,,,Sexo: Hombre | Fecha de nacimiento: 14 Septiembre 2009
-EMP-033,Luis Alfonso Soto Trujillo,Drive In Car Wash,Detallado,2023-04-24,Activo,,,Sexo: Hombre | Fecha de nacimiento: 02 Diciembre 1974
-EMP-034,Brayan Joseth Flores Ovalles,Otro,Detallado,2026-11-27,Activo,,,Sexo: Hombre | Fecha de nacimiento: 17 Noviembre 2006
-EMP-035,Jhonny Steven Aranguren Hidalgo,CrisaTec,Polarizado,2025-02-17,Activo,,,Sexo: Hombre | Fecha de nacimiento: 16 Septiembre 
-EMP-036,Miguel Sauceda,Otro,Supervisión,2025-09-01,Activo,,,Sexo: Hombre
-EMP-037,Leslie Michelle Beltran Castellanos,Otro,Mercadotecnia,2026-02-23,Activo,,,Sexo: Mujer | Fecha de nacimiento: 21 Abril 2003
-EMP-038,Adali Monserrat Tabanico Ramos,Drive In Car Wash,Caja,2026-05-11,Activo,,,Sexo: Mujer | Fecha de nacimiento: 04 Diciembre 1999
-EMP-039,Valeria Martinez Longoria,Drive In Car Wash,Caja,2026-08-10,Activo,,,Sexo: Mujer | Fecha de nacimiento: 02 Agosto 2007
-EMP-040,Nayeli Guadalupe Guia Barreras,Drive In Car Wash,Lavanderia,2026-01-11,Activo,,,Sexo: Mujer | Fecha de nacimiento: 05 Abril 2000
-EMP-041,Angela Janeth Verdugo Moreno,Drive In Car Wash,Lavanderia,2026-06-22,Activo,,,Sexo: Mujer | Fecha de nacimiento: 20 Diciembre 2001
-EMP-042,Berenice Cisneros Estarda,Drive In Car Wash,Administración,2023-07-14,Activo,,,Sexo: Hombre | Fecha de nacimiento: 06 Marzo 2002
-EMP-200,Nathalia Trujillo Figueroa,Drive In Car Wash,Recursos Humanos,2023-09-11,Activo,,,Sexo: Hombre | Fecha de nacimiento: 26 Noviembre 2000
-EMP-044,Sandra Paola Ulloa Castellanos,Arabica Café,Barista,2026-08-03,Activo,,,Sexo: Hombre | Fecha de nacimiento: 05 Septiembre 2003
-EMP-045,Maria Fernanda De La Cruz Sanchez,Arabica Café,Barista,2026-04-14,Inactivo,,,Sexo: Mujer | Fecha de nacimiento: 17 Noviembre 2003
-EMP-046,Israel Maya Martinez,Arabica Café,Barista,2026-06-18,Activo,,,Sexo: Hombre | Fecha de nacimiento: 02 Diciembre 2002
-EMP-047,Brandon Manuel Araiza Castro,Plaza Sabo,Mantenimiento,2025-08-11,Activo,,,Sexo: Hombre | Fecha de nacimiento: 25 Octubre 1995
-EMP-048,Juan Gonzalez Avila,Plaza Sabo,Limpieza,,Activo,,,Sexo: Hombre
-EMP-049,Alma Julia Sanchez Guerrero,Plaza Sabo,Limpieza,2026-07-06,Activo,,,Sexo: Mujer | Fecha de nacimiento: 22 Diciembre 1992
-EMP-050,Ricardo Payan Lopez,Plaza Sabo,Velador,2025-07-02,Activo,,,Sexo: Hombre
-EMP-051,Javier Alexander Dominguez Jara,Plaza Sabo,Velador,2026-03-26,Activo,,,Sexo: Hombre | Fecha de nacimiento: 24 Marzo 2008
-EMP-052,Romina Moreno Gonzalez,Arabica Café,Barista,2026-08-17,Activo,,,Sexo: Mujer | Fecha de nacimiento: 03 Febrero 2007
-EMP-053,Cristofer Aurelio Leyva Guzman,Drive In Car Wash,Secado,2026-08-19,Activo,,,Sexo: Hombre | Fecha de nacimiento: 14 Junio 2009
-EMP-054,Ernesto Guadalupe Valenzuela Felix,Plaza Sabo,Limpieza,2025-10-05,Activo,,,Sexo: Hombre
-EMP-201,Javier Galaviz,Drive In Car Wash,,,Activo,,,Agregado manualmente por el usuario — no aparecía en el Excel ni en el catálogo anterior.
+1,Adrian Uribe Garcia,Drive In Car Wash,Gerencia,2023-12-07,Activo,,,Sexo: Hombre | Fecha de nacimiento: 20 Diciembre 2005
+2,Angel David Gutierrez Gonzalez,Drive In Car Wash,Supervisión,2025-12-03,Activo,,,Sexo: Hombre | Fecha de nacimiento: 09 Diciembre 2008
+3,Alexander Rfael Santiago Garcia,Drive In Car Wash,Supervisión,2024-08-17,Activo,,,Sexo: Hombre | Fecha de nacimiento: 02 Febrero 2003
+4,David Salvador Tapia Castro,Drive In Car Wash,Supervisión,2026-01-05,Activo,,,Sexo: Hombre | Fecha de nacimiento: 04 Diciembre 2008
+5,Pedro Rodolfo Navarrete Romo,Drive In Car Wash,Secado,2025-02-10,Activo,,,Sexo: Hombre | Fecha de nacimiento: 11 Septiembre 2006
+6,Andres Mateo Herrera Leyva,Drive In Car Wash,Secado,2025-09-06,Activo,,,Sexo: Hombre | Fecha de nacimiento: 14 Junio 2009
+7,Jesus Guadalupe Lopez Montoya,Drive In Car Wash,Secado,2026-05-15,Activo,,,Sexo: Hombre | Fecha de nacimiento: 13 Diciembre 2008
+8,Sebastian Jimenez Cortez,Drive In Car Wash,Secado,2025-08-10,Activo,,,Sexo: Hombre | Fecha de nacimiento: 21 Junio 2009
+9,Antony Salvador Beltran Garcia,Drive In Car Wash,Secado,2025-10-25,Inactivo,,,Sexo: Hombre
+10,Jorge Luis Rodriguez Algandar,Drive In Car Wash,Secado,2026-06-08,Inactivo,,,Sexo: Hombre | Fecha de nacimiento: 06 Febrero 2009
+11,Isaac Ramon Rojo Torres,Drive In Car Wash,Secado,2026-07-17,Activo,,,Sexo: Hombre | Fecha de nacimiento: 03 Enero 2008
+12,Luis Angel Gonzalez Ramos,Drive In Car Wash,Secado,2026-08-03,Activo,,,Sexo: Hombre | Fecha de nacimiento: 26 Agosto 2000
+13,Pedro Ivan Leon Rodriguez,Drive In Car Wash,Secado,2026-06-14,Activo,,,Sexo: Hombre
+14,Salvador Tellez Valencia,Drive In Car Wash,Secado,2025-02-15,Activo,,,Sexo: Hombre
+15,Jesus Adrian Calderon Graciano,Drive In Car Wash,Tunel,2025-01-11,Activo,,,Sexo: Hombre | Fecha de nacimiento: 02 Septiembre 2009
+16,Hugo Alexis Valencia Estrella,Drive In Car Wash,Tunel,2025-10-26,Activo,,,Sexo: Hombre | Fecha de nacimiento: 02 Julio 2007
+17,Kevin Uziel Mendoza Mendoza,Drive In Car Wash,Secado,2025-11-26,Inactivo,,,Sexo: Hombre
+18,Pablo Rodrigo Aguilera Del Valle,Drive In Car Wash,Secado,2026-02-14,Activo,,,Sexo: Hombre | Fecha de nacimiento: 12 Abril 2008
+19,Kevin Favian Rodriguez,Drive In Car Wash,Secado,2026-06-15,Activo,,,Sexo: Hombre | Fecha de nacimiento: 08 Agosto 2008
+20,Felix Josue,Drive In Car Wash,Secado,2026-06-15,Activo,,,Sexo: Hombre
+21,Cristoper Ivan,Drive In Car Wash,Secado,2026-07-16,Activo,,,Sexo: Hombre
+22,Eduardo Castillo Flores,Drive In Car Wash,Secado,2026-07-10,Activo,,,Sexo: Hombre | Fecha de nacimiento: 04 Abril 2009
+23,Kevin Antonio Guardado Soto,Drive In Car Wash,Secado,2026-05-02,Activo,,,Sexo: Hombre | Fecha de nacimiento: 27 de Noviembre 2008
+24,Oswaldo Tapia Castro,Drive In Car Wash,Secado,2026-04-22,Activo,,,Sexo: Hombre | Fecha de nacimiento: 22 Junio 2005
+25,Angel Gabriel De La Torre Gutierrez,Drive In Car Wash,Secado,2026-09-30,Activo,,,Sexo: Hombre | Fecha de nacimiento: 18 Mayo 2008
+26,Jesus Jael Rios Chavez,Drive In Car Wash,Secado,2026-05-21,Activo,,,Sexo: Hombre | Fecha de nacimiento: 15 Mayo 2008
+27,Angel Norzagaray,Drive In Car Wash,Tunel,2026-07-17,Activo,,,Sexo: Hombre
+28,Bryan Francisco Rosas Soto,Drive In Car Wash,Secado,2025-01-07,Activo,,,Sexo: Hombre | Fecha de nacimiento: 30 Enero 2009
+29,Emilio Villegas Bañuelos,Drive In Car Wash,Secado,2026-03-01,Activo,,,Sexo: Hombre | Fecha de nacimiento: 19 Julio 2007
+30,Jose Pablo Rojo Torres,Drive In Car Wash,Secado,2026-07-17,Activo,,,Sexo: Hombre | Fecha de nacimiento: 17 Septiembre 2009
+31,Angel Daniel Gonzalez Hernandez,Drive In Car Wash,Secado,2026-03-28,Activo,,,Sexo: Hombre | Fecha de nacimiento: 08 Octubre 2006
+32,Luis Fernado Luna Rojas,Drive In Car Wash,Secado,2026-07-18,Activo,,,Sexo: Hombre | Fecha de nacimiento: 14 Septiembre 2009
+33,Luis Alfonso Soto Trujillo,Drive In Car Wash,Detallado,2023-04-24,Activo,,,Sexo: Hombre | Fecha de nacimiento: 02 Diciembre 1974
+34,Brayan Joseth Flores Ovalles,Otro,Detallado,2026-11-27,Activo,,,Sexo: Hombre | Fecha de nacimiento: 17 Noviembre 2006
+35,Jhonny Steven Aranguren Hidalgo,CrisaTec,Polarizado,2025-02-17,Activo,,,Sexo: Hombre | Fecha de nacimiento: 16 Septiembre 
+36,Miguel Sauceda,Otro,Supervisión,2025-09-01,Activo,,,Sexo: Hombre
+37,Leslie Michelle Beltran Castellanos,Otro,Mercadotecnia,2026-02-23,Activo,,,Sexo: Mujer | Fecha de nacimiento: 21 Abril 2003
+38,Adali Monserrat Tabanico Ramos,Drive In Car Wash,Caja,2026-05-11,Activo,,,Sexo: Mujer | Fecha de nacimiento: 04 Diciembre 1999
+39,Valeria Martinez Longoria,Drive In Car Wash,Caja,2026-08-10,Activo,,,Sexo: Mujer | Fecha de nacimiento: 02 Agosto 2007
+40,Nayeli Guadalupe Guia Barreras,Drive In Car Wash,Lavanderia,2026-01-11,Activo,,,Sexo: Mujer | Fecha de nacimiento: 05 Abril 2000
+41,Angela Janeth Verdugo Moreno,Drive In Car Wash,Lavanderia,2026-06-22,Activo,,,Sexo: Mujer | Fecha de nacimiento: 20 Diciembre 2001
+42,Berenice Cisneros Estarda,Drive In Car Wash,Administración,2023-07-14,Activo,,,Sexo: Hombre | Fecha de nacimiento: 06 Marzo 2002
+43,Nathalia Trujillo Figueroa,Drive In Car Wash,Recursos Humanos,2023-09-11,Activo,,,Sexo: Hombre | Fecha de nacimiento: 26 Noviembre 2000
+44,Sandra Paola Ulloa Castellanos,Arabica Café,Barista,2026-08-03,Activo,,,Sexo: Hombre | Fecha de nacimiento: 05 Septiembre 2003
+45,Maria Fernanda De La Cruz Sanchez,Arabica Café,Barista,2026-04-14,Inactivo,,,Sexo: Mujer | Fecha de nacimiento: 17 Noviembre 2003
+46,Israel Maya Martinez,Arabica Café,Barista,2026-06-18,Activo,,,Sexo: Hombre | Fecha de nacimiento: 02 Diciembre 2002
+47,Brandon Manuel Araiza Castro,Plaza Sabo,Mantenimiento,2025-08-11,Activo,,,Sexo: Hombre | Fecha de nacimiento: 25 Octubre 1995
+48,Juan Gonzalez Avila,Plaza Sabo,Limpieza,,Activo,,,Sexo: Hombre
+49,Alma Julia Sanchez Guerrero,Plaza Sabo,Limpieza,2026-07-06,Activo,,,Sexo: Mujer | Fecha de nacimiento: 22 Diciembre 1992
+50,Ricardo Payan Lopez,Plaza Sabo,Velador,2025-07-02,Activo,,,Sexo: Hombre
+51,Javier Alexander Dominguez Jara,Plaza Sabo,Velador,2026-03-26,Activo,,,Sexo: Hombre | Fecha de nacimiento: 24 Marzo 2008
+52,Romina Moreno Gonzalez,Arabica Café,Barista,2026-08-17,Activo,,,Sexo: Mujer | Fecha de nacimiento: 03 Febrero 2007
+53,Cristofer Aurelio Leyva Guzman,Drive In Car Wash,Secado,2026-08-19,Activo,,,Sexo: Hombre | Fecha de nacimiento: 14 Junio 2009
+54,Ernesto Guadalupe Valenzuela Felix,Plaza Sabo,Limpieza,2025-10-05,Activo,,,Sexo: Hombre
+55,Javier Galaviz,Drive In Car Wash,,,Activo,,,Agregado manualmente por el usuario — no aparecía en el Excel ni en el catálogo anterior.
