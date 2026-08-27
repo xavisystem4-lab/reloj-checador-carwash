@@ -1,0 +1,50 @@
+<Window x:Class="RelojChecador.WPF.Views.ChangeDeviceUserPinDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Cambiar PIN" Height="360" Width="420"
+        MinHeight="320" MinWidth="380"
+        WindowStartupLocation="CenterOwner" ResizeMode="CanResizeWithGrip"
+        ShowInTaskbar="False">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,10">
+            <TextBlock Text="PIN actual" FontWeight="SemiBold" Margin="0,0,0,2" />
+            <TextBox x:Name="CurrentPinTextBox" Padding="4" IsReadOnly="True" Background="{DynamicResource BrushSurface}" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="1" Margin="0,0,0,10">
+            <TextBlock Text="PIN nuevo *" FontWeight="SemiBold" Margin="0,0,0,2" />
+            <TextBox x:Name="NewPinTextBox" Padding="4" />
+        </StackPanel>
+
+        <!-- Advertencia explícita — pedido del propio usuario tras entender el riesgo:
+             mover la huella nunca se probó contra el reloj real, así que aquí se avisa cada
+             vez, no solo la primera. El PIN viejo nunca se borra hasta confirmar que la
+             huella llegó completa al nuevo (ver DevicesViewModel.ChangeDeviceUserPinAsync). -->
+        <Border Grid.Row="2" Background="{DynamicResource BrushWarningSurface}" CornerRadius="8" Padding="10" Margin="0,0,0,10">
+            <TextBlock FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource BrushWarning}">
+                Esto mueve la huella ya registrada del PIN actual al PIN nuevo (no hace falta volver a poner el dedo).
+                El PIN actual solo se borra del reloj DESPUÉS de confirmar que la huella llegó completa al nuevo —
+                si algo falla a medio camino, el PIN actual se queda intacto. Aun así, esta operación nunca se probó
+                contra un reloj real: para el primer uso, hazlo con un PIN de prueba antes de un empleado real.
+            </TextBlock>
+        </Border>
+
+        <TextBlock Grid.Row="3" x:Name="ErrorTextBlock" Foreground="{DynamicResource BrushDanger}" TextWrapping="Wrap"
+                    Visibility="Collapsed" Margin="0,0,0,10" />
+
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="Cancelar" Width="90" Margin="0,0,8,0" Click="OnCancelClick" IsCancel="True" />
+            <Button Content="Cambiar PIN" Width="110" Style="{StaticResource PrimaryButton}" Click="OnSaveClick" IsDefault="True" />
+        </StackPanel>
+    </Grid>
+    </ScrollViewer>
+</Window>

@@ -14,8 +14,12 @@
         </Grid.RowDefinitions>
 
         <StackPanel Grid.Row="0" Margin="0,0,0,10">
-            <TextBlock Text="PIN (no editable)" FontWeight="SemiBold" Margin="0,0,0,2" />
+            <TextBlock Text="PIN" FontWeight="SemiBold" Margin="0,0,0,2" />
             <TextBox x:Name="PinTextBox" Padding="4" IsReadOnly="True" Background="{DynamicResource BrushSurface}" />
+            <!-- Usa "🔁 Cambiar PIN" (junto a este botón, en la lista) para cambiarlo de
+                 verdad — esa acción mueve la huella ya enrolada al PIN nuevo; aquí no se
+                 puede editar porque el PIN es la llave del usuario dentro del reloj. -->
+            <TextBlock Text="Para cambiarlo, usa &quot;🔁 Cambiar PIN&quot; en la lista." FontSize="11" Opacity="0.7" Margin="0,3,0,0" />
         </StackPanel>
 
         <StackPanel Grid.Row="1" Margin="0,0,0,10">

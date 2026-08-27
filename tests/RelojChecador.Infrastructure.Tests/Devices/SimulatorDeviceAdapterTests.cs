@@ -152,6 +152,73 @@ public class SimulatorDeviceAdapterTests
     }
 
     [Fact]
+    public async Task DownloadUserTemplatesAsync_ConPinSemilla_DevuelveLaPlantillaSimulada()
+    {
+        var adapter = new SimulatorDeviceAdapter();
+        await adapter.ConnectAsync(SampleConnection());
+
+        var result = await adapter.DownloadUserTemplatesAsync("1");
+
+        Assert.True(result.IsSuccess);
+        Assert.Single(result.Value);
+        Assert.Equal(0, result.Value[0].FingerIndex);
+    }
+
+    [Fact]
+    public async Task DownloadUserTemplatesAsync_ConPinSinHuellas_DevuelveListaVaciaSinError()
+    {
+        var adapter = new SimulatorDeviceAdapter();
+        await adapter.ConnectAsync(SampleConnection());
+        await adapter.CreateOrUpdateUserAsync(new DeviceUserRecord("50", "Sin huella todavía", PrivilegeLevel: 0, IsEnabled: true));
+
+        var result = await adapter.DownloadUserTemplatesAsync("50");
+
+        Assert.True(result.IsSuccess);
+        Assert.Empty(result.Value);
+    }
+
+    [Fact]
+    public async Task UploadUserTemplateAsync_LuegoDownload_ReflejaLaPlantillaSubida()
+    {
+        var adapter = new SimulatorDeviceAdapter();
+        await adapter.ConnectAsync(SampleConnection());
+        await adapter.CreateOrUpdateUserAsync(new DeviceUserRecord("99", "Empleado Nuevo", PrivilegeLevel: 0, IsEnabled: true));
+        var plantilla = new FingerprintTemplateRecord(FingerIndex: 0, Flag: 1, TemplateData: "TMPL-COPIADA");
+
+        await adapter.UploadUserTemplateAsync("99", plantilla);
+        var result = await adapter.DownloadUserTemplatesAsync("99");
+
+        Assert.True(result.IsSuccess);
+        Assert.Contains(result.Value, t => t.TemplateData == "TMPL-COPIADA");
+    }
+
+    [Fact]
+    public async Task UploadUserTemplateAsync_ConPinInexistente_DevuelveUserNotFound()
+    {
+        var adapter = new SimulatorDeviceAdapter();
+        await adapter.ConnectAsync(SampleConnection());
+        var plantilla = new FingerprintTemplateRecord(FingerIndex: 0, Flag: 1, TemplateData: "TMPL");
+
+        var result = await adapter.UploadUserTemplateAsync("no-existe", plantilla);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Device.UserNotFound", result.Error.Code);
+    }
+
+    [Fact]
+    public async Task DeleteUserAsync_ConHuellaEnrolada_TambienBorraSusPlantillas()
+    {
+        var adapter = new SimulatorDeviceAdapter();
+        await adapter.ConnectAsync(SampleConnection());
+
+        await adapter.DeleteUserAsync("1");
+        var result = await adapter.DownloadUserTemplatesAsync("1");
+
+        Assert.True(result.IsSuccess);
+        Assert.Empty(result.Value);
+    }
+
+    [Fact]
     public async Task GetSupportedCapabilitiesAsync_DevuelveTodasLasCapacidades()
     {
         var adapter = new SimulatorDeviceAdapter();

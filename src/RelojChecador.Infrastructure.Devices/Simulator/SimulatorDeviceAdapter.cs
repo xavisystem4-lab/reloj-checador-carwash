@@ -18,6 +18,7 @@ namespace RelojChecador.Infrastructure.Devices.Simulator;
 public sealed class SimulatorDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
 {
     private readonly Dictionary<string, DeviceUserRecord> _users;
+    private readonly Dictionary<string, List<FingerprintTemplateRecord>> _templates;
     private readonly List<RawAttendanceRecord> _attendanceLogs;
     private bool _isConnected;
     private bool _isEnabled = true;
@@ -40,6 +41,16 @@ public sealed class SimulatorDeviceAdapter : IAttendanceDeviceAdapter, IDisposab
             ["1"] = new DeviceUserRecord("1", "Ana Torres", PrivilegeLevel: 0, IsEnabled: true),
             ["2"] = new DeviceUserRecord("2", "Luis Peña", PrivilegeLevel: 0, IsEnabled: true),
             ["3"] = new DeviceUserRecord("3", "Marta Gil", PrivilegeLevel: 14, IsEnabled: true),
+        };
+
+        // Datos de huella simulados (un dedo por usuario, contenido inventado — nunca se
+        // interpreta, solo se mueve tal cual, ver FingerprintTemplateRecord) para poder
+        // probar "Cambiar PIN (moviendo la huella)" de punta a punta sin hardware real.
+        _templates = new Dictionary<string, List<FingerprintTemplateRecord>>
+        {
+            ["1"] = [new FingerprintTemplateRecord(FingerIndex: 0, Flag: 1, TemplateData: "SIM-TMPL-ANA-0")],
+            ["2"] = [new FingerprintTemplateRecord(FingerIndex: 0, Flag: 1, TemplateData: "SIM-TMPL-LUIS-0")],
+            ["3"] = [new FingerprintTemplateRecord(FingerIndex: 0, Flag: 1, TemplateData: "SIM-TMPL-MARTA-0")],
         };
 
         var today = DateTime.UtcNow.Date;
@@ -213,6 +224,47 @@ public sealed class SimulatorDeviceAdapter : IAttendanceDeviceAdapter, IDisposab
             return Task.FromResult(Result.Failure(DeviceErrors.UserNotFound(deviceUserPin)));
         }
 
+        // Mismo criterio que el reloj real: borrar un usuario borra también su huella —
+        // ver el aviso de confirmación en DeviceUsersDialog.OnDeleteUserClick.
+        _templates.Remove(deviceUserPin);
+        return Task.FromResult(Result.Success());
+    }
+
+    public Task<Result<IReadOnlyList<FingerprintTemplateRecord>>> DownloadUserTemplatesAsync(
+        string deviceUserPin, CancellationToken cancellationToken = default)
+    {
+        if (!_isConnected)
+        {
+            return Task.FromResult(Result.Failure<IReadOnlyList<FingerprintTemplateRecord>>(DeviceErrors.NotConnected()));
+        }
+
+        IReadOnlyList<FingerprintTemplateRecord> templates = _templates.TryGetValue(deviceUserPin, out var list)
+            ? list.ToList().AsReadOnly()
+            : [];
+        return Task.FromResult(Result.Success(templates));
+    }
+
+    public Task<Result> UploadUserTemplateAsync(
+        string deviceUserPin, FingerprintTemplateRecord template, CancellationToken cancellationToken = default)
+    {
+        if (!_isConnected)
+        {
+            return Task.FromResult(Result.Failure(DeviceErrors.NotConnected()));
+        }
+
+        if (!_users.ContainsKey(deviceUserPin))
+        {
+            return Task.FromResult(Result.Failure(DeviceErrors.UserNotFound(deviceUserPin)));
+        }
+
+        if (!_templates.TryGetValue(deviceUserPin, out var list))
+        {
+            list = [];
+            _templates[deviceUserPin] = list;
+        }
+
+        list.RemoveAll(t => t.FingerIndex == template.FingerIndex);
+        list.Add(template);
         return Task.FromResult(Result.Success());
     }
 

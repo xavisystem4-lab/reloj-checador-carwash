@@ -66,6 +66,43 @@ public partial class DeviceUsersDialog : Window
         StatusTextBlock.Text = _viewModel.DeviceUsersStatusMessage;
     }
 
+    private async void OnChangePinClick(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not DeviceUserRow row)
+        {
+            return;
+        }
+
+        var dialog = new ChangeDeviceUserPinDialog(row) { Owner = this };
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        // Confirmación final aparte del diálogo (que ya trae su propia advertencia) —
+        // mismo criterio que las eliminaciones de abajo: una acción sobre el reloj físico
+        // que toca una huella ya enrolada merece un segundo "¿seguro?" explícito, no solo
+        // el botón "Cambiar PIN" del formulario.
+        var confirmed = MessageBox.Show(
+            this,
+            $"¿Mover a \"{row.Name}\" del PIN {row.DeviceUserPin} al PIN {dialog.NewPin}? Esto copia su huella al PIN nuevo y borra el PIN viejo del reloj.",
+            "Confirmar cambio de PIN",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+        if (confirmed != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        var error = await _viewModel.ChangeDeviceUserPinAsync(row, dialog.NewPin);
+        StatusTextBlock.Text = _viewModel.DeviceUsersStatusMessage;
+
+        if (error is not null)
+        {
+            MessageBox.Show(this, error, "No se pudo cambiar el PIN", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
     private async void OnDeleteUserClick(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.DataContext is not DeviceUserRow row)

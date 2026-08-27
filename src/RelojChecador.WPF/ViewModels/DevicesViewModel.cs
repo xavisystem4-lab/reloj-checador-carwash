@@ -1477,6 +1477,128 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>Cambia el PIN de un usuario del reloj MOVIENDO su huella ya enrolada al PIN
+    /// nuevo — pedido explícito del usuario ("editar el PIN sin ir al reloj físico" +
+    /// "mover el registro de la huella al PIN nuevo"). El SDK no tiene una función para
+    /// "renombrar" un PIN — el enrollNumber es la llave primaria del usuario dentro del
+    /// dispositivo (ver el comentario de <see cref="UpdateDeviceUserAsync"/>) — así que esto
+    /// se hace copiando:
+    ///
+    /// 1. Se descargan las plantillas de huella del PIN viejo.
+    /// 2. Se crea el usuario nuevo (mismo nombre/privilegio/habilitado) bajo el PIN nuevo.
+    /// 3. Se sube cada plantilla al PIN nuevo y se VERIFICA volviendo a descargarlas —
+    ///    recién ahí se considera "movida" de verdad.
+    /// 4. Solo si todo lo anterior salió bien se borra el PIN viejo del dispositivo.
+    ///
+    /// Este orden es deliberado: si algo falla en cualquier paso, el PIN viejo (con su
+    /// huella) se queda exactamente como estaba — nunca se borra nada hasta confirmar que la
+    /// copia llegó completa al PIN nuevo. Es la parte del SDK que este proyecto nunca había
+    /// probado contra hardware real (ver ZKTecoDeviceAdapter.DownloadUserTemplatesAsync) —
+    /// la primera vez que se use en producción, pruébalo con un PIN de prueba antes de
+    /// confiar en él para un empleado real.</summary>
+    /// <returns>Un mensaje de error comprensible (indicando qué quedó a medias, si aplica)
+    /// si algo salió mal, o null si se movió correctamente.</returns>
+    public async Task<string?> ChangeDeviceUserPinAsync(DeviceUserRow row, string newPin, CancellationToken cancellationToken = default)
+    {
+        var oldPin = row.DeviceUserPin;
+        var trimmedNewPin = newPin.Trim();
+
+        if (string.IsNullOrWhiteSpace(trimmedNewPin))
+        {
+            return "El PIN nuevo no puede estar vacío.";
+        }
+        if (trimmedNewPin == oldPin)
+        {
+            return "El PIN nuevo es igual al actual — no hay nada que cambiar.";
+        }
+        if (DeviceUsers.Any(u => u.DeviceUserPin == trimmedNewPin))
+        {
+            return $"Ya existe otro usuario con el PIN {trimmedNewPin} en este reloj — elige uno distinto.";
+        }
+
+        try
+        {
+            // 1) Descargar las huellas del PIN viejo — si esto falla, no se tocó nada todavía.
+            var templatesResult = await _deviceAdapter.DownloadUserTemplatesAsync(oldPin, cancellationToken);
+            if (templatesResult.IsFailure)
+            {
+                return $"No se pudieron leer las huellas del PIN {oldPin}: {templatesResult.Error.Message}. No se cambió nada.";
+            }
+            var templates = templatesResult.Value;
+
+            // 2) Crear el usuario nuevo con los mismos datos.
+            var newUser = new DeviceUserRecord(trimmedNewPin, row.Name, row.PrivilegeLevel, row.IsEnabled);
+            var createResult = await _deviceAdapter.CreateOrUpdateUserAsync(newUser, cancellationToken);
+            if (createResult.IsFailure)
+            {
+                return $"No se pudo crear el PIN {trimmedNewPin} en el reloj: {createResult.Error.Message}. No se cambió nada.";
+            }
+
+            // 3) Subir y VERIFICAR cada huella antes de considerar el movimiento completo —
+            // el PIN viejo sigue intacto mientras esto no termine con éxito.
+            foreach (var template in templates)
+            {
+                var uploadResult = await _deviceAdapter.UploadUserTemplateAsync(trimmedNewPin, template, cancellationToken);
+                if (uploadResult.IsFailure)
+                {
+                    return $"El PIN {trimmedNewPin} ya se creó, pero falló al copiar una huella (dedo {template.FingerIndex}): " +
+                           $"{uploadResult.Error.Message}. El PIN {oldPin} NO se tocó — sigue intacto. Revisa/elimina el PIN " +
+                           $"{trimmedNewPin} (quedó incompleto) desde esta pantalla antes de reintentar.";
+                }
+            }
+
+            if (templates.Count > 0)
+            {
+                var verifyResult = await _deviceAdapter.DownloadUserTemplatesAsync(trimmedNewPin, cancellationToken);
+                if (verifyResult.IsFailure || verifyResult.Value.Count < templates.Count)
+                {
+                    return $"El PIN {trimmedNewPin} ya se creó, pero no se pudo confirmar que las huellas llegaron completas. " +
+                           $"El PIN {oldPin} NO se tocó — sigue intacto. Revisa/elimina el PIN {trimmedNewPin} (quedó incompleto) " +
+                           "desde esta pantalla antes de reintentar.";
+                }
+            }
+
+            // 4) Recién aquí, con el PIN nuevo confirmado completo, se borra el viejo. Un
+            // fallo en este paso puntual no es grave — la huella ya quedó a salvo en el PIN
+            // nuevo, solo queda un PIN viejo huérfano que hay que borrar a mano.
+            var deleteResult = await _deviceAdapter.DeleteUserAsync(oldPin, cancellationToken);
+            if (deleteResult.IsFailure)
+            {
+                AppendLog($"⚠️ PIN {oldPin} movido a {trimmedNewPin}, pero no se pudo borrar el PIN viejo del reloj: {deleteResult.Error.Message} — bórralo a mano.");
+            }
+
+            // Corrige el vínculo local (Empleado↔PIN) para que las marcaciones FUTURAS (que
+            // llegarán con el PIN nuevo) se sigan resolviendo al mismo empleado — ver
+            // EmployeeDeviceMapping.UpdatePin. Las marcaciones YA guardadas conservan el PIN
+            // viejo tal cual ocurrieron, deliberadamente no se tocan (reflejan un hecho
+            // histórico real, no el estado actual del vínculo).
+            if (SelectedDevice is not null)
+            {
+                var mappings = await _mappingRepository.ListAsync(cancellationToken);
+                var mapping = mappings.FirstOrDefault(m => m.DeviceId == SelectedDevice.Id && m.DeviceUserPin == oldPin);
+                if (mapping is not null)
+                {
+                    var tracked = await _mappingRepository.GetByIdAsync(mapping.Id, cancellationToken);
+                    if (tracked is not null)
+                    {
+                        tracked.UpdatePin(trimmedNewPin);
+                        await _unitOfWork.SaveChangesAsync(cancellationToken);
+                    }
+                }
+            }
+
+            AppendLog($"🔁 PIN {oldPin} → {trimmedNewPin} ({row.Name}) — {templates.Count} huella(s) movida(s).");
+            await LoadDeviceUsersAsync();
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Error inesperado al cambiar el PIN del dispositivo ({OldPin} -> {NewPin})", oldPin, trimmedNewPin);
+            return "Ocurrió un error inesperado al cambiar el PIN. Revisa el registro de errores y el estado real en " +
+                   "\"Usuarios del reloj\" antes de reintentar — no está garantizado qué tanto del cambio alcanzó a aplicarse.";
+        }
+    }
+
     /// <summary>Elimina uno o varios usuarios del dispositivo (mismo método tanto para
     /// "Eliminar" individual como para la selección masiva — un solo camino, sin duplicar
     /// lógica). Un fallo en un PIN no detiene el resto del lote; se reportan todos los

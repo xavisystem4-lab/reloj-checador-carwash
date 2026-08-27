@@ -690,6 +690,79 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
         }, cancellationToken);
     }
 
+    // dwFingerIndex va de 0 a 9 (hasta 10 dedos por usuario según el SDK) — se consultan
+    // todos y se descartan los que no traen datos, en vez de asumir un máximo menor
+    // específico del F22/ID (no documentado con certeza y más barato de sobra-consultar
+    // que de arriesgarse a dejar fuera un dedo real enrolado).
+    private const int MaxFingerIndex = 9;
+
+    /// <summary>GetUserTmpExStr — API documentada del SDK para leer una plantilla de huella
+    /// como string (evita lidiar con SAFEARRAY de bytes sobre <c>dynamic</c>/enlace tardío,
+    /// ver el comentario de clase sobre por qué este adaptador no genera un ensamblado de
+    /// interop). Sin confirmar todavía contra hardware real — a diferencia del resto de la
+    /// API pública de esta clase (ver comentario de clase), esta es la parte que
+    /// deliberadamente se dejó sin implementar hasta ahora (ver GetSupportedCapabilitiesAsync)
+    /// por el riesgo de mover mal una huella ya enrolada; DevicesViewModel.ChangeDeviceUserPinAsync
+    /// nunca borra el PIN original hasta haber verificado que la copia llegó completa al PIN
+    /// nuevo, precisamente por este motivo.</summary>
+    public async Task<Result<IReadOnlyList<FingerprintTemplateRecord>>> DownloadUserTemplatesAsync(
+        string deviceUserPin, CancellationToken cancellationToken = default)
+    {
+        if (!_isConnected)
+        {
+            return Result.Failure<IReadOnlyList<FingerprintTemplateRecord>>(DeviceErrors.NotConnected());
+        }
+
+        return await Task.Run(() =>
+        {
+            try
+            {
+                var templates = new List<FingerprintTemplateRecord>();
+                for (int fingerIndex = 0; fingerIndex <= MaxFingerIndex; fingerIndex++)
+                {
+                    int flag = 0;
+                    string tmpData = "";
+                    bool ok = _zk!.GetUserTmpExStr(MachineNumber, deviceUserPin, fingerIndex, ref flag, ref tmpData);
+                    if (ok && !string.IsNullOrEmpty(tmpData))
+                    {
+                        templates.Add(new FingerprintTemplateRecord(fingerIndex, flag, tmpData));
+                    }
+                }
+
+                return Result.Success<IReadOnlyList<FingerprintTemplateRecord>>(templates);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                return Result.Failure<IReadOnlyList<FingerprintTemplateRecord>>(
+                    Error.Unexpected($"GetUserTmpExStr falló: {ex.Message}"));
+            }
+        }, cancellationToken);
+    }
+
+    /// <summary>SetUserTmpExStr — contraparte de <see cref="DownloadUserTemplatesAsync"/>,
+    /// misma nota sobre no estar confirmada todavía contra hardware real.</summary>
+    public async Task<Result> UploadUserTemplateAsync(
+        string deviceUserPin, FingerprintTemplateRecord template, CancellationToken cancellationToken = default)
+    {
+        if (!_isConnected)
+        {
+            return Result.Failure(DeviceErrors.NotConnected());
+        }
+
+        return await Task.Run(() =>
+        {
+            try
+            {
+                bool ok = _zk!.SetUserTmpExStr(MachineNumber, deviceUserPin, template.FingerIndex, template.Flag, template.TemplateData);
+                return ok ? Result.Success() : Result.Failure(Error.Unexpected("SetUserTmpExStr devolvió falso."));
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                return Result.Failure(Error.Unexpected($"SetUserTmpExStr falló: {ex.Message}"));
+            }
+        }, cancellationToken);
+    }
+
     public async Task<Result> EnableDeviceAsync(CancellationToken cancellationToken = default) =>
         await ToggleEnabledAsync(true, cancellationToken);
 
@@ -769,9 +842,13 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
 
     public Task<DeviceCapabilities> GetSupportedCapabilitiesAsync(CancellationToken cancellationToken = default)
     {
-        // A propósito NO incluye FingerprintTemplateTransfer ni UserPhotoSync: el SDK las
-        // soporta, pero este adaptador todavía no las implementa — mejor no anunciar una
-        // capacidad que la app no puede cumplir.
+        // FingerprintTemplateTransfer ya está implementada (ver DownloadUserTemplatesAsync/
+        // UploadUserTemplateAsync, usadas por DevicesViewModel.ChangeDeviceUserPinAsync para
+        // "mover" un enrolamiento a un PIN nuevo) — sigue sin confirmarse todavía contra
+        // hardware real, a diferencia del resto de esta lista (ver comentario de clase), así
+        // que se anuncia igual (la operación existe y funciona según la documentación del
+        // SDK) pero con las salvaguardas explicadas en ese método. UserPhotoSync sí sigue
+        // sin implementar — a propósito no se anuncia.
         const DeviceCapabilities implemented =
             DeviceCapabilities.DownloadAttendanceLogs |
             DeviceCapabilities.DownloadUsers |
@@ -780,7 +857,8 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
             DeviceCapabilities.RemoteRestart |
             DeviceCapabilities.EnableDisable |
             DeviceCapabilities.ClearAttendanceLogs |
-            DeviceCapabilities.RealTimeEvents;
+            DeviceCapabilities.RealTimeEvents |
+            DeviceCapabilities.FingerprintTemplateTransfer;
 
         return Task.FromResult(implemented);
     }

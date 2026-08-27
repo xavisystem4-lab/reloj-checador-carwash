@@ -37,7 +37,7 @@
                 <DataGridTextColumn Header="Nombre" Binding="{Binding Name}" Width="*" IsReadOnly="True" />
                 <DataGridTextColumn Header="Privilegio" Binding="{Binding PrivilegeLabel}" Width="110" IsReadOnly="True" />
                 <DataGridTextColumn Header="Habilitado" Binding="{Binding EnabledLabel}" Width="90" IsReadOnly="True" />
-                <DataGridTemplateColumn Header="" Width="150">
+                <DataGridTemplateColumn Header="" Width="260">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
                             <!-- DataContext heredado = el DeviceUserRow de la fila (mismo
@@ -45,6 +45,12 @@
                                  leen directo sin Tag. -->
                             <StackPanel Orientation="Horizontal">
                                 <Button Content="Editar" Padding="8,3" FontSize="12" Margin="0,0,6,0" Click="OnEditUserClick" />
+                                <!-- Distinto de "Editar" a propósito: cambiar el PIN mueve la
+                                     huella ya enrolada (ver DevicesViewModel.
+                                     ChangeDeviceUserPinAsync) — es una operación bastante más
+                                     delicada que corregir nombre/habilitado, se le da su
+                                     propio botón e ícono para que no se confundan. -->
+                                <Button Content="🔁 Cambiar PIN" Padding="8,3" FontSize="12" Margin="0,0,6,0" Click="OnChangePinClick" />
                                 <Button Content="Eliminar" Padding="8,3" FontSize="12" Click="OnDeleteUserClick" />
                             </StackPanel>
                         </DataTemplate>

@@ -59,6 +59,21 @@ public interface IAttendanceDeviceAdapter
 
     Task<Result> DeleteUserAsync(string deviceUserPin, CancellationToken cancellationToken = default);
 
+    /// <summary>Descarga las plantillas de huella ya enroladas para un PIN (todos los dedos
+    /// con datos, ver <see cref="FingerprintTemplateRecord.FingerIndex"/>) — usado para
+    /// "mover" un enrolamiento a un PIN nuevo sin tener que volver a poner el dedo
+    /// físicamente (ver DevicesViewModel.ChangeDeviceUserPinAsync). Lista vacía (no error)
+    /// si el PIN existe pero todavía no tiene ninguna huella enrolada.</summary>
+    Task<Result<IReadOnlyList<FingerprintTemplateRecord>>> DownloadUserTemplatesAsync(
+        string deviceUserPin, CancellationToken cancellationToken = default);
+
+    /// <summary>Sube UNA plantilla de huella (un dedo) a un PIN — el PIN debe existir ya
+    /// (ver <see cref="CreateOrUpdateUserAsync"/>, llamar primero). Se invoca una vez por
+    /// cada plantilla que devolvió <see cref="DownloadUserTemplatesAsync"/> al mover un
+    /// enrolamiento de un PIN a otro.</summary>
+    Task<Result> UploadUserTemplateAsync(
+        string deviceUserPin, FingerprintTemplateRecord template, CancellationToken cancellationToken = default);
+
     Task<Result> EnableDeviceAsync(CancellationToken cancellationToken = default);
 
     Task<Result> DisableDeviceAsync(CancellationToken cancellationToken = default);
