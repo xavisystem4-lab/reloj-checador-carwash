@@ -27,6 +27,12 @@ public partial class MainWindow : Window
         AttendanceViewControl.DataContext = attendanceViewModel;
         PayrollViewControl.DataContext = payrollViewModel;
 
+        // "📤 Enviar empleados al reloj" vive en Empleados pero reutiliza la MISMA
+        // DevicesViewModel de la pestaña Dispositivos (conectar/enviar/desconectar) — no
+        // pasa por DataContext porque el DataContext de EmployeesViewControl ya es
+        // EmployeesViewModel, así que se asigna aparte (ver EmployeesView.xaml.cs).
+        EmployeesViewControl.DevicesViewModel = devicesViewModel;
+
         // ThemeService.Initialize() ya corrió en App.xaml.cs (antes de crear esta ventana);
         // aquí solo se refleja ese estado ya aplicado en el ícono del botón.
         UpdateDarkModeButtonContent();

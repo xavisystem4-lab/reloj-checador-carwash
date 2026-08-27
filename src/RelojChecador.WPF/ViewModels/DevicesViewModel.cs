@@ -1243,11 +1243,23 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         AppendLog($"Hora del dispositivo sincronizada (antes: {before} → ahora: {DateTime.Now:dd/MM/yyyy HH:mm:ss}).");
     }
 
-    /// <summary>Botón "Enviar empleados al reloj" — pedido explícito del usuario tras la
+    /// <summary>Resultado de <see cref="SendEmployeesToDeviceAsync"/> — <see cref="Error"/>
+    /// no nulo significa que ni siquiera se intentó enviar nada (sin dispositivo
+    /// seleccionado, sin conexión, sin empleados pendientes); con <see cref="Error"/> nulo,
+    /// revisa <see cref="FailedNames"/> para saber si algún empleado puntual falló dentro de
+    /// un envío que sí corrió.</summary>
+    public sealed record SendEmployeesOutcome(int Sent, int Total, IReadOnlyList<string> FailedNames, string? Error)
+    {
+        public bool Success => Error is null;
+    }
+
+    /// <summary>"Enviar empleados al reloj" — pedido explícito del usuario tras la
     /// importación masiva de 54 empleados ("agrega un botón para mandar esta información
-    /// al reloj checador"). Escribe Nombre+PIN en la memoria del dispositivo vía
-    /// SSR_SetUserInfo (<see cref="IAttendanceDeviceAdapter.CreateOrUpdateUserAsync"/> —
-    /// ya existía en el adaptador desde antes pero nunca estuvo conectado a ningún botón)
+    /// al reloj checador"), y movido después de Dispositivos al módulo de Empleados (ver
+    /// EmployeesView.xaml.cs, OnSendEmployeesToDeviceClick — orquesta Conectar → esto →
+    /// Desconectar sobre esta misma instancia de DevicesViewModel, compartida entre
+    /// pestañas dentro de una misma ventana). Escribe Nombre+PIN en la memoria del
+    /// dispositivo vía SSR_SetUserInfo (<see cref="IAttendanceDeviceAdapter.CreateOrUpdateUserAsync"/>)
     /// para cada empleado activo de la sucursal del dispositivo que todavía no tiene
     /// vínculo (<see cref="EmployeeDeviceMapping"/>) con él. Solo prepara el PIN para que
     /// la persona pueda enrolar su huella en el reloj — nunca sube huellas, eso sigue
@@ -1259,26 +1271,30 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
     /// desde antes de que existiera este vínculo local, primero se descarga la lista real
     /// del dispositivo (<see cref="IAttendanceDeviceAdapter.DownloadUsersAsync"/>) y se
     /// evita cualquier PIN que ya esté ocupado ahí, además de los que ya están en
-    /// <see cref="EmployeeDeviceMapping"/> localmente.</summary>
-    [RelayCommand]
-    private async Task SendEmployeesToDeviceAsync()
+    /// <see cref="EmployeeDeviceMapping"/> localmente.
+    ///
+    /// A propósito NO es <c>[RelayCommand]</c>: ya no hay ningún botón enlazado directo a
+    /// esto en XAML (se quitó de Dispositivos) — el único llamador orquesta el flujo
+    /// completo (conectar/enviar/desconectar) a mano y necesita el resultado estructurado
+    /// para mostrar un resumen, no solo lo que quede en la Bitácora.</summary>
+    public async Task<SendEmployeesOutcome> SendEmployeesToDeviceAsync()
     {
         var device = SelectedDevice;
         if (device is null)
         {
             AppendLog("⚠️ No se puede enviar: selecciona primero un dispositivo.");
-            return;
+            return new SendEmployeesOutcome(0, 0, [], "Selecciona primero un dispositivo.");
         }
 
         if (!IsConnected)
         {
             AppendLog("⚠️ No se puede enviar: conecta primero con el dispositivo.");
-            return;
+            return new SendEmployeesOutcome(0, 0, [], "No hay conexión activa con el dispositivo.");
         }
 
         if (_isSendingEmployees)
         {
-            return;
+            return new SendEmployeesOutcome(0, 0, [], "Ya hay un envío en curso.");
         }
 
         _isSendingEmployees = true;
@@ -1293,7 +1309,7 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
             if (pending.Count == 0)
             {
                 AppendLog("No hay empleados activos en la sucursal de este dispositivo.");
-                return;
+                return new SendEmployeesOutcome(0, 0, [], null);
             }
 
             var allMappings = await _mappingRepository.ListAsync();
@@ -1304,7 +1320,7 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
             if (toSend.Count == 0)
             {
                 AppendLog("Todos los empleados activos de esta sucursal ya están vinculados a este dispositivo.");
-                return;
+                return new SendEmployeesOutcome(0, 0, [], null);
             }
 
             // PINs ocupados: los que ya están vinculados localmente + los que ya existan
@@ -1373,11 +1389,14 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
             {
                 AppendLog($"⚠️ No se pudo enviar a: {string.Join(", ", failedNames)}.");
             }
+
+            return new SendEmployeesOutcome(sentCount, toSend.Count, failedNames, null);
         }
         catch (Exception ex)
         {
             Log.Error(ex, "Error inesperado al enviar empleados al dispositivo {DeviceId}", device.Id);
             AppendLog($"⚠️ Error inesperado al enviar empleados al reloj: {ex.Message}");
+            return new SendEmployeesOutcome(0, 0, [], ex.Message);
         }
         finally
         {

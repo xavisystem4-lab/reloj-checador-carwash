@@ -25,6 +25,12 @@
                  archivo como el catálogo COMPLETO (actualiza/crea/da de baja), pedido
                  explícito tras subir un catálogo más completo. -->
             <Button Content="🔁 Reemplazar catálogo" Click="OnReplaceCatalogClick" Margin="0,0,16,0" />
+            <!-- Movido desde Dispositivos a pedido explícito del usuario — antes solo vivía
+                 ahí y exigía tener ya un dispositivo seleccionado/conectado a mano. Este
+                 botón conecta, envía y desconecta él solo (ver
+                 EmployeesView.xaml.cs, OnSendEmployeesToDeviceClick). -->
+            <Button Content="📤 Enviar empleados al reloj" Click="OnSendEmployeesToDeviceClick"
+                    ToolTip="Envía Nombre + PIN (asignado en automático) de cada empleado activo de esta sucursal que aún no esté vinculado a ese reloj. Solo prepara el PIN — la huella se enrola físicamente en el dispositivo." />
             <!-- "Eliminar" es baja lógica (ver EmployeesViewModel.DeleteEmployeeAsync): el
                  empleado se oculta de la lista por defecto, no se borra — este checkbox
                  los vuelve a mostrar sin recargar la base de datos. -->

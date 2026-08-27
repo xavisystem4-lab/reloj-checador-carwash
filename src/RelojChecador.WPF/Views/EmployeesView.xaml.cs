@@ -1,11 +1,21 @@
 using System.Windows;
 using System.Windows.Controls;
+using RelojChecador.Domain.Devices;
 using RelojChecador.WPF.ViewModels;
 
 namespace RelojChecador.WPF.Views;
 
 public partial class EmployeesView : UserControl
 {
+    /// <summary>Referencia a la MISMA instancia de DevicesViewModel que usa la pestaña
+    /// Dispositivos (ambas son Scoped a esta ventana, ver MainWindow.xaml.cs) — necesaria
+    /// para "📤 Enviar empleados al reloj" (ver OnSendEmployeesToDeviceClick), que reutiliza
+    /// su lógica de conectar/enviar/desconectar en vez de duplicarla aquí. No se pasa por
+    /// DataContext porque el DataContext de esta vista es EmployeesViewModel — se asigna
+    /// aparte, directo desde MainWindow.xaml.cs, justo como DeviceUsersDialog recibe
+    /// DevicesViewModel sin pasar por binding.</summary>
+    public DevicesViewModel? DevicesViewModel { get; set; }
+
     public EmployeesView()
     {
         InitializeComponent();
@@ -70,6 +80,105 @@ public partial class EmployeesView : UserControl
 
         var dialog = new ReplaceEmployeeCatalogDialog(viewModel) { Owner = Window.GetWindow(this) };
         dialog.ShowDialog();
+    }
+
+    /// <summary>"📤 Enviar empleados al reloj" — movido aquí desde Dispositivos a pedido
+    /// explícito del usuario. A diferencia de cuando vivía en Dispositivos (donde exigía
+    /// que ya hubiera un dispositivo seleccionado y conectado a mano), este orquesta el
+    /// flujo completo él solo sobre la MISMA instancia de DevicesViewModel: elegir
+    /// dispositivo → Conectar → enviar → Desconectar — así queda todo dentro de un solo
+    /// clic desde Empleados, sin tener que ir primero a la otra pestaña.</summary>
+    private async void OnSendEmployeesToDeviceClick(object sender, RoutedEventArgs e)
+    {
+        if (DevicesViewModel is not { } devicesViewModel)
+        {
+            return;
+        }
+
+        if (devicesViewModel.Devices.Count == 0)
+        {
+            MessageBox.Show(
+                Window.GetWindow(this),
+                "Primero registra al menos un dispositivo en la pestaña Dispositivos.",
+                "Sin dispositivos", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        Device targetDevice;
+        if (devicesViewModel.Devices.Count == 1)
+        {
+            targetDevice = devicesViewModel.Devices[0];
+        }
+        else
+        {
+            var pickDialog = new SelectDeviceDialog(devicesViewModel.Devices) { Owner = Window.GetWindow(this) };
+            if (pickDialog.ShowDialog() != true || pickDialog.SelectedDevice is null)
+            {
+                return;
+            }
+            targetDevice = pickDialog.SelectedDevice;
+        }
+
+        var confirmed = MessageBox.Show(
+            Window.GetWindow(this),
+            $"¿Enviar los empleados activos de la sucursal de \"{targetDevice.Name}\" a ese reloj?\n\n" +
+            "Esto se conecta al dispositivo, sube Nombre + PIN (asignado en automático) de quien todavía " +
+            "no esté vinculado, y se desconecta al terminar. Solo prepara el PIN — la huella se enrola " +
+            "físicamente en el dispositivo.",
+            "Enviar empleados al reloj", MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (confirmed != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        var button = (Button)sender;
+        button.IsEnabled = false;
+        try
+        {
+            devicesViewModel.SelectedDevice = targetDevice;
+            await devicesViewModel.ConnectCommand.ExecuteAsync(null);
+
+            if (!devicesViewModel.IsConnected)
+            {
+                MessageBox.Show(
+                    Window.GetWindow(this),
+                    $"No se pudo conectar con \"{targetDevice.Name}\". Revisa la pestaña Dispositivos para más detalle " +
+                    "(Bitácora / diagnóstico de conexión) y vuelve a intentar.",
+                    "No se pudo conectar", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            var outcome = await devicesViewModel.SendEmployeesToDeviceAsync();
+            await devicesViewModel.DisconnectCommand.ExecuteAsync(null);
+
+            if (!outcome.Success)
+            {
+                MessageBox.Show(Window.GetWindow(this), outcome.Error, "No se pudo enviar", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            if (outcome.Total == 0)
+            {
+                MessageBox.Show(
+                    Window.GetWindow(this),
+                    "No había nada pendiente por enviar — todos los empleados activos de esa sucursal ya están vinculados a este reloj.",
+                    "Nada que enviar", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var failedMessage = outcome.FailedNames.Count > 0
+                ? $"\n\nNo se pudo enviar a: {string.Join(", ", outcome.FailedNames)}."
+                : "";
+            MessageBox.Show(
+                Window.GetWindow(this),
+                $"Enviado(s) {outcome.Sent} de {outcome.Total} empleado(s) nuevo(s) a \"{targetDevice.Name}\" " +
+                $"(PIN asignado en automático). Falta enrolar su huella físicamente en el dispositivo.{failedMessage}",
+                "Envío completado", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        finally
+        {
+            button.IsEnabled = true;
+        }
     }
 
     private async void OnEditEmployeeClick(object sender, RoutedEventArgs e)

@@ -104,8 +104,10 @@
                         <Button Style="{StaticResource ActionButton}" Content="Descargar asistencias" Command="{Binding DownloadAttendanceCommand}" />
                         <Button Style="{StaticResource ActionButton}" Content="Sincronizar hora" Command="{Binding SyncDeviceTimeCommand}"
                                 ToolTip="Escribe la hora de esta PC en el reloj del dispositivo" />
-                        <Button Style="{StaticResource ActionButton}" Content="📤 Enviar empleados al reloj" Command="{Binding SendEmployeesToDeviceCommand}"
-                                ToolTip="Envía Nombre + PIN (asignado en automático) de cada empleado activo de esta sucursal que aún no esté vinculado a este reloj. Solo prepara el PIN — la huella se enrola físicamente en el dispositivo." />
+                        <!-- "📤 Enviar empleados al reloj" se movió a la pestaña Empleados
+                             (pedido explícito del usuario) — ahí conecta/envía/desconecta
+                             solo, sin depender de que ya estés en esta pestaña con un
+                             dispositivo seleccionado y conectado a mano. -->
                     </WrapPanel>
 
                     <GroupBox Header="Diagnóstico de conexión (5 niveles — nunca se asume éxito sin probar)">
