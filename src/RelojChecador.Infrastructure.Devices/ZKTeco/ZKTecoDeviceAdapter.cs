@@ -733,8 +733,15 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
+                // La firma exacta de GetUserTmpExStr nunca se confirmó contra hardware real
+                // (ver comentario de clase) — si el mensaje es el genérico que da .NET
+                // cuando el enlace tardío no encuentra una sobrecarga que calce ("Error
+                // while invoking..."), se le pregunta al propio objeto COM cuál es su firma
+                // real en vez de quedarse solo con ese mensaje opaco, para poder corregir la
+                // llamada con datos reales en vez de otra adivinanza.
+                var realSignature = ComSignatureInspector.Describe(_zk, "GetUserTmpExStr");
                 return Result.Failure<IReadOnlyList<FingerprintTemplateRecord>>(
-                    Error.Unexpected($"GetUserTmpExStr falló: {ex.Message}"));
+                    Error.Unexpected($"GetUserTmpExStr falló: {ex.Message} — firma real reportada por el dispositivo: {realSignature}"));
             }
         }, cancellationToken);
     }
@@ -758,7 +765,9 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
-                return Result.Failure(Error.Unexpected($"SetUserTmpExStr falló: {ex.Message}"));
+                // Misma idea que en DownloadUserTemplatesAsync — ver ese comentario.
+                var realSignature = ComSignatureInspector.Describe(_zk, "SetUserTmpExStr");
+                return Result.Failure(Error.Unexpected($"SetUserTmpExStr falló: {ex.Message} — firma real reportada por el dispositivo: {realSignature}"));
             }
         }, cancellationToken);
     }
