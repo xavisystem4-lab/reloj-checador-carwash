@@ -122,11 +122,12 @@ public partial class EmployeesView : UserControl
 
         var confirmed = MessageBox.Show(
             Window.GetWindow(this),
-            $"¿Enviar los empleados activos de la sucursal de \"{targetDevice.Name}\" a ese reloj?\n\n" +
+            $"¿Enviar TODOS los empleados activos (de cualquier sucursal) a \"{targetDevice.Name}\"?\n\n" +
             "Esto se conecta al dispositivo y sube Nombre + PIN (asignado en automático) de quien todavía " +
             "no esté vinculado — la conexión se queda activa después (igual que si hubieras presionado " +
             "\"Conectar\" en Dispositivos), no se desconecta sola. Solo prepara el PIN — la huella se " +
-            "enrola físicamente en el dispositivo.",
+            "enrola físicamente en el dispositivo. La sucursal de cada empleado sigue siendo la que tiene " +
+            "en su expediente — no depende de a qué reloj esté enrolado.",
             "Enviar empleados al reloj", MessageBoxButton.YesNo, MessageBoxImage.Question);
         if (confirmed != MessageBoxResult.Yes)
         {

@@ -381,13 +381,72 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>Resuelve a qué Employee (y por lo tanto qué sucursal, ver comentario de
+    /// clase de Attendance) corresponde un PIN de ESTE dispositivo — vía
+    /// EmployeeDeviceMapping. (null, null) si el PIN todavía no está vinculado a ningún
+    /// empleado — la marcación se guarda igual, solo queda "pendiente de asignación" (ver
+    /// PersistAttendanceAsync). Consulta en vivo, para el camino de UNA marcación a la vez
+    /// (tiempo real) — la descarga en lote precomputa esto una sola vez para todo el lote
+    /// en vez de repetir esta consulta cientos de veces, ver
+    /// BuildEmployeeBranchLookupByPinAsync.</summary>
+    private async Task<(Guid? EmployeeId, Guid? BranchId)> ResolveEmployeeAndBranchAsync(Guid deviceId, string deviceUserPin)
+    {
+        var mapping = (await _mappingRepository.ListAsync())
+            .FirstOrDefault(m => m.DeviceId == deviceId && m.DeviceUserPin == deviceUserPin);
+        if (mapping is null)
+        {
+            return (null, null);
+        }
+
+        var employee = await _employeeRepository.GetByIdAsync(mapping.EmployeeId);
+        return employee is null ? (null, null) : (employee.Id, employee.BranchId);
+    }
+
+    /// <summary>Precomputa, para TODOS los PINs vinculados a <paramref name="deviceId"/>, a
+    /// qué empleado (y sucursal) corresponden — usado por la descarga en lote
+    /// (DownloadAttendanceCoreAsync) para no repetir la consulta de
+    /// ResolveEmployeeAndBranchAsync una vez por cada registro descargado (puede haber
+    /// cientos en un solo lote).</summary>
+    private async Task<Dictionary<string, Employee>> BuildEmployeeBranchLookupByPinAsync(Guid deviceId)
+    {
+        var mappings = (await _mappingRepository.ListAsync()).Where(m => m.DeviceId == deviceId).ToList();
+        if (mappings.Count == 0)
+        {
+            return [];
+        }
+
+        var employeeIds = mappings.Select(m => m.EmployeeId).ToHashSet();
+        var employeesById = (await _employeeRepository.ListAsync())
+            .Where(e => employeeIds.Contains(e.Id))
+            .ToDictionary(e => e.Id);
+
+        var lookup = new Dictionary<string, Employee>();
+        foreach (var mapping in mappings)
+        {
+            if (employeesById.TryGetValue(mapping.EmployeeId, out var employee))
+            {
+                lookup[mapping.DeviceUserPin] = employee;
+            }
+        }
+
+        return lookup;
+    }
+
     /// <summary>Traduce y guarda una marcación cruda del adaptador como Attendance local,
     /// con deduplicación (la misma marcación puede llegar tanto por el monitoreo en tiempo
     /// real como por una descarga manual posterior — ver IAttendanceRepository.ExistsAsync).
     /// Requiere que <see cref="SelectedDevice"/> siga siendo el dispositivo que reportó el
-    /// registro para resolver DeviceId/BranchId — válido en este ViewModel porque cambiar
-    /// de dispositivo detiene el monitoreo del anterior (ver OnSelectedDeviceChanged).</summary>
-    private async Task<bool> PersistAttendanceAsync(RawAttendanceRecord record, string source)
+    /// registro para resolver DeviceId — válido en este ViewModel porque cambiar de
+    /// dispositivo detiene el monitoreo del anterior (ver OnSelectedDeviceChanged).
+    ///
+    /// La SUCURSAL de la marcación se resuelve por el EMPLEADO dueño del PIN, nunca por el
+    /// dispositivo — pedido explícito del usuario: un solo reloj físico compartido recibe
+    /// marcaciones de empleados de varias sucursales distintas, así que
+    /// Device.BranchId ya no determina la sucursal de nada de lo que ese reloj reporte. Si
+    /// <paramref name="employeeByPin"/> viene (descarga en lote, ya precomputado), se usa
+    /// tal cual; si no (tiempo real, un registro a la vez), se resuelve en vivo.</summary>
+    private async Task<bool> PersistAttendanceAsync(
+        RawAttendanceRecord record, string source, IReadOnlyDictionary<string, Employee>? employeeByPin = null)
     {
         var device = SelectedDevice;
         if (device is null)
@@ -417,14 +476,35 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
                 return false;
             }
 
+            Guid? employeeId;
+            Guid? branchId;
+            if (employeeByPin is not null)
+            {
+                if (employeeByPin.TryGetValue(record.DeviceUserPin, out var employee))
+                {
+                    employeeId = employee.Id;
+                    branchId = employee.BranchId;
+                }
+                else
+                {
+                    employeeId = null;
+                    branchId = null;
+                }
+            }
+            else
+            {
+                (employeeId, branchId) = await ResolveEmployeeAndBranchAsync(device.Id, record.DeviceUserPin);
+            }
+
             var attendance = Attendance.Create(
                 deviceId: device.Id,
-                branchId: device.BranchId,
+                branchId: branchId,
                 deviceUserPin: record.DeviceUserPin,
                 timestampUtc: record.TimestampUtc,
                 verifyMethod: MapVerifyMethod(record.VerifyMethod),
                 punchType: record.PunchType,
-                rawPayload: record.RawPayload);
+                rawPayload: record.RawPayload,
+                employeeId: employeeId);
 
             await _attendanceRepository.AddAsync(attendance);
             await _unitOfWork.SaveChangesAsync();
@@ -1055,6 +1135,12 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
             return (false, "Ya hay una descarga en curso.", 0, 0);
         }
 
+        var device = SelectedDevice;
+        if (device is null)
+        {
+            return (false, "Selecciona primero un dispositivo.", 0, 0);
+        }
+
         _isDownloading = true;
         try
         {
@@ -1074,6 +1160,9 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
             _consecutiveDownloadFailures = 0;
             AttendanceRecords.Clear();
             var savedCount = 0;
+            // Precomputado UNA sola vez para todo el lote (puede haber cientos de
+            // registros) — ver BuildEmployeeBranchLookupByPinAsync.
+            var employeeByPin = await BuildEmployeeBranchLookupByPinAsync(device.Id);
             // Más reciente arriba — el dispositivo entrega los registros en el orden en que
             // los tiene almacenados internamente (normalmente de llegada), no por fecha; se
             // ordena explícitamente antes de mostrarlos para que la marcación más nueva quede
@@ -1081,7 +1170,7 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
             foreach (var record in result.Value.OrderByDescending(r => r.TimestampUtc))
             {
                 AttendanceRecords.Add(record);
-                if (await PersistAttendanceAsync(record, source: "descarga"))
+                if (await PersistAttendanceAsync(record, source: "descarga", employeeByPin))
                 {
                     savedCount++;
                 }
@@ -1317,6 +1406,13 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
     /// </list>
     /// A quien ya está vinculado Y ya aparece en el reloj no se le vuelve a enviar nada.
     ///
+    /// Envía a TODOS los empleados activos, sin importar su sucursal — pedido explícito del
+    /// usuario: un solo reloj físico compartido recibe marcaciones de empleados de varias
+    /// sucursales, así que Device.BranchId ya no filtra a quién se le puede enviar el PIN
+    /// (la sucursal de cada empleado sigue siendo su propio dato, usado para reportes y
+    /// para resolver la sucursal de sus marcaciones — ver Attendance.BranchId — nunca como
+    /// condición para llegar al reloj).
+    ///
     /// Cada empleado se procesa AISLADO dentro de su propio try/catch (nunca se marca a
     /// nadie como sincronizado hasta tener la confirmación de éxito del reloj, y su vínculo
     /// se guarda de inmediato — <c>await _unitOfWork.SaveChangesAsync()</c> por empleado, no
@@ -1349,28 +1445,24 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         _isSendingEmployees = true;
         try
         {
-            var allEmployees = await _employeeRepository.ListAsync();
-            var pending = allEmployees
-                .Where(e => e.BranchId == device.BranchId && e.Status == EmploymentStatus.Active)
+            // Pedido explícito del usuario: un solo reloj físico compartido recibe
+            // marcaciones de empleados de VARIAS sucursales — ya NO se filtra por
+            // Device.BranchId (eso ató durante mucho tiempo "a qué sucursal pertenece el
+            // dispositivo" con "a quién se le puede enviar", causando justo el caso
+            // reportado como "no sube la información": la sucursal del dispositivo no
+            // coincidía con la de los empleados). Se envían TODOS los empleados activos,
+            // sin importar su sucursal — cada quien conserva su propia sucursal como dato
+            // organizacional (para reportes/nómina/filtros), nunca como condición para
+            // recibir su PIN en el reloj.
+            var pending = (await _employeeRepository.ListAsync())
+                .Where(e => e.Status == EmploymentStatus.Active)
                 .OrderBy(e => e.Number.Value)
                 .ToList();
 
             if (pending.Count == 0)
             {
-                // Motivo real más citado de este caso (reportado por el usuario: "no sube
-                // la información" con la lista de empleados visiblemente llena detrás del
-                // diálogo): la sucursal del dispositivo NO es la misma sucursal a la que
-                // quedaron asignados esos empleados — p. ej. tras importar un catálogo cuyo
-                // nombre de sucursal no coincidía exactamente con el existente y creó una
-                // sucursal nueva por error (ver "Reemplazar catálogo"). Se nombra la
-                // sucursal exacta del dispositivo para que sea fácil de verificar contra la
-                // sucursal real de esos empleados en la pantalla de Empleados.
-                var branchName = (await _branchRepository.GetByIdAsync(device.BranchId))?.Name ?? "(sin nombre)";
-                var reason = allEmployees.Any(e => e.Status == EmploymentStatus.Active)
-                    ? $"Este dispositivo está asignado a la sucursal \"{branchName}\", y no hay ningún empleado activo en ESA sucursal — revisa en Empleados a qué sucursal quedaron asignados (pudo crearse una sucursal distinta por un nombre que no coincidía exactamente al importar)."
-                    : "No hay ningún empleado activo registrado todavía.";
-                AppendLog($"No hay empleados activos en la sucursal de este dispositivo (\"{branchName}\").");
-                return new SendEmployeesOutcome(0, 0, 0, [], false, null, reason);
+                AppendLog("No hay ningún empleado activo registrado todavía.");
+                return new SendEmployeesOutcome(0, 0, 0, [], false, null, "No hay ningún empleado activo registrado todavía.");
             }
 
             var allMappings = await _mappingRepository.ListAsync();

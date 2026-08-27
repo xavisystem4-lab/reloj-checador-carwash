@@ -58,7 +58,7 @@ public sealed record EmployeeDeviceMappingDto(
 }
 
 public sealed record AttendanceDto(
-    Guid Id, Guid DeviceId, Guid BranchId, Guid? EmployeeId, string DeviceUserPin, DateTime TimestampUtc,
+    Guid Id, Guid DeviceId, Guid? BranchId, Guid? EmployeeId, string DeviceUserPin, DateTime TimestampUtc,
     string VerifyMethod, int? PunchType, string RawPayload,
     DateTime CreatedAtUtc, DateTime UpdatedAtUtc, Guid ConcurrencyToken)
 {

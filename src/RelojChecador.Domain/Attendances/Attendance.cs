@@ -18,11 +18,23 @@ namespace RelojChecador.Domain.Attendances;
 /// de dispositivo que todavía no está vinculado a ningún Employee
 /// (ver EmployeeDeviceMappings) — se guarda igual, sin perderla, para poder conciliarla
 /// después en vez de descartarla silenciosamente.
+///
+/// <see cref="BranchId"/> también es nullable — pedido explícito del usuario ("separar
+/// claramente el concepto de reloj/dispositivo del concepto de sucursal"): un solo reloj
+/// físico puede recibir marcaciones de empleados de VARIAS sucursales distintas, así que la
+/// sucursal de una marcación se resuelve siempre por el EMPLEADO (Employee.BranchId), NUNCA
+/// por el dispositivo que la reportó — <see cref="DeviceId"/> ya no implica ninguna
+/// sucursal. Si el PIN todavía no está vinculado a ningún Employee, tampoco se conoce su
+/// sucursal — <see cref="BranchId"/> queda en null exactamente en los mismos casos que
+/// <see cref="EmployeeId"/> queda en null (misma causa, mismo momento: ver
+/// DevicesViewModel.PersistAttendanceAsync), y ambos se resuelven juntos al conciliarse
+/// (ver <see cref="ReconcileEmployee"/>) — nunca se pierde la marcación, solo queda
+/// "pendiente de asignación" hasta que exista el vínculo.
 /// </summary>
 public sealed class Attendance : AuditableEntity
 {
     public Guid DeviceId { get; private set; }
-    public Guid BranchId { get; private set; }
+    public Guid? BranchId { get; private set; }
     public Guid? EmployeeId { get; private set; }
     public string DeviceUserPin { get; private set; } = null!;
     public DateTime TimestampUtc { get; private set; }
@@ -41,7 +53,7 @@ public sealed class Attendance : AuditableEntity
 
     public static Attendance Create(
         Guid deviceId,
-        Guid branchId,
+        Guid? branchId,
         string deviceUserPin,
         DateTime timestampUtc,
         AttendanceVerifyMethod verifyMethod,
@@ -50,7 +62,10 @@ public sealed class Attendance : AuditableEntity
         Guid? employeeId = null)
     {
         Guard.AgainstEmptyGuid(deviceId, nameof(deviceId));
-        Guard.AgainstEmptyGuid(branchId, nameof(branchId));
+        if (branchId is { } branchIdValue)
+        {
+            Guard.AgainstEmptyGuid(branchIdValue, nameof(branchId));
+        }
         Guard.AgainstNullOrWhiteSpace(deviceUserPin, nameof(deviceUserPin));
         Guard.AgainstNullOrWhiteSpace(rawPayload, nameof(rawPayload));
 
@@ -72,11 +87,16 @@ public sealed class Attendance : AuditableEntity
 
     /// <summary>Vincula (o desvincula, con null) esta marcación a un Employee ya
     /// identificado — p. ej. al crear tardíamente el EmployeeDeviceMapping que faltaba.
-    /// No cambia ningún otro campo: la marcación en sí, tal como la reportó el
-    /// dispositivo, es inmutable.</summary>
-    public void ReconcileEmployee(Guid? employeeId)
+    /// <paramref name="branchId"/> se actualiza EN CONJUNTO con <paramref name="employeeId"/>
+    /// a propósito: la sucursal de una marcación siempre se deriva del empleado (ver
+    /// comentario de clase), nunca es un dato independiente que alguien pueda fijar solo —
+    /// quien llama a esto ya conoce Employee.BranchId en el momento de conciliar (ver
+    /// EmployeesViewModel.ReconcileAttendancesAsync). No cambia ningún otro campo: la
+    /// marcación en sí, tal como la reportó el dispositivo, es inmutable.</summary>
+    public void ReconcileEmployee(Guid? employeeId, Guid? branchId)
     {
         EmployeeId = employeeId;
+        BranchId = branchId;
         Touch();
     }
 }

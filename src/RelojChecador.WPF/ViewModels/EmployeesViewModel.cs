@@ -253,19 +253,22 @@ public sealed partial class EmployeesViewModel : ObservableObject
         return string.Join(", ", parts);
     }
 
-    /// <summary>Concilia con <paramref name="employeeId"/> las marcaciones de
-    /// <paramref name="deviceId"/>+<paramref name="deviceUserPin"/> que llegaron ANTES de
-    /// que existiera este vínculo (EmployeeId todavía null) — usa
-    /// Attendance.ReconcileEmployee, que existía en el dominio sin que nada lo invocara
-    /// hasta ahora. Se llama justo antes de SaveChangesAsync en los tres lugares donde se
-    /// crea un EmployeeDeviceMapping, para que quede en la misma transacción que el
-    /// vínculo — si algo falla al guardar, ninguna de las dos cosas queda a medias.</summary>
+    /// <summary>Concilia con <paramref name="employeeId"/> (Y SU SUCURSAL — ver comentario
+    /// de clase de Attendance: la sucursal de una marcación siempre se deriva del empleado,
+    /// nunca del dispositivo) las marcaciones de <paramref name="deviceId"/>+
+    /// <paramref name="deviceUserPin"/> que llegaron ANTES de que existiera este vínculo
+    /// (EmployeeId/BranchId todavía null, "pendientes de asignación") — usa
+    /// Attendance.ReconcileEmployee. Se llama justo antes de SaveChangesAsync en los tres
+    /// lugares donde se crea un EmployeeDeviceMapping, para que quede en la misma
+    /// transacción que el vínculo — si algo falla al guardar, ninguna de las dos cosas
+    /// queda a medias.</summary>
     private async Task ReconcileAttendancesAsync(Guid employeeId, Guid deviceId, string deviceUserPin)
     {
+        var employee = await _employeeRepository.GetByIdAsync(employeeId);
         var unresolved = await _attendanceRepository.ListUnresolvedByDeviceAndPinAsync(deviceId, deviceUserPin);
         foreach (var attendance in unresolved)
         {
-            attendance.ReconcileEmployee(employeeId);
+            attendance.ReconcileEmployee(employeeId, employee?.BranchId);
         }
     }
 

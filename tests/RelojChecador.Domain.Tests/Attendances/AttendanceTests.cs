@@ -61,18 +61,49 @@ public class AttendanceTests
     }
 
     [Fact]
-    public void ReconcileEmployee_VinculaElEmpleadoSinTocarLaMarcacionOriginal()
+    public void ReconcileEmployee_VinculaElEmpleadoYSuSucursalSinTocarLaMarcacionOriginal()
     {
         var attendance = CreateSample();
         var employeeId = Guid.NewGuid();
+        var branchId = Guid.NewGuid();
         var originalPayload = attendance.RawPayload;
         var originalTimestamp = attendance.TimestampUtc;
 
-        attendance.ReconcileEmployee(employeeId);
+        attendance.ReconcileEmployee(employeeId, branchId);
 
         Assert.Equal(employeeId, attendance.EmployeeId);
+        // La sucursal SIEMPRE se deriva del empleado, nunca del dispositivo — un solo reloj
+        // físico puede recibir marcaciones de empleados de varias sucursales distintas.
+        Assert.Equal(branchId, attendance.BranchId);
         // La marcación tal cual la reportó el dispositivo es inmutable — solo cambia el vínculo.
         Assert.Equal(originalPayload, attendance.RawPayload);
         Assert.Equal(originalTimestamp, attendance.TimestampUtc);
+    }
+
+    [Fact]
+    public void Create_SinSucursalConocida_QuedaPendienteDeAsignacion()
+    {
+        // Caso real: un PIN del reloj que todavía no está vinculado a ningún Employee — la
+        // marcación se guarda igual (nunca se pierde), sin sucursal ni empleado, hasta que
+        // se cree el vínculo (ver DevicesViewModel.PersistAttendanceAsync/
+        // EmployeesViewModel.ReconcileAttendancesAsync).
+        var attendance = Attendance.Create(
+            Guid.NewGuid(), branchId: null, deviceUserPin: "9", DateTime.UtcNow,
+            AttendanceVerifyMethod.Fingerprint, punchType: 0, rawPayload: "ZK|9|1|0");
+
+        Assert.Null(attendance.BranchId);
+        Assert.Null(attendance.EmployeeId);
+    }
+
+    [Fact]
+    public void ReconcileEmployee_ConNull_DejaLaMarcacionPendienteDeNuevo()
+    {
+        var attendance = CreateSample();
+        attendance.ReconcileEmployee(Guid.NewGuid(), Guid.NewGuid());
+
+        attendance.ReconcileEmployee(null, null);
+
+        Assert.Null(attendance.EmployeeId);
+        Assert.Null(attendance.BranchId);
     }
 }

@@ -152,7 +152,15 @@ public sealed partial class AttendanceViewModel : ObservableObject
 
             _allRows = attendances.Select(a =>
             {
-                var branchName = branchNamesById.TryGetValue(a.BranchId, out var bn) ? bn : "(sucursal desconocida)";
+                // BranchId nulo = "pendiente de asignación" (ver comentario de clase de
+                // Attendance): el PIN todavía no está vinculado a ningún empleado, así que
+                // tampoco se conoce su sucursal — se muestra así en vez de "(sucursal
+                // desconocida)" para que el admin sepa que la corrección es vincular el PIN
+                // en Empleados (ver EmployeesViewModel.ReconcileAttendancesAsync), no un
+                // dato roto.
+                var branchName = a.BranchId is { } branchId
+                    ? (branchNamesById.TryGetValue(branchId, out var bn) ? bn : "(sucursal desconocida)")
+                    : "Pendiente de asignación";
                 var deviceName = deviceNamesById.TryGetValue(a.DeviceId, out var dn) ? dn : "(dispositivo desconocido)";
                 var resolvedEmployeeId = a.EmployeeId
                     ?? (employeeIdByDeviceAndPin.TryGetValue((a.DeviceId, a.DeviceUserPin), out var eid) ? eid : (Guid?)null);
@@ -229,10 +237,15 @@ public sealed partial class AttendanceViewModel : ObservableObject
     /// obligatorio del dominio (nunca hizo falta que fuera opcional hasta ahora) — en vez
     /// de agregar una migración de esquema para permitirlo null, se resuelve solo: el
     /// dispositivo/PIN ya vinculado al empleado si existe (<see cref="EmployeeDeviceMapping"/>),
-    /// o si no, el único dispositivo de su sucursal (con un PIN placeholder "MANUAL", ya
-    /// que nunca se enroló ahí de verdad). Si la sucursal tiene 0 o 2+ dispositivos y el
-    /// empleado no tiene ningún vínculo, no hay forma no ambigua de resolverlo — se
-    /// reporta el error en vez de adivinar cuál usar.</summary>
+    /// o si no, el ÚNICO dispositivo que exista en todo el sistema (con un PIN placeholder
+    /// "MANUAL", ya que nunca se enroló ahí de verdad) — pedido explícito del usuario: un
+    /// solo reloj físico compartido atiende a empleados de cualquier sucursal, así que ya
+    /// NO se filtra por Device.BranchId == employee.BranchId (ese filtro asumía "un reloj
+    /// por sucursal", justo lo contrario del escenario real). Si hay 0 o 2+ dispositivos en
+    /// todo el sistema y el empleado no tiene ningún vínculo propio, no hay forma no
+    /// ambigua de resolverlo — se reporta el error en vez de adivinar cuál usar. La
+    /// sucursal de la marcación (<see cref="Attendance.BranchId"/>) sigue siendo siempre
+    /// <c>employee.BranchId</c>, sin importar cuál dispositivo se haya resuelto aquí.</summary>
     /// <returns>Un mensaje de error comprensible si algo salió mal, o null si se guardó
     /// correctamente.</returns>
     public async Task<ManualAttendanceOutcome> CreateManualAttendanceAsync(
@@ -265,18 +278,16 @@ public sealed partial class AttendanceViewModel : ObservableObject
             }
             else
             {
-                var branchDevices = (await _deviceRepository.ListAsync())
-                    .Where(d => d.BranchId == employee.BranchId)
-                    .ToList();
+                var allDevices = await _deviceRepository.ListAsync();
 
-                if (branchDevices.Count != 1)
+                if (allDevices.Count != 1)
                 {
-                    return new ManualAttendanceOutcome(branchDevices.Count == 0
-                        ? $"\"{employee.FullName}\" no está vinculado a ningún reloj y su sucursal no tiene ninguno registrado — vincúlalo primero desde Empleados."
-                        : $"\"{employee.FullName}\" no está vinculado a ningún reloj y su sucursal tiene varios — vincúlalo primero a uno específico desde Empleados.");
+                    return new ManualAttendanceOutcome(allDevices.Count == 0
+                        ? $"\"{employee.FullName}\" no está vinculado a ningún reloj y no hay ningún dispositivo registrado — registra uno primero en Dispositivos."
+                        : $"\"{employee.FullName}\" no está vinculado a ningún reloj y hay varios dispositivos registrados — vincúlalo primero a uno específico desde Empleados.");
                 }
 
-                deviceId = branchDevices[0].Id;
+                deviceId = allDevices[0].Id;
                 deviceUserPin = "MANUAL";
             }
 
