@@ -74,11 +74,17 @@ public partial class SendEmployeesProgressDialog : Window
         FailedCountTextBlock.Text = outcome.Failed.Count.ToString();
         SkippedCountTextBlock.Text = outcome.Skipped.ToString();
 
-        StatusTextBlock.Text = outcome.Cancelled
-            ? $"⏹️ Cancelado — {outcome.Sent} enviado(s), {outcome.Failed.Count} fallido(s), {outcome.Skipped} sin procesar de {outcome.Total}."
-            : outcome.Failed.Count > 0
-                ? $"⚠️ Terminado con errores — {outcome.Sent} de {outcome.Total} enviado(s) correctamente."
-                : $"✅ Completado — {outcome.Sent} de {outcome.Total} empleado(s) enviados correctamente.";
+        // Total en 0 NO es un error — pero mostrar "Completado — 0 de 0" sin más contexto
+        // es justo lo que llevó al usuario a reportar "no sube la información" pensando que
+        // algo había fallado en silencio. NothingToSendReason explica el motivo real (sin
+        // empleados activos en la sucursal del dispositivo, o ya estaban todos vinculados).
+        StatusTextBlock.Text = outcome.Total == 0
+            ? $"ℹ️ {outcome.NothingToSendReason ?? "No había nada pendiente por enviar."}"
+            : outcome.Cancelled
+                ? $"⏹️ Cancelado — {outcome.Sent} enviado(s), {outcome.Failed.Count} fallido(s), {outcome.Skipped} sin procesar de {outcome.Total}."
+                : outcome.Failed.Count > 0
+                    ? $"⚠️ Terminado con errores — {outcome.Sent} de {outcome.Total} enviado(s) correctamente."
+                    : $"✅ Completado — {outcome.Sent} de {outcome.Total} empleado(s) enviados correctamente.";
 
         if (outcome.Failed.Count > 0)
         {

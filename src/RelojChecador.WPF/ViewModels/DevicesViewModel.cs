@@ -1261,9 +1261,15 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
     /// seleccionado, sin conexión activa, ya había un envío en curso); con <see cref="Error"/>
     /// nulo, revisa <see cref="Failed"/> para el detalle de quién falló y por qué, y
     /// <see cref="Cancelled"/> para saber si se detuvo a medias por cancelación del usuario
-    /// (<see cref="Skipped"/> cuenta a quien ni siquiera se llegó a intentar en ese caso).</summary>
+    /// (<see cref="Skipped"/> cuenta a quien ni siquiera se llegó a intentar en ese caso).
+    /// <see cref="NothingToSendReason"/> explica un <see cref="Total"/> en 0 que NO es un
+    /// error — p. ej. "no hay empleados activos en esa sucursal" vs. "todos ya estaban en
+    /// el reloj" son motivos muy distintos y, sin este campo, el diálogo de progreso solo
+    /// podía mostrar el ambiguo "Completado — 0 de 0" sin decir por qué (reportado por el
+    /// usuario: "no sube la información").</summary>
     public sealed record SendEmployeesOutcome(
-        int Sent, int Total, int Skipped, IReadOnlyList<SendEmployeeFailure> Failed, bool Cancelled, string? Error)
+        int Sent, int Total, int Skipped, IReadOnlyList<SendEmployeeFailure> Failed, bool Cancelled, string? Error,
+        string? NothingToSendReason = null)
     {
         public bool Success => Error is null;
     }
@@ -1334,8 +1340,20 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
 
             if (pending.Count == 0)
             {
-                AppendLog("No hay empleados activos en la sucursal de este dispositivo.");
-                return new SendEmployeesOutcome(0, 0, 0, [], false, null);
+                // Motivo real más citado de este caso (reportado por el usuario: "no sube
+                // la información" con la lista de empleados visiblemente llena detrás del
+                // diálogo): la sucursal del dispositivo NO es la misma sucursal a la que
+                // quedaron asignados esos empleados — p. ej. tras importar un catálogo cuyo
+                // nombre de sucursal no coincidía exactamente con el existente y creó una
+                // sucursal nueva por error (ver "Reemplazar catálogo"). Se nombra la
+                // sucursal exacta del dispositivo para que sea fácil de verificar contra la
+                // sucursal real de esos empleados en la pantalla de Empleados.
+                var branchName = (await _branchRepository.GetByIdAsync(device.BranchId))?.Name ?? "(sin nombre)";
+                var reason = allEmployees.Any(e => e.Status == EmploymentStatus.Active)
+                    ? $"Este dispositivo está asignado a la sucursal \"{branchName}\", y no hay ningún empleado activo en ESA sucursal — revisa en Empleados a qué sucursal quedaron asignados (pudo crearse una sucursal distinta por un nombre que no coincidía exactamente al importar)."
+                    : "No hay ningún empleado activo registrado todavía.";
+                AppendLog($"No hay empleados activos en la sucursal de este dispositivo (\"{branchName}\").");
+                return new SendEmployeesOutcome(0, 0, 0, [], false, null, reason);
             }
 
             var allMappings = await _mappingRepository.ListAsync();
@@ -1387,8 +1405,9 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
 
             if (totalToSend == 0)
             {
-                AppendLog("Todos los empleados activos de esta sucursal ya están en el reloj.");
-                return new SendEmployeesOutcome(0, 0, 0, [], false, null);
+                AppendLog($"Todos los {pending.Count} empleado(s) activo(s) de esta sucursal ya están en el reloj.");
+                return new SendEmployeesOutcome(0, 0, 0, [], false, null,
+                    $"Los {pending.Count} empleado(s) activo(s) de esta sucursal ya están en el reloj — no había nada pendiente por enviar.");
             }
 
             AppendLog($"📤 Enviando {totalToSend} empleado(s) al reloj...");
