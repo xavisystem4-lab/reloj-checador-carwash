@@ -29,8 +29,11 @@
             (HireDate en AAAA-MM-DD, opcional; Status "Activo"/"Inactivo", opcional = Activo).
         </TextBlock>
 
-        <Button Grid.Row="2" Content="📂 Seleccionar archivo..." Style="{StaticResource PrimaryButton}"
-                HorizontalAlignment="Left" Margin="0,0,0,10" Click="OnSelectFileClick" />
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,10">
+            <Button Content="📂 Seleccionar archivo..." Style="{StaticResource PrimaryButton}"
+                    Margin="0,0,8,0" Click="OnSelectFileClick" />
+            <Button Content="📄 Exportar plantilla" Click="OnExportTemplateClick" />
+        </StackPanel>
 
         <StackPanel Grid.Row="3" Margin="0,0,0,10">
             <TextBlock FontWeight="SemiBold" Margin="0,0,0,2">

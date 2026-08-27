@@ -21,8 +21,14 @@
                    Text="Solo crea empleados NUEVOS — nunca sobreescribe uno que ya exista (se omite y se avisa). Columnas esperadas: Number,FullName,Area,Position,WeeklySalary,OvertimeHourlyRate,Notes — los últimos cuatro pueden ir vacíos."
                    FontSize="12" Foreground="{DynamicResource BrushTextSecondary}" TextWrapping="Wrap" Margin="0,0,0,14" />
 
-        <Button Grid.Row="2" Content="📂 Seleccionar archivo CSV..." Style="{StaticResource PrimaryButton}"
-                HorizontalAlignment="Left" Margin="0,0,0,12" Click="OnSelectFileClick" />
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,12">
+            <Button Content="📂 Seleccionar archivo CSV..." Style="{StaticResource PrimaryButton}"
+                    Margin="0,0,8,0" Click="OnSelectFileClick" />
+            <!-- Pedido explícito del usuario tras confundir este formato con el de
+                 "Reemplazar catálogo" (7 columnas vs 9) — antes había que adivinar o copiar
+                 el encabezado de memoria. -->
+            <Button Content="📄 Exportar plantilla" Click="OnExportTemplateClick" />
+        </StackPanel>
 
         <TextBlock Grid.Row="3" x:Name="SummaryTextBlock" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,0,0,6" Visibility="Collapsed" />
         <TextBlock Grid.Row="4" x:Name="BranchesTextBlock" Foreground="{DynamicResource BrushAccent}"

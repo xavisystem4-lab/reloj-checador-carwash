@@ -25,6 +25,36 @@ public partial class ImportEmployeesDialog : Window
         _viewModel = viewModel;
     }
 
+    /// <summary>Genera un CSV de ejemplo con el encabezado exacto que espera este importador
+    /// más una fila de muestra — pedido explícito del usuario tras confundir este formato
+    /// (7 columnas) con el de "Reemplazar catálogo" (9 columnas, HireDate/Status de más) y
+    /// recibir "El encabezado no coincide con el esperado".</summary>
+    private void OnExportTemplateClick(object sender, RoutedEventArgs e)
+    {
+        var saveDialog = new SaveFileDialog
+        {
+            FileName = "plantilla_importar_empleados.csv",
+            Filter = "Archivo CSV (*.csv)|*.csv",
+        };
+        if (saveDialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        const string template =
+            "Number,FullName,Area,Position,WeeklySalary,OvertimeHourlyRate,Notes\r\n" +
+            "EMP-001,Nombre Ejemplo,Drive In Car Wash,Puesto ejemplo,3500,125,Borra esta fila de ejemplo antes de importar\r\n";
+
+        try
+        {
+            File.WriteAllText(saveDialog.FileName, template);
+        }
+        catch (Exception ex)
+        {
+            ShowErrors([$"No se pudo guardar la plantilla: {ex.Message}"]);
+        }
+    }
+
     private async void OnSelectFileClick(object sender, RoutedEventArgs e)
     {
         var fileDialog = new OpenFileDialog { Filter = "Archivo CSV (*.csv)|*.csv|Todos los archivos (*.*)|*.*" };
