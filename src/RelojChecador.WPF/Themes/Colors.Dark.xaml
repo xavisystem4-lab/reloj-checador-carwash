@@ -18,6 +18,7 @@
     <SolidColorBrush x:Key="BrushSuccess" Color="#4ADE80" />
     <SolidColorBrush x:Key="BrushSuccessSurface" Color="#173425" />
     <SolidColorBrush x:Key="BrushDanger" Color="#F87171" />
+    <SolidColorBrush x:Key="BrushDangerSurface" Color="#3A1717" />
     <SolidColorBrush x:Key="BrushWarning" Color="#FBBF24" />
     <SolidColorBrush x:Key="BrushWarningSurface" Color="#3A2E10" />
     <SolidColorBrush x:Key="BrushSelection" Color="#24365E" />

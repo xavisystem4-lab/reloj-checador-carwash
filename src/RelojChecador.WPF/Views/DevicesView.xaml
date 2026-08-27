@@ -80,7 +80,41 @@
                         <TextBlock Text="{Binding SelectedDevice.Name}" FontSize="20" FontWeight="Bold" />
                         <TextBlock Text="{Binding SelectedDevice.Brand}" Foreground="{DynamicResource BrushTextSecondary}" Margin="10,0,0,0" VerticalAlignment="Center" />
                         <TextBlock Text="{Binding SelectedDevice.Model}" Foreground="{DynamicResource BrushTextSecondary}" Margin="6,0,0,0" VerticalAlignment="Center" />
-                        <Border Background="{DynamicResource BrushSuccessSurface}" CornerRadius="10" Padding="8,3" Margin="12,0,0,0"
+                        <!-- Estado real de conexión, siempre visible (a diferencia del panel
+                             "Diagnóstico de conexión" de abajo, que solo se actualiza al
+                             correr los 5 niveles a mano) — refleja IsConnected en vivo, la
+                             misma propiedad que decide qué se sube a Supabase y ve el
+                             Dashboard, así que esta pastilla nunca debería contradecirlo.
+                             Pedido explícito del usuario: que la app avise "Desconectado" en
+                             cuanto se interrumpa la comunicación, no solo hasta que alguien
+                             note los checkmarks viejos del diagnóstico. -->
+                        <Border CornerRadius="10" Padding="8,3" Margin="12,0,0,0" VerticalAlignment="Center">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Setter Property="Background" Value="{DynamicResource BrushDangerSurface}" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsConnected}" Value="True">
+                                            <Setter Property="Background" Value="{DynamicResource BrushSuccessSurface}" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <TextBlock FontSize="12" FontWeight="SemiBold">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Text" Value="🔴 Desconectado" />
+                                        <Setter Property="Foreground" Value="{DynamicResource BrushDanger}" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsConnected}" Value="True">
+                                                <Setter Property="Text" Value="🟢 Conectado" />
+                                                <Setter Property="Foreground" Value="{DynamicResource BrushSuccess}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </Border>
+                        <Border Background="{DynamicResource BrushSuccessSurface}" CornerRadius="10" Padding="8,3" Margin="8,0,0,0"
                                 VerticalAlignment="Center"
                                 Visibility="{Binding IsMonitoringRealTime, Converter={StaticResource BoolToVisibleConverter}}">
                             <TextBlock Text="🟢 En vivo — las marcaciones nuevas aparecen solas" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource BrushSuccess}" />

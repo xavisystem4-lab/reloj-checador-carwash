@@ -951,6 +951,15 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         IsMonitoringRealTime = false;
         await _deviceAdapter.DisconnectAsync();
         IsConnected = false;
+
+        // Antes ProtocolResult/AuthResult se quedaban en "✅ Protocolo reconocido"/"✅
+        // Autenticación correcta" para siempre tras "Desconectar" (solo OnSelectedDeviceChanged
+        // los reiniciaba, y eso exige cambiar de dispositivo) — quien mirara esta pantalla veía
+        // puros checkmarks verdes y creía que seguía conectado, aunque IsConnected ya fuera
+        // false y el Dashboard (basado en ese mismo estado) ya mostrara "Desconectado" — no
+        // eran dos sistemas en desacuerdo, era la UI local mostrando un resultado viejo.
+        ProtocolResult = "No verificado";
+        AuthResult = "No verificado";
         AppendLog("Desconectado del dispositivo.");
 
         // Antes esto no tocaba Device.Status ni la nube — un "Desconectar" manual dejaba a
@@ -1106,6 +1115,14 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         _ = _deviceAdapter.DisconnectAsync();
         IsMonitoringRealTime = false;
         IsConnected = false;
+
+        // Mismo motivo que en DisconnectAsync: sin esto, ProtocolResult/AuthResult seguían
+        // mostrando los checkmarks verdes de la última conexión exitosa horas atrás — la
+        // única pista de que el reloj ya no respondía de verdad quedaba enterrada en la
+        // Bitácora, nadie la mira a cada rato. Ahora el mismo panel de diagnóstico que
+        // mostró "conectado" es el que avisa que dejó de estarlo.
+        ProtocolResult = "No verificado";
+        AuthResult = $"❌ Comunicación perdida — {reason}";
 
         await TryPersistCommunicationResultAsync(succeeded: false);
     }
