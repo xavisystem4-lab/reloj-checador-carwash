@@ -389,9 +389,16 @@ async function loadBranches() {
 
 // ---- Estado de conexión de cada reloj checador ----
 async function loadDevicesStatus() {
+  // .neq('status', 'Disabled'): un dispositivo dado de baja desde la app de escritorio
+  // ("🗑️ Eliminar" en Dispositivos — baja lógica, ver DevicesViewModel.DeleteDeviceAsync
+  // del repo principal) sigue sincronizándose a esta tabla con status='Disabled' en vez de
+  // borrarse — sin este filtro, el Dashboard lo seguía mostrando aquí para siempre aunque
+  // ya no exista para nadie más en la app. Caso real: un dispositivo de prueba ("Susushi")
+  // dado de baja hace días seguía apareciendo con "Sin comunicación registrada".
   const { data, error } = await supabase
     .from('devices')
     .select('id, name, last_communication_at_utc')
+    .neq('status', 'Disabled')
     .order('name');
 
   if (error) {
