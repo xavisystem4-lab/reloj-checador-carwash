@@ -26,7 +26,7 @@
             aparece. La coincidencia es por NOMBRE EXACTO — revisa con cuidado la lista de "Se dará de baja"
             antes de aplicar. Columnas esperadas:
             Number,FullName,Area,Position,HireDate,Status,WeeklySalary,OvertimeHourlyRate,Notes,Pin
-            (HireDate en AAAA-MM-DD, opcional; Status "Activo"/"Inactivo", opcional = Activo; Pin solo
+            (HireDate en AAAA-MM-DD o DD/MM/AAAA, opcional; Status "Activo"/"Inactivo", opcional = Activo; Pin solo
             dígitos, opcional — si viene, vincula a esa persona con el reloj de su sucursal y, al darle
             después "Enviar empleados al reloj" en Empleados, ese PIN se sube de verdad al dispositivo).
         </TextBlock>

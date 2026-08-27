@@ -48,12 +48,51 @@ public class EmployeeCatalogReplaceParserTests
     }
 
     [Fact]
+    public void Parse_ConHireDateComoNumeroDeSerieDeExcel_LoConvierteALaFechaCorrecta()
+    {
+        // Caso real: Excel reinterpreta el texto ISO al abrir/guardar el CSV y, si la
+        // celda quedó en formato "General", lo exporta como este entero — a diferencia de
+        // un DD/MM/AAAA suelto (genuinamente ambiguo), esta conversión es exacta.
+        var lines = new[]
+        {
+            Header,
+            "EMP-001,Adrian Uribe,Drive In Car Wash,,45267,Activo,,,,",
+        };
+
+        var result = EmployeeCatalogReplaceParser.Parse(lines);
+
+        Assert.Empty(result.Errors);
+        var row = Assert.Single(result.Rows);
+        Assert.Equal(new DateOnly(2023, 12, 7), row.HireDate);
+    }
+
+    [Fact]
+    public void Parse_ConHireDateEnFormatoMexicano_LoInterpretaComoDiaMesAnio()
+    {
+        // Pedido explícito del usuario: "que la fecha la reconozca con el formato de
+        // Español México dd/mm/aaaa". A propósito NO se acepta mm/dd/aaaa (inglés EE. UU.)
+        // a la vez — "07/12/2023" solo puede significar 7 de diciembre bajo este único
+        // formato de barras aceptado, sin ambigüedad.
+        var lines = new[]
+        {
+            Header,
+            "EMP-001,Adrian Uribe,Drive In Car Wash,,07/12/2023,Activo,,,,",
+        };
+
+        var result = EmployeeCatalogReplaceParser.Parse(lines);
+
+        Assert.Empty(result.Errors);
+        var row = Assert.Single(result.Rows);
+        Assert.Equal(new DateOnly(2023, 12, 7), row.HireDate);
+    }
+
+    [Fact]
     public void Parse_ConHireDateInvalido_ReportaError()
     {
         var lines = new[]
         {
             Header,
-            "EMP-001,Adrian Uribe,Drive In Car Wash,,07/12/2023,Activo,,,,",
+            "EMP-001,Adrian Uribe,Drive In Car Wash,,32/13/2023,Activo,,,,",
         };
 
         var result = EmployeeCatalogReplaceParser.Parse(lines);

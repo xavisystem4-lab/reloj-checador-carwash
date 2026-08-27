@@ -122,7 +122,7 @@ public static class EmployeeCatalogReplaceParser
 
             if (!TryParseOptionalHireDate(fields[4], out var hireDate))
             {
-                errors.Add($"Línea {lineNumber}: HireDate \"{fields[4]}\" no es una fecha válida (formato AAAA-MM-DD, o vacío).");
+                errors.Add($"Línea {lineNumber}: HireDate \"{fields[4]}\" no es una fecha válida (formato AAAA-MM-DD o DD/MM/AAAA, o vacío).");
                 continue;
             }
 
@@ -168,6 +168,20 @@ public static class EmployeeCatalogReplaceParser
         header.Length == ExpectedHeader.Length
         && header.Select(h => h.Trim()).SequenceEqual(ExpectedHeader, StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>El formato preferido sigue siendo ISO <c>yyyy-MM-dd</c>, pero también se
+    /// acepta <c>dd/MM/yyyy</c> (Español México, pedido explícito del usuario) — mismo
+    /// criterio "día antes que mes" que el resto de la UI en español de este proyecto. A
+    /// propósito NO se intenta adivinar <c>MM/dd/yyyy</c> (inglés EE. UU.): con dos formatos
+    /// de barras aceptados a la vez, un valor como "07/12/2023" sería ambiguo entre 7 de
+    /// diciembre y 12 de julio, y adivinar mal correría el riesgo de guardar una fecha de
+    /// ingreso equivocada en silencio — peor que rechazar la fila con un error claro.
+    ///
+    /// Aparte de esos dos formatos de texto, también se acepta el número de serie de fecha
+    /// de Excel (días desde 1899-12-30): cuando alguien abre y vuelve a guardar el CSV en
+    /// Excel, este a veces "ayuda" reinterpretando el texto como fecha real y, si la celda
+    /// quedó en formato "General", lo exporta como ese número entero (p. ej. <c>45267</c>)
+    /// en vez de texto — a diferencia de un formato de barras ambiguo, esta conversión sí es
+    /// exacta y sin ambigüedad.</summary>
     private static bool TryParseOptionalHireDate(string raw, out DateOnly? value)
     {
         var trimmed = raw.Trim();
@@ -177,9 +191,16 @@ public static class EmployeeCatalogReplaceParser
             return true;
         }
 
-        if (DateOnly.TryParseExact(trimmed, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
+        string[] acceptedFormats = ["yyyy-MM-dd", "dd/MM/yyyy"];
+        if (DateOnly.TryParseExact(trimmed, acceptedFormats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
         {
             value = parsed;
+            return true;
+        }
+
+        if (int.TryParse(trimmed, NumberStyles.Integer, CultureInfo.InvariantCulture, out var serial) && serial is > 0 and < 100_000)
+        {
+            value = DateOnly.FromDateTime(new DateTime(1899, 12, 30).AddDays(serial));
             return true;
         }
 
