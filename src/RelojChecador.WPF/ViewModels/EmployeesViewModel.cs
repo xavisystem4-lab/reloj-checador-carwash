@@ -22,8 +22,15 @@ namespace RelojChecador.WPF.ViewModels;
 /// vínculos a dispositivos, ambos ya resueltos — Employee solo guarda BranchId (Guid) sin
 /// navegación a Branch, y sus vínculos viven en una tabla aparte
 /// (EmployeeDeviceMapping), así que el DataGrid bindea a esto en vez de al Employee crudo.
-/// </summary>
-public sealed record EmployeeRow(Employee Employee, string BranchName, string LinkedDevicesSummary);
+///
+/// <see cref="PinSummary"/> (pedido explícito del usuario: "quiero que me aparezca en el
+/// módulo de empleados el PIN") es el mismo dato que ya vivía embebido dentro de
+/// <see cref="LinkedDevicesSummary"/> (p. ej. "Checador (PIN 12)") pero como columna propia
+/// — útil para comparar de un vistazo contra el PIN de un CSV de "Reemplazar catálogo" sin
+/// tener que leerlo dentro del texto del dispositivo. Vacío ("") si no tiene ningún vínculo
+/// todavía, nunca "Sin vincular" — ese texto ya lo cubre LinkedDevicesSummary, repetirlo en
+/// esta columna solo generaría ruido visual en una tabla con muchas filas.</summary>
+public sealed record EmployeeRow(Employee Employee, string BranchName, string LinkedDevicesSummary, string PinSummary);
 
 /// <summary>Un vínculo de un empleado a un dispositivo, con el nombre del dispositivo ya
 /// resuelto — usado por EditEmployeeMappingsDialog para poder corregir el PIN sin
@@ -224,20 +231,21 @@ public sealed partial class EmployeesViewModel : ObservableObject
         IReadOnlyList<EmployeeDeviceMapping> mappings)
     {
         var branchName = branchNamesById.TryGetValue(employee.BranchId, out var name) ? name : "(sucursal desconocida)";
-        var linkedDevicesSummary = BuildLinkedDevicesSummary(employee.Id, deviceNamesById, mappings);
-        return new EmployeeRow(employee, branchName, linkedDevicesSummary);
+        var ownMappings = mappings.Where(m => m.EmployeeId == employee.Id).ToList();
+        var linkedDevicesSummary = BuildLinkedDevicesSummary(deviceNamesById, ownMappings);
+        var pinSummary = string.Join(", ", ownMappings.Select(m => m.DeviceUserPin));
+        return new EmployeeRow(employee, branchName, linkedDevicesSummary, pinSummary);
     }
 
     private static string BuildLinkedDevicesSummary(
-        Guid employeeId, Dictionary<Guid, string> deviceNamesById, IReadOnlyList<EmployeeDeviceMapping> mappings)
+        Dictionary<Guid, string> deviceNamesById, IReadOnlyList<EmployeeDeviceMapping> ownMappings)
     {
-        var own = mappings.Where(m => m.EmployeeId == employeeId).ToList();
-        if (own.Count == 0)
+        if (ownMappings.Count == 0)
         {
             return "Sin vincular";
         }
 
-        var parts = own.Select(m =>
+        var parts = ownMappings.Select(m =>
         {
             var deviceName = deviceNamesById.TryGetValue(m.DeviceId, out var name) ? name : "(dispositivo desconocido)";
             return $"{deviceName} (PIN {m.DeviceUserPin})";

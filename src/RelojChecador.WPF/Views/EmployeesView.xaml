@@ -62,6 +62,7 @@
                   CanUserAddRows="False" GridLinesVisibility="Horizontal" HeadersVisibility="Column">
             <DataGrid.Columns>
                 <DataGridTextColumn Header="Número" Binding="{Binding Employee.Number}" Width="90" />
+                <DataGridTextColumn Header="PIN" Binding="{Binding PinSummary}" Width="60" />
                 <DataGridTextColumn Header="Nombre" Binding="{Binding Employee.FullName}" Width="*" />
                 <DataGridTextColumn Header="Sucursal" Binding="{Binding BranchName}" Width="150" />
                 <DataGridTextColumn Header="Departamento" Binding="{Binding Employee.Department}" Width="130" />
