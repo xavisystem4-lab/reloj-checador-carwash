@@ -24,11 +24,21 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly IBranchRepository _branchRepository;
     private readonly IUnitOfWork _unitOfWork;
 
+    /// <summary>Lista completa sin filtrar — <see cref="Branches"/> se reconstruye a partir
+    /// de esta aplicando <see cref="ApplyBranchVisibilityFilter"/>, mismo criterio que
+    /// DevicesViewModel._allDevices/EmployeesViewModel._allRows: "eliminar" una sucursal
+    /// (ver <see cref="DeleteBranchAsync"/>) es baja lógica, nunca borra el registro, así
+    /// que por defecto se oculta pero puede volver a mostrarse sin recargar la base.</summary>
+    private List<Branch> _allBranches = [];
+
     [ObservableProperty]
     private string _statusMessage = "Cargando información local...";
 
     [ObservableProperty]
     private bool _isLoading = true;
+
+    [ObservableProperty]
+    private bool _showInactiveBranches;
 
     public ObservableCollection<Branch> Branches { get; } = [];
 
@@ -43,14 +53,8 @@ public sealed partial class MainViewModel : ObservableObject
         IsLoading = true;
         try
         {
-            var branches = await _branchRepository.ListAsync();
-            Branches.Clear();
-            foreach (var branch in branches)
-            {
-                Branches.Add(branch);
-            }
-
-            RefreshStatusMessage();
+            _allBranches = (await _branchRepository.ListAsync()).ToList();
+            ApplyBranchVisibilityFilter();
         }
         catch (Exception ex)
         {
@@ -63,6 +67,23 @@ public sealed partial class MainViewModel : ObservableObject
         }
     }
 
+    partial void OnShowInactiveBranchesChanged(bool value) => ApplyBranchVisibilityFilter();
+
+    private void ApplyBranchVisibilityFilter()
+    {
+        IEnumerable<Branch> visible = ShowInactiveBranches
+            ? _allBranches
+            : _allBranches.Where(b => b.IsActive);
+
+        Branches.Clear();
+        foreach (var branch in visible)
+        {
+            Branches.Add(branch);
+        }
+
+        RefreshStatusMessage();
+    }
+
     /// <returns>Un mensaje de error comprensible si algo salió mal, o null si se guardó correctamente.</returns>
     public async Task<string?> CreateBranchAsync(
         string code, string name, string timeZoneId, string? legalEntityName, string? address)
@@ -73,8 +94,8 @@ public sealed partial class MainViewModel : ObservableObject
             await _branchRepository.AddAsync(branch);
             await _unitOfWork.SaveChangesAsync();
 
-            Branches.Add(branch);
-            RefreshStatusMessage();
+            _allBranches.Add(branch);
+            ApplyBranchVisibilityFilter();
             return null;
         }
         catch (DomainException ex)
@@ -131,14 +152,8 @@ public sealed partial class MainViewModel : ObservableObject
 
             await _unitOfWork.SaveChangesAsync();
 
-            var branches = await _branchRepository.ListAsync();
-            Branches.Clear();
-            foreach (var b in branches)
-            {
-                Branches.Add(b);
-            }
-
-            RefreshStatusMessage();
+            _allBranches = (await _branchRepository.ListAsync()).ToList();
+            ApplyBranchVisibilityFilter();
             return null;
         }
         catch (DomainException ex)
@@ -157,11 +172,51 @@ public sealed partial class MainViewModel : ObservableObject
         }
     }
 
+    /// <summary>"Eliminar" una sucursal — baja lógica, igual criterio que
+    /// DevicesViewModel.DeleteDeviceAsync/EmployeesViewModel.DeleteEmployeeAsync: el
+    /// registro se conserva (con sus empleados/dispositivos ya vinculados, que siguen
+    /// referenciando su Id), solo se marca inactiva y se oculta de la lista por defecto —
+    /// nunca se borra de verdad.</summary>
+    /// <returns>Un mensaje de error comprensible si algo salió mal, o null si se guardó correctamente.</returns>
+    public async Task<string?> DeleteBranchAsync(Guid branchId)
+    {
+        try
+        {
+            var branch = await _branchRepository.GetByIdAsync(branchId);
+            if (branch is null)
+            {
+                return "No se encontró la sucursal — puede que la lista esté desactualizada. Cierra y vuelve a abrir esta pantalla.";
+            }
+
+            branch.Deactivate();
+            await _unitOfWork.SaveChangesAsync();
+
+            _allBranches = (await _branchRepository.ListAsync()).ToList();
+            ApplyBranchVisibilityFilter();
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Error inesperado al dar de baja una sucursal (BranchId={BranchId})", branchId);
+            return "Ocurrió un error inesperado al guardar. Revisa el registro de errores.";
+        }
+    }
+
     private void RefreshStatusMessage()
     {
-        StatusMessage = Branches.Count == 0
-            ? "Aún no hay sucursales registradas."
-            : $"{Branches.Count} sucursal(es) registrada(s) en la base local.";
+        var hiddenCount = _allBranches.Count - Branches.Count;
+        if (_allBranches.Count == 0)
+        {
+            StatusMessage = "Aún no hay sucursales registradas.";
+        }
+        else if (hiddenCount > 0)
+        {
+            StatusMessage = $"{Branches.Count} de {_allBranches.Count} sucursal(es) — {hiddenCount} oculta(s) por estar inactiva(s).";
+        }
+        else
+        {
+            StatusMessage = $"{Branches.Count} sucursal(es) registrada(s) en la base local.";
+        }
     }
 
     /// <summary>Arma el CSV de las sucursales visibles ahora mismo — mismo patrón que

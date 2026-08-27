@@ -61,6 +61,35 @@ public partial class BranchesView : UserControl
         }
     }
 
+    /// <summary>"🗑️ Eliminar" en la lista de sucursales — baja lógica (ver
+    /// MainViewModel.DeleteBranchAsync): el registro y sus empleados/dispositivos ya
+    /// vinculados se conservan, solo se oculta de la lista por defecto. El texto de
+    /// confirmación lo deja claro para que nadie lo confunda con un borrado real — mismo
+    /// criterio y misma redacción que OnDeleteDeviceListItemClick en DevicesView.</summary>
+    private async void OnDeleteBranchClick(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MainViewModel viewModel || (sender as FrameworkElement)?.DataContext is not Branch branch)
+        {
+            return;
+        }
+
+        var confirmed = MessageBox.Show(
+            Window.GetWindow(this),
+            $"¿Dar de baja la sucursal \"{branch.Name}\"? Se oculta de la lista, pero sus empleados y dispositivos ya vinculados se conservan — puedes volver a verla marcando \"Mostrar sucursales inactivas\".",
+            "Dar de baja la sucursal", MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (confirmed != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        var error = await viewModel.DeleteBranchAsync(branch.Id);
+
+        if (error is not null)
+        {
+            MessageBox.Show(Window.GetWindow(this), error, "No se pudo dar de baja la sucursal", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
     /// <summary>Mismo patrón que AttendanceView/PayrollView.OnExportCsvClick: el
     /// ViewModel arma el texto (BuildCsv), aquí solo se resuelve dónde guardarlo.</summary>
     private void OnExportCsvClick(object sender, RoutedEventArgs e)

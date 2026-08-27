@@ -24,7 +24,13 @@
                  (incluido de fábrica en Windows 10/11) guarda como PDF sin instalar nada,
                  o se puede elegir cualquier impresora física — cero dependencias nuevas
                  en el .exe self-contained. -->
-            <Button Content="🖶 Imprimir / Exportar PDF" Click="OnPrintClick" />
+            <Button Content="🖶 Imprimir / Exportar PDF" Margin="0,0,16,0" Click="OnPrintClick" />
+            <!-- "Eliminar" es baja lógica (ver MainViewModel.DeleteBranchAsync): la sucursal
+                 se oculta de la lista por defecto, no se borra — este checkbox la vuelve a
+                 mostrar sin recargar la base de datos, mismo criterio que "Mostrar
+                 deshabilitados" en Dispositivos y "Mostrar dados de baja" en Empleados. -->
+            <CheckBox Content="Mostrar sucursales inactivas" VerticalAlignment="Center" FontSize="12.5"
+                      IsChecked="{Binding ShowInactiveBranches, Mode=TwoWay}" />
         </StackPanel>
 
         <DataGrid Grid.Row="3" ItemsSource="{Binding Branches}" AutoGenerateColumns="False" IsReadOnly="True"
@@ -41,13 +47,16 @@
                      "Un enlace TwoWay u OneWayToSource no puede funcionar en la propiedad de sólo
                      lectura 'IsActive'" reportado la primera vez que corrió en Windows real. -->
                 <DataGridCheckBoxColumn Header="Activa" Binding="{Binding IsActive, Mode=OneWay}" Width="70" />
-                <DataGridTemplateColumn Header="" Width="90">
+                <DataGridTemplateColumn Header="" Width="150">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
                             <!-- DataContext heredado = la Branch de la fila (mismo patrón
-                                 que EmployeesView/PayrollView) — el handler la lee directo
+                                 que EmployeesView/PayrollView) — cada handler la lee directo
                                  sin Tag. -->
-                            <Button Content="Editar" Padding="8,4" FontSize="12" Click="OnEditBranchClick" />
+                            <StackPanel Orientation="Horizontal">
+                                <Button Content="Editar" Padding="8,4" FontSize="12" Margin="0,0,6,0" Click="OnEditBranchClick" />
+                                <Button Content="🗑️ Eliminar" Padding="8,4" FontSize="12" Click="OnDeleteBranchClick" />
+                            </StackPanel>
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
