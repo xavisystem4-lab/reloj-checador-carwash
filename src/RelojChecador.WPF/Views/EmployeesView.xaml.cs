@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using RelojChecador.Domain.Devices;
 using RelojChecador.WPF.ViewModels;
+using Serilog;
 
 namespace RelojChecador.WPF.Views;
 
@@ -155,35 +156,67 @@ public partial class EmployeesView : UserControl
             // así que "Usuarios del reloj" (u otra acción en Dispositivos) inmediatamente
             // después pedía conectar de nuevo. Se deja la conexión activa, igual que si el
             // usuario hubiera presionado "Conectar" él mismo.
-            var outcome = await devicesViewModel.SendEmployeesToDeviceAsync();
-
-            if (!outcome.Success)
-            {
-                MessageBox.Show(Window.GetWindow(this), outcome.Error, "No se pudo enviar", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
-            if (outcome.Total == 0)
-            {
-                MessageBox.Show(
-                    Window.GetWindow(this),
-                    "No había nada pendiente por enviar — todos los empleados activos de esa sucursal ya están vinculados a este reloj.",
-                    "Nada que enviar", MessageBoxButton.OK, MessageBoxImage.Information);
-                return;
-            }
-
-            var failedMessage = outcome.FailedNames.Count > 0
-                ? $"\n\nNo se pudo enviar a: {string.Join(", ", outcome.FailedNames)}."
-                : "";
-            MessageBox.Show(
-                Window.GetWindow(this),
-                $"Enviado(s) {outcome.Sent} de {outcome.Total} empleado(s) nuevo(s) a \"{targetDevice.Name}\" " +
-                $"(PIN asignado en automático). Falta enrolar su huella físicamente en el dispositivo.{failedMessage}",
-                "Envío completado", MessageBoxButton.OK, MessageBoxImage.Information);
+            await RunSendWithProgressDialogAsync(devicesViewModel, targetDevice);
         }
         finally
         {
             button.IsEnabled = true;
+        }
+    }
+
+    /// <summary>Abre el diálogo de progreso y lo mantiene sincronizado con el envío real —
+    /// pedido explícito del usuario tras reportar que el envío masivo (55 empleados) cerraba
+    /// la app sin ningún aviso ni forma de saber si seguía corriendo. El envío en sí corre
+    /// en segundo plano (ver DevicesViewModel.SendEmployeesToDeviceAsync, que ya encola cada
+    /// llamada al SDK en su propio hilo dedicado — ver ZKComWorker — así que esta ventana
+    /// nunca se congela mientras tanto); este método solo conecta ese progreso real con la
+    /// UI del diálogo, nunca lo simula.
+    ///
+    /// <see cref="System.Windows.Window.ShowDialog"/> bombea mensajes internamente aunque
+    /// "bloquee" esta línea de código — por eso <paramref name="devicesViewModel"/>'s envío
+    /// (ya arrancado antes de llamarlo) sigue avanzando y reportando progreso mientras el
+    /// diálogo está abierto, y por qué <see cref="WatchSendTaskAsync"/> se lanza ANTES de
+    /// <c>ShowDialog</c>: captura el <see cref="System.Threading.SynchronizationContext"/> de
+    /// UI en ese punto para que su "await" final vuelva a este mismo hilo sin importar el
+    /// bucle anidado de <c>ShowDialog</c>.</summary>
+    private async Task RunSendWithProgressDialogAsync(DevicesViewModel devicesViewModel, Device targetDevice)
+    {
+        using var cts = new CancellationTokenSource();
+        var dialog = new SendEmployeesProgressDialog(targetDevice.Name) { Owner = Window.GetWindow(this) };
+        dialog.CancelRequested += (_, _) => cts.Cancel();
+
+        var progress = new Progress<DevicesViewModel.SendEmployeesProgress>(dialog.UpdateProgress);
+        var sendTask = devicesViewModel.SendEmployeesToDeviceAsync(progress, cts.Token);
+
+        _ = WatchSendTaskAsync(sendTask, dialog);
+        dialog.ShowDialog();
+    }
+
+    /// <summary>Espera el resultado real del envío y actualiza el diálogo — separado de
+    /// <see cref="RunSendWithProgressDialogAsync"/> para poder lanzarlo como
+    /// "fire-and-forget" ANTES de <c>ShowDialog</c> (ver comentario de ese método).
+    /// SendEmployeesToDeviceAsync ya atrapa cualquier excepción inesperada y la devuelve
+    /// como <see cref="DevicesViewModel.SendEmployeesOutcome.Error"/> en vez de lanzarla —
+    /// el <c>catch</c> de aquí es un resguardo adicional (requisito explícito: "ninguna
+    /// excepción debe cerrar la aplicación"), no la ruta esperada.</summary>
+    private static async Task WatchSendTaskAsync(Task<DevicesViewModel.SendEmployeesOutcome> sendTask, SendEmployeesProgressDialog dialog)
+    {
+        try
+        {
+            var outcome = await sendTask;
+            if (outcome.Success)
+            {
+                dialog.ShowCompleted(outcome);
+            }
+            else
+            {
+                dialog.ShowStartupError(outcome.Error ?? "No se pudo enviar.");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Error inesperado no atrapado por SendEmployeesToDeviceAsync al enviar empleados al reloj.");
+            dialog.ShowStartupError("Ocurrió un error inesperado. Revisa el registro de errores.");
         }
     }
 

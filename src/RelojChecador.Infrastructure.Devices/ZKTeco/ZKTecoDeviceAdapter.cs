@@ -57,6 +57,13 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
     private bool _isConnected;
     private Timer? _realTimeTimer;
 
+    // TODA llamada al objeto COM pasa por este único hilo dedicado — ver ZKComWorker para
+    // la explicación completa de por qué esto corrige la causa raíz real del cierre
+    // reportado por el usuario ("Enviar empleados al reloj" con varias decenas de
+    // empleados). Antes, cada operación (incluida esta misma) usaba su propio Task.Run,
+    // repartido entre hilos del ThreadPool sin ningún control.
+    private readonly ZKComWorker _comWorker = new();
+
     // Nombrado "DeviceLocal", no "Utc" — BUG REAL encontrado y corregido aquí (reportado
     // por el usuario: "hice una marcación... y no me aparece", el monitoreo en tiempo real
     // nunca funcionó). RawAttendanceRecord.TimestampUtc, pese al nombre, en realidad
@@ -80,14 +87,25 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
     // Tiempos de espera para Connect_Net/Disconnect (reportado por el usuario: la app se
     // congelaba mostrando "No responde" al abrir o al editar un dispositivo). Connect_Net
     // no tiene límite de tiempo propio — si el reloj está apagado o inalcanzable puede
-    // tardar decenas de segundos. RunWithTimeoutAsync no puede "abortar" esa llamada nativa
-    // a media ejecución (no existe forma segura de hacerlo en .NET moderno sin arriesgar el
-    // proceso — Thread.Abort ya no existe), pero SÍ hace que quien espera el resultado
-    // (la UI) deje de esperar a tiempo y pueda seguir usándose de inmediato; el hilo
-    // huérfano de Task.Run simplemente termina solo cuando el SDK finalmente responda o
-    // el sistema operativo agote su propio timeout de TCP.
+    // tardar decenas de segundos. RunOnComThreadAsync/ZKComWorker no pueden "abortar" esa
+    // llamada nativa a media ejecución (no existe forma segura de hacerlo en .NET moderno
+    // sin arriesgar el proceso — Thread.Abort ya no existe), pero SÍ hacen que quien espera
+    // el resultado (la UI) deje de esperar a tiempo y pueda seguir usándose de inmediato; el
+    // hilo dedicado abandonado simplemente termina solo cuando el SDK finalmente responda o
+    // el sistema operativo agote su propio timeout de TCP (ver ZKComWorker.AbandonThread).
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan DisconnectTimeout = TimeSpan.FromSeconds(5);
+
+    // Mismo espíritu que ConnectTimeout/DisconnectTimeout, para el resto de operaciones —
+    // antes NO tenían ningún límite de tiempo (Task.Run "pelón", sin Task.WhenAny contra un
+    // Task.Delay), así que un SDK realmente colgado (p. ej. el reloj se cae de la red a
+    // media llamada) dejaba esperando para siempre a quien llamara, sin ningún aviso — sea
+    // el envío masivo de empleados o cualquier otra pantalla. QuickOperationTimeout es para
+    // llamadas de una sola operación puntual (un usuario, una fecha, un enable/disable);
+    // BulkOperationTimeout es más generoso para las que pueden mover más datos (toda la
+    // lista de usuarios o de marcaciones de la bitácora).
+    private static readonly TimeSpan QuickOperationTimeout = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan BulkOperationTimeout = TimeSpan.FromSeconds(60);
 
     public string Brand => "ZKTeco";
 
@@ -152,20 +170,50 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
     /// por su cuenta — no hay forma segura de abortar una llamada nativa a media ejecución
     /// en .NET moderno (Thread.Abort ya no existe), así que esto es lo mejor posible sin
     /// arriesgar el proceso.</summary>
-    private static async Task<Result> RunWithTimeoutAsync(
+    /// <summary>Único punto de entrada para tocar el objeto COM del SDK — TODA llamada pasa
+    /// por aquí, nunca directo a Task.Run (ver <see cref="ZKComWorker"/> para la explicación
+    /// completa de la causa raíz del cierre que esto corrige). Encapsula: (1) ejecución
+    /// siempre en el mismo hilo dedicado, (2) límite de tiempo real, (3) si se abandona por
+    /// timeout, <c>_zk</c> se reinicia a null — así la SIGUIENTE llamada crea un objeto COM
+    /// nuevo desde cero en el hilo nuevo, en vez de arrastrar el objeto del hilo abandonado
+    /// (que seguiría "vivo" de fondo hasta que el SDK responda por su cuenta) hacia un hilo
+    /// distinto — exactamente la violación de threading COM que se busca evitar.</summary>
+    private async Task<Result> RunOnComThreadAsync(
         Func<Result> operation, TimeSpan timeout, CancellationToken cancellationToken)
     {
-        var work = Task.Run(operation, cancellationToken);
-        var timeoutTask = Task.Delay(timeout, cancellationToken);
-        var finished = await Task.WhenAny(work, timeoutTask);
-
-        if (finished == work)
+        try
         {
-            return await work;
+            return await _comWorker.RunAsync(operation, timeout, cancellationToken);
         }
+        catch (TimeoutException ex)
+        {
+            _zk = null;
+            return Result.Failure(Error.Unexpected(ex.Message));
+        }
+        catch (OperationCanceledException)
+        {
+            return Result.Failure(Error.Unexpected("Operación cancelada."));
+        }
+    }
 
-        return Result.Failure(Error.Unexpected(
-            $"El dispositivo no respondió en {timeout.TotalSeconds:0}s."));
+    /// <summary>Misma idea que el overload no genérico de arriba, para operaciones que
+    /// devuelven un valor (<see cref="Result{TValue}"/>).</summary>
+    private async Task<Result<T>> RunOnComThreadAsync<T>(
+        Func<Result<T>> operation, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _comWorker.RunAsync(operation, timeout, cancellationToken);
+        }
+        catch (TimeoutException ex)
+        {
+            _zk = null;
+            return Result.Failure<T>(Error.Unexpected(ex.Message));
+        }
+        catch (OperationCanceledException)
+        {
+            return Result.Failure<T>(Error.Unexpected("Operación cancelada."));
+        }
     }
 
     public async Task<Result> ConnectAsync(DeviceConnectionInfo connection, CancellationToken cancellationToken = default)
@@ -176,7 +224,7 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
         // hilo que invocara ConnectAsync (típicamente el de UI), y esa primera carga de la
         // DLL puede tardar varios segundos; ahora corre en el hilo de fondo igual que el
         // resto, y además queda cubierta por el mismo tiempo de espera.
-        return await RunWithTimeoutAsync(() =>
+        return await RunOnComThreadAsync(() =>
         {
             var comResult = EnsureComObject();
             if (comResult.IsFailure)
@@ -236,7 +284,7 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
             return Result.Success();
         }
 
-        return await RunWithTimeoutAsync(() =>
+        return await RunOnComThreadAsync(() =>
         {
             try
             {
@@ -319,7 +367,11 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
             return Result.Failure<DeviceInfo>(DeviceErrors.NotConnected());
         }
 
-        return await Task.Run(async () =>
+        // GetSerialNumber/GetFirmwareVersion/GetPlatform son las únicas llamadas COM
+        // directas de este método — DownloadUsersAsync/DownloadAttendanceLogsAsync ya
+        // encolan las suyas propias en el mismo hilo dedicado (ver RunOnComThreadAsync), así
+        // que solo hace falta envolver estas tres.
+        var basicInfoResult = await RunOnComThreadAsync(() =>
         {
             try
             {
@@ -329,31 +381,39 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
                 _zk!.GetSerialNumber(MachineNumber, out serial);
                 _zk!.GetFirmwareVersion(MachineNumber, out firmware);
                 _zk!.GetPlatform(MachineNumber, out platform);
-
-                // Se reutilizan las descargas completas (en vez de GetDeviceStatus con
-                // códigos numéricos de dwStatus) porque esos códigos varían entre
-                // versiones del SDK y no se pudieron verificar contra hardware real —
-                // esto es más lento pero da un conteo que sabemos correcto.
-                var usersResult = await DownloadUsersAsync(cancellationToken);
-                var logsResult = await DownloadAttendanceLogsAsync(cancellationToken);
-
-                var info = new DeviceInfo(
-                    SerialNumber: string.IsNullOrWhiteSpace(serial) ? null : serial,
-                    FirmwareVersion: string.IsNullOrWhiteSpace(firmware) ? null : firmware,
-                    Platform: string.IsNullOrWhiteSpace(platform) ? null : platform,
-                    FingerprintAlgorithm: null, // El SDK no expone esto de forma directa/confiable.
-                    Manufacturer: "ZKTECO CO., LTD.",
-                    RegisteredUserCount: usersResult.IsSuccess ? usersResult.Value.Count : null,
-                    StoredAttendanceLogCount: logsResult.IsSuccess ? logsResult.Value.Count : null,
-                    StoredFingerprintTemplateCount: null);
-
-                return Result.Success(info);
+                return Result.Success((serial, firmware, platform));
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
-                return Result.Failure<DeviceInfo>(Error.Unexpected($"No se pudo leer información del dispositivo: {ex.Message}"));
+                return Result.Failure<(string Serial, string Firmware, string Platform)>(
+                    Error.Unexpected($"No se pudo leer información del dispositivo: {ex.Message}"));
             }
-        }, cancellationToken);
+        }, QuickOperationTimeout, cancellationToken);
+
+        if (basicInfoResult.IsFailure)
+        {
+            return Result.Failure<DeviceInfo>(basicInfoResult.Error);
+        }
+
+        // Se reutilizan las descargas completas (en vez de GetDeviceStatus con códigos
+        // numéricos de dwStatus) porque esos códigos varían entre versiones del SDK y no se
+        // pudieron verificar contra hardware real — esto es más lento pero da un conteo que
+        // sabemos correcto.
+        var usersResult = await DownloadUsersAsync(cancellationToken);
+        var logsResult = await DownloadAttendanceLogsAsync(cancellationToken);
+
+        var (serial, firmware, platform) = basicInfoResult.Value;
+        var info = new DeviceInfo(
+            SerialNumber: string.IsNullOrWhiteSpace(serial) ? null : serial,
+            FirmwareVersion: string.IsNullOrWhiteSpace(firmware) ? null : firmware,
+            Platform: string.IsNullOrWhiteSpace(platform) ? null : platform,
+            FingerprintAlgorithm: null, // El SDK no expone esto de forma directa/confiable.
+            Manufacturer: "ZKTECO CO., LTD.",
+            RegisteredUserCount: usersResult.IsSuccess ? usersResult.Value.Count : null,
+            StoredAttendanceLogCount: logsResult.IsSuccess ? logsResult.Value.Count : null,
+            StoredFingerprintTemplateCount: null);
+
+        return Result.Success(info);
     }
 
     // 7 parámetros de GetDeviceTime: MachineNumber (entrada) + 6 "ref" de salida.
@@ -377,7 +437,7 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
             return Result.Failure<DateTime>(DeviceErrors.NotConnected());
         }
 
-        return await Task.Run(() =>
+        return await RunOnComThreadAsync(() =>
         {
             try
             {
@@ -408,7 +468,7 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
             {
                 return Result.Failure<DateTime>(Error.Unexpected($"GetDeviceTime falló: {DescribeException(ex)}"));
             }
-        }, cancellationToken);
+        }, QuickOperationTimeout, cancellationToken);
     }
 
     /// <summary>El parámetro se llama "deviceTime" (no "utcTime" como antes) a propósito:
@@ -424,7 +484,7 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
             return Result.Failure(DeviceErrors.NotConnected());
         }
 
-        return await Task.Run(() =>
+        return await RunOnComThreadAsync(() =>
         {
             try
             {
@@ -437,7 +497,7 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
             {
                 return Result.Failure(Error.Unexpected($"SetDeviceTime2 falló: {DescribeException(ex)}"));
             }
-        }, cancellationToken);
+        }, QuickOperationTimeout, cancellationToken);
     }
 
     public async Task<Result<IReadOnlyList<RawAttendanceRecord>>> DownloadAttendanceLogsAsync(
@@ -451,7 +511,7 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
         await _logAccessLock.WaitAsync(cancellationToken);
         try
         {
-            return await Task.Run(() =>
+            return await RunOnComThreadAsync(() =>
             {
                 try
                 {
@@ -463,7 +523,7 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
                     return Result.Failure<IReadOnlyList<RawAttendanceRecord>>(
                         Error.Unexpected($"No se pudo descargar la bitácora de asistencias: {DescribeException(ex)}"));
                 }
-            }, cancellationToken);
+            }, BulkOperationTimeout, cancellationToken);
         }
         finally
         {
@@ -615,7 +675,7 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
             return Result.Failure<IReadOnlyList<DeviceUserRecord>>(DeviceErrors.NotConnected());
         }
 
-        return await Task.Run(() =>
+        return await RunOnComThreadAsync(() =>
         {
             try
             {
@@ -641,7 +701,7 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
                 return Result.Failure<IReadOnlyList<DeviceUserRecord>>(
                     Error.Unexpected($"No se pudo descargar la lista de usuarios: {ex.Message}"));
             }
-        }, cancellationToken);
+        }, BulkOperationTimeout, cancellationToken);
     }
 
     public async Task<Result> CreateOrUpdateUserAsync(DeviceUserRecord user, CancellationToken cancellationToken = default)
@@ -651,7 +711,15 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
             return Result.Failure(DeviceErrors.NotConnected());
         }
 
-        return await Task.Run(() =>
+        // Llamado en un bucle de decenas de empleados seguidos por "Enviar empleados al
+        // reloj" (ver DevicesViewModel.SendEmployeesToDeviceAsync) — es justo el patrón que
+        // exponía la causa raíz real del cierre reportado (ver ZKComWorker): antes cada
+        // vuelta del bucle usaba su propio Task.Run, así que entre 55 llamadas seguidas era
+        // muy probable que el ThreadPool reutilizara un hilo distinto al que creó el objeto
+        // COM, violando su threading de apartamento único. RunOnComThreadAsync garantiza que
+        // las 55 llamadas (y cualquier otra en curso, ej. el sondeo de tiempo real) pasen por
+        // el mismo hilo dedicado, una por una.
+        return await RunOnComThreadAsync(() =>
         {
             try
             {
@@ -661,9 +729,9 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
-                return Result.Failure(Error.Unexpected($"SSR_SetUserInfo falló: {ex.Message}"));
+                return Result.Failure(Error.Unexpected($"SSR_SetUserInfo falló: {DescribeException(ex)}"));
             }
-        }, cancellationToken);
+        }, QuickOperationTimeout, cancellationToken);
     }
 
     public async Task<Result> DeleteUserAsync(string deviceUserPin, CancellationToken cancellationToken = default)
@@ -673,7 +741,7 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
             return Result.Failure(DeviceErrors.NotConnected());
         }
 
-        return await Task.Run(() =>
+        return await RunOnComThreadAsync(() =>
         {
             try
             {
@@ -687,7 +755,7 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
             {
                 return Result.Failure(Error.Unexpected($"SSR_DeleteEnrollData falló: {ex.Message}"));
             }
-        }, cancellationToken);
+        }, QuickOperationTimeout, cancellationToken);
     }
 
     // dwFingerIndex va de 0 a 9 (hasta 10 dedos por usuario según el SDK) — se consultan
@@ -713,7 +781,7 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
             return Result.Failure<IReadOnlyList<FingerprintTemplateRecord>>(DeviceErrors.NotConnected());
         }
 
-        return await Task.Run(() =>
+        return await RunOnComThreadAsync(() =>
         {
             try
             {
@@ -743,7 +811,7 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
                 return Result.Failure<IReadOnlyList<FingerprintTemplateRecord>>(
                     Error.Unexpected($"GetUserTmpExStr falló: {ex.Message} — firma real reportada por el dispositivo: {realSignature}"));
             }
-        }, cancellationToken);
+        }, QuickOperationTimeout, cancellationToken);
     }
 
     /// <summary>SetUserTmpExStr — contraparte de <see cref="DownloadUserTemplatesAsync"/>,
@@ -756,7 +824,7 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
             return Result.Failure(DeviceErrors.NotConnected());
         }
 
-        return await Task.Run(() =>
+        return await RunOnComThreadAsync(() =>
         {
             try
             {
@@ -769,7 +837,7 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
                 var realSignature = ComSignatureInspector.Describe(_zk, "SetUserTmpExStr");
                 return Result.Failure(Error.Unexpected($"SetUserTmpExStr falló: {ex.Message} — firma real reportada por el dispositivo: {realSignature}"));
             }
-        }, cancellationToken);
+        }, QuickOperationTimeout, cancellationToken);
     }
 
     public async Task<Result> EnableDeviceAsync(CancellationToken cancellationToken = default) =>
@@ -785,7 +853,7 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
             return Result.Failure(DeviceErrors.NotConnected());
         }
 
-        return await Task.Run(() =>
+        return await RunOnComThreadAsync(() =>
         {
             try
             {
@@ -796,7 +864,7 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
             {
                 return Result.Failure(Error.Unexpected($"EnableDevice falló: {ex.Message}"));
             }
-        }, cancellationToken);
+        }, QuickOperationTimeout, cancellationToken);
     }
 
     public async Task<Result> RestartDeviceAsync(CancellationToken cancellationToken = default)
@@ -806,7 +874,7 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
             return Result.Failure(DeviceErrors.NotConnected());
         }
 
-        return await Task.Run(() =>
+        return await RunOnComThreadAsync(() =>
         {
             try
             {
@@ -817,7 +885,7 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
             {
                 return Result.Failure(Error.Unexpected($"RestartDevice falló: {ex.Message}"));
             }
-        }, cancellationToken);
+        }, QuickOperationTimeout, cancellationToken);
     }
 
     public async Task<Result> ClearAttendanceLogsAsync(CancellationToken cancellationToken = default)
@@ -830,7 +898,7 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
         await _logAccessLock.WaitAsync(cancellationToken);
         try
         {
-            return await Task.Run(() =>
+            return await RunOnComThreadAsync(() =>
             {
                 try
                 {
@@ -841,7 +909,7 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
                 {
                     return Result.Failure(Error.Unexpected($"ClearGLog falló: {ex.Message}"));
                 }
-            }, cancellationToken);
+            }, BulkOperationTimeout, cancellationToken);
         }
         finally
         {
@@ -904,7 +972,15 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
     /// <see cref="AttendancePunchReceived"/>) solo lo que sea más nuevo que la última
     /// marcación ya reportada. No usa un candado bloqueante síncrono con la descarga
     /// manual (_logAccessLock es un SemaphoreSlim asíncrono) — si coinciden, uno espera
-    /// al otro en vez de corromper la lectura del buffer del dispositivo.</summary>
+    /// al otro en vez de corromper la lectura del buffer del dispositivo.
+    ///
+    /// La lectura en sí SIEMPRE pasa por <see cref="RunOnComThreadAsync"/> (nunca se llama
+    /// <see cref="ReadAllGeneralLogEntries"/> directo desde este método) — este callback
+    /// corre en un hilo del Timer, distinto del hilo dedicado del SDK; sin ese salto, este
+    /// sondeo cada 3 segundos tocaría el objeto COM en paralelo con cualquier otra operación
+    /// en curso (p. ej. "Enviar empleados al reloj" enviando decenas de empleados seguidos) —
+    /// justo el escenario de acceso concurrente que causaba el cierre reportado por el
+    /// usuario (ver ZKComWorker).</summary>
     private async Task PollForNewPunchesAsync()
     {
         if (_zk is null || !_isConnected)
@@ -915,8 +991,30 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
         await _logAccessLock.WaitAsync();
         try
         {
-            var records = ReadAllGeneralLogEntries();
-            var newOnes = records.Where(r => r.TimestampUtc > _realTimeSinceDeviceLocal).OrderBy(r => r.TimestampUtc).ToList();
+            var result = await RunOnComThreadAsync(
+                () =>
+                {
+                    try
+                    {
+                        return Result.Success<IReadOnlyList<RawAttendanceRecord>>(ReadAllGeneralLogEntries());
+                    }
+                    catch (Exception ex) when (ex is not OutOfMemoryException)
+                    {
+                        return Result.Failure<IReadOnlyList<RawAttendanceRecord>>(Error.Unexpected(ex.Message));
+                    }
+                },
+                BulkOperationTimeout,
+                CancellationToken.None);
+
+            if (result.IsFailure)
+            {
+                // El sondeo se reintenta solo en el siguiente tick del Timer — una falla
+                // puntual (p. ej. el reloj se desconectó de la red un instante) no debe
+                // tumbar el Timer ni la app.
+                return;
+            }
+
+            var newOnes = result.Value.Where(r => r.TimestampUtc > _realTimeSinceDeviceLocal).OrderBy(r => r.TimestampUtc).ToList();
             if (newOnes.Count == 0)
             {
                 return;
@@ -930,9 +1028,7 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
         }
         catch
         {
-            // El sondeo se reintenta solo en el siguiente tick del Timer — una falla
-            // puntual (p. ej. el reloj se desconectó de la red un instante) no debe tumbar
-            // el Timer ni la app.
+            // Mismo criterio: un fallo puntual del sondeo no debe tumbar el Timer ni la app.
         }
         finally
         {
@@ -947,9 +1043,26 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
 
         if (_zk is not null && OperatingSystem.IsWindows())
         {
+            var comObject = _zk;
             try
             {
-                Marshal.ReleaseComObject(_zk);
+                // Se libera desde el mismo hilo dedicado que lo creó y lo usó siempre (ver
+                // ZKComWorker) — mismo motivo que el resto de esta clase: tocar la API COM
+                // desde un hilo distinto es justo la violación de threading que causaba el
+                // cierre reportado por el usuario. Timeout corto y best-effort: cerrar la
+                // app nunca debe quedarse esperando esto.
+                _comWorker.RunAsync(() =>
+                {
+                    try
+                    {
+                        Marshal.ReleaseComObject(comObject);
+                    }
+                    catch (Exception ex) when (ex is not OutOfMemoryException)
+                    {
+                        _ = ex;
+                    }
+                    return true;
+                }, TimeSpan.FromSeconds(3), CancellationToken.None).GetAwaiter().GetResult();
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
@@ -958,5 +1071,6 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
         }
 
         _zk = null;
+        _comWorker.Dispose();
     }
 }

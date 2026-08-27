@@ -1243,12 +1243,27 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         AppendLog($"Hora del dispositivo sincronizada (antes: {before} → ahora: {DateTime.Now:dd/MM/yyyy HH:mm:ss}).");
     }
 
-    /// <summary>Resultado de <see cref="SendEmployeesToDeviceAsync"/> — <see cref="Error"/>
+    /// <summary>Un empleado puntual que falló dentro de un envío que sí corrió — nombre +
+    /// motivo legible (nunca un stack trace: eso solo va al log técnico, ver
+    /// SendEmployeesToDeviceAsync).</summary>
+    public sealed record SendEmployeeFailure(string EmployeeName, string Reason);
+
+    /// <summary>Progreso en vivo de <see cref="SendEmployeesToDeviceAsync"/> — pensado para
+    /// alimentar directo una barra de progreso/diálogo modal (ver
+    /// SendEmployeesProgressDialog): <see cref="Processed"/>/<see cref="Total"/> para el
+    /// porcentaje real, <see cref="CurrentEmployeeName"/> para "Enviando a Fulano...", y los
+    /// tres contadores para mostrar éxito/fallo/omitido sin esperar al resumen final.</summary>
+    public sealed record SendEmployeesProgress(
+        int Processed, int Total, string CurrentEmployeeName, int Sent, int Failed, int Skipped);
+
+    /// <summary>Resultado final de <see cref="SendEmployeesToDeviceAsync"/> — <see cref="Error"/>
     /// no nulo significa que ni siquiera se intentó enviar nada (sin dispositivo
-    /// seleccionado, sin conexión, sin empleados pendientes); con <see cref="Error"/> nulo,
-    /// revisa <see cref="FailedNames"/> para saber si algún empleado puntual falló dentro de
-    /// un envío que sí corrió.</summary>
-    public sealed record SendEmployeesOutcome(int Sent, int Total, IReadOnlyList<string> FailedNames, string? Error)
+    /// seleccionado, sin conexión activa, ya había un envío en curso); con <see cref="Error"/>
+    /// nulo, revisa <see cref="Failed"/> para el detalle de quién falló y por qué, y
+    /// <see cref="Cancelled"/> para saber si se detuvo a medias por cancelación del usuario
+    /// (<see cref="Skipped"/> cuenta a quien ni siquiera se llegó a intentar en ese caso).</summary>
+    public sealed record SendEmployeesOutcome(
+        int Sent, int Total, int Skipped, IReadOnlyList<SendEmployeeFailure> Failed, bool Cancelled, string? Error)
     {
         public bool Success => Error is null;
     }
@@ -1277,25 +1292,35 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
     /// conectado en ese momento) — se sube con el PIN que ya tenía asignado, sin tocar el
     /// vínculo.</item>
     /// </list>
-    /// A quien ya está vinculado Y ya aparece en el reloj no se le vuelve a enviar nada.</summary>
-    public async Task<SendEmployeesOutcome> SendEmployeesToDeviceAsync()
+    /// A quien ya está vinculado Y ya aparece en el reloj no se le vuelve a enviar nada.
+    ///
+    /// Cada empleado se procesa AISLADO dentro de su propio try/catch (nunca se marca a
+    /// nadie como sincronizado hasta tener la confirmación de éxito del reloj, y su vínculo
+    /// se guarda de inmediato — <c>await _unitOfWork.SaveChangesAsync()</c> por empleado, no
+    /// uno solo al final): si uno falla, el error queda registrado y el envío sigue con el
+    /// siguiente; si <paramref name="cancellationToken"/> se cancela a medias, lo que ya se
+    /// envió con éxito queda guardado (no se reintenta ni se duplica en el siguiente envío).
+    /// <paramref name="progress"/> reporta cada paso para un diálogo modal — ver
+    /// SendEmployeesProgress y EmployeesView.xaml.cs/SendEmployeesProgressDialog.</summary>
+    public async Task<SendEmployeesOutcome> SendEmployeesToDeviceAsync(
+        IProgress<SendEmployeesProgress>? progress = null, CancellationToken cancellationToken = default)
     {
         var device = SelectedDevice;
         if (device is null)
         {
             AppendLog("⚠️ No se puede enviar: selecciona primero un dispositivo.");
-            return new SendEmployeesOutcome(0, 0, [], "Selecciona primero un dispositivo.");
+            return new SendEmployeesOutcome(0, 0, 0, [], false, "Selecciona primero un dispositivo.");
         }
 
         if (!IsConnected)
         {
             AppendLog("⚠️ No se puede enviar: conecta primero con el dispositivo.");
-            return new SendEmployeesOutcome(0, 0, [], "No hay conexión activa con el dispositivo.");
+            return new SendEmployeesOutcome(0, 0, 0, [], false, "No hay conexión activa con el dispositivo.");
         }
 
         if (_isSendingEmployees)
         {
-            return new SendEmployeesOutcome(0, 0, [], "Ya hay un envío en curso.");
+            return new SendEmployeesOutcome(0, 0, 0, [], false, "Ya hay un envío en curso.");
         }
 
         _isSendingEmployees = true;
@@ -1310,7 +1335,7 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
             if (pending.Count == 0)
             {
                 AppendLog("No hay empleados activos en la sucursal de este dispositivo.");
-                return new SendEmployeesOutcome(0, 0, [], null);
+                return new SendEmployeesOutcome(0, 0, 0, [], false, null);
             }
 
             var allMappings = await _mappingRepository.ListAsync();
@@ -1324,7 +1349,7 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
             // tener a nadie todavía — CreateOrUpdateUserAsync es "crear o actualizar", así
             // que reenviar a alguien que ya estaba no hace daño.
             var devicePins = new HashSet<string>();
-            var deviceUsersResult = await _deviceAdapter.DownloadUsersAsync();
+            var deviceUsersResult = await _deviceAdapter.DownloadUsersAsync(cancellationToken);
             if (deviceUsersResult.IsSuccess)
             {
                 foreach (var deviceUser in deviceUsersResult.Value)
@@ -1363,72 +1388,128 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
             if (totalToSend == 0)
             {
                 AppendLog("Todos los empleados activos de esta sucursal ya están en el reloj.");
-                return new SendEmployeesOutcome(0, 0, [], null);
+                return new SendEmployeesOutcome(0, 0, 0, [], false, null);
             }
 
             AppendLog($"📤 Enviando {totalToSend} empleado(s) al reloj...");
 
             var sentCount = 0;
-            var failedNames = new List<string>();
+            var failed = new List<SendEmployeeFailure>();
+            var processed = 0;
+            var cancelled = false;
+            var nextPin = 1;
 
             // Primero quien ya tenía PIN asignado localmente (p. ej. por "Reemplazar
             // catálogo") pero el reloj todavía no lo tiene — se respeta ese PIN, nunca se
-            // reasigna uno distinto.
-            foreach (var employee in toPushExisting)
-            {
-                var mapping = mappingByEmployeeId[employee.Id];
-                var record = new DeviceUserRecord(mapping.DeviceUserPin, employee.FullName, PrivilegeLevel: 0, IsEnabled: true);
-                var result = await _deviceAdapter.CreateOrUpdateUserAsync(record);
+            // reasigna uno distinto. Después, quien nunca tuvo vínculo, con PIN nuevo
+            // asignado en automático. Un solo bucle sobre ambas listas (en vez de dos
+            // bucles separados) para que el progreso reportado avance de forma continua
+            // 1..totalToSend, sin saltos.
+            var toSendInOrder = toPushExisting.Select(e => (Employee: e, IsNew: false))
+                .Concat(toAutoAssign.Select(e => (Employee: e, IsNew: true)));
 
-                if (result.IsFailure)
+            foreach (var (employee, isNew) in toSendInOrder)
+            {
+                if (cancellationToken.IsCancellationRequested)
                 {
-                    failedNames.Add($"{employee.FullName} ({result.Error.Message})");
-                    continue;
+                    cancelled = true;
+                    break;
                 }
 
-                sentCount++;
-            }
+                progress?.Report(new SendEmployeesProgress(processed, totalToSend, employee.FullName, sentCount, failed.Count, 0));
 
-            var nextPin = 1;
-            foreach (var employee in toAutoAssign)
-            {
-                while (usedPins.Contains(nextPin))
+                try
                 {
-                    nextPin++;
+                    string pin;
+                    if (isNew)
+                    {
+                        while (usedPins.Contains(nextPin))
+                        {
+                            nextPin++;
+                        }
+                        pin = nextPin.ToString();
+                    }
+                    else
+                    {
+                        pin = mappingByEmployeeId[employee.Id].DeviceUserPin;
+                    }
+
+                    var record = new DeviceUserRecord(pin, employee.FullName, PrivilegeLevel: 0, IsEnabled: true);
+                    var result = await _deviceAdapter.CreateOrUpdateUserAsync(record, cancellationToken);
+
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        // La llamada pudo terminar (con éxito o fallo) justo cuando se pidió
+                        // cancelar — se trata como "no procesado", nunca como un fallo real.
+                        cancelled = true;
+                        break;
+                    }
+
+                    if (result.IsFailure)
+                    {
+                        failed.Add(new SendEmployeeFailure(employee.FullName, result.Error.Message));
+                        Log.Warning(
+                            "No se pudo enviar el empleado {EmployeeId} ({FullName}, PIN {Pin}) al dispositivo {DeviceId}: {Error}",
+                            employee.Id, employee.FullName, pin, device.Id, result.Error.Message);
+                    }
+                    else
+                    {
+                        if (isNew)
+                        {
+                            usedPins.Add(nextPin);
+                            var mapping = EmployeeDeviceMapping.Create(employee.Id, device.Id, pin);
+                            await _mappingRepository.AddAsync(mapping);
+                        }
+
+                        // Se guarda DE INMEDIATO, empleado por empleado — nunca se marca a
+                        // nadie como sincronizado hasta esta confirmación de éxito del
+                        // reloj, y así, si el proceso se cancela o la app se cierra a media
+                        // corrida, lo que ya se envió con éxito queda registrado (no se
+                        // reintenta ni se duplica en el siguiente envío).
+                        await _unitOfWork.SaveChangesAsync(cancellationToken);
+                        sentCount++;
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    cancelled = true;
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    // Aislado a propósito: un fallo inesperado con ESTE empleado (no una
+                    // respuesta esperada del SDK, sino algo realmente imprevisto) no debe
+                    // tumbar el resto del envío — se registra con todo el detalle técnico en
+                    // el log y se continúa con el siguiente. El usuario nunca ve este stack
+                    // trace, solo un motivo legible (ver SendEmployeeFailure.Reason).
+                    Log.Error(ex,
+                        "Error inesperado al enviar el empleado {EmployeeId} ({FullName}) al dispositivo {DeviceId}",
+                        employee.Id, employee.FullName, device.Id);
+                    failed.Add(new SendEmployeeFailure(employee.FullName, "Error inesperado — revisa el registro de errores."));
                 }
 
-                var pin = nextPin.ToString();
-                var record = new DeviceUserRecord(pin, employee.FullName, PrivilegeLevel: 0, IsEnabled: true);
-                var result = await _deviceAdapter.CreateOrUpdateUserAsync(record);
-
-                if (result.IsFailure)
-                {
-                    failedNames.Add($"{employee.FullName} ({result.Error.Message})");
-                    continue;
-                }
-
-                usedPins.Add(nextPin);
-                var mapping = EmployeeDeviceMapping.Create(employee.Id, device.Id, pin);
-                await _mappingRepository.AddAsync(mapping);
-                sentCount++;
+                processed++;
             }
 
-            await _unitOfWork.SaveChangesAsync();
+            var skipped = totalToSend - processed;
+            progress?.Report(new SendEmployeesProgress(processed, totalToSend, "", sentCount, failed.Count, skipped));
 
-            AppendLog($"✅ Enviado(s) {sentCount} de {totalToSend} empleado(s) al reloj. " +
-                      "Falta enrolar su huella físicamente en el dispositivo.");
-            if (failedNames.Count > 0)
+            AppendLog(cancelled
+                ? $"⏹️ Envío cancelado por el usuario: {sentCount} enviado(s), {failed.Count} fallido(s), {skipped} sin procesar de {totalToSend}."
+                : $"✅ Enviado(s) {sentCount} de {totalToSend} empleado(s) al reloj. " +
+                  "Falta enrolar su huella físicamente en el dispositivo.");
+            if (failed.Count > 0)
             {
-                AppendLog($"⚠️ No se pudo enviar a: {string.Join(", ", failedNames)}.");
+                AppendLog($"⚠️ No se pudo enviar a: {string.Join(", ", failed.Select(f => $"{f.EmployeeName} ({f.Reason})"))}.");
             }
 
-            return new SendEmployeesOutcome(sentCount, totalToSend, failedNames, null);
+            return new SendEmployeesOutcome(sentCount, totalToSend, skipped, failed, cancelled, null);
         }
         catch (Exception ex)
         {
             Log.Error(ex, "Error inesperado al enviar empleados al dispositivo {DeviceId}", device.Id);
             AppendLog($"⚠️ Error inesperado al enviar empleados al reloj: {ex.Message}");
-            return new SendEmployeesOutcome(0, 0, [], ex.Message);
+            return new SendEmployeesOutcome(0, 0, 0, [], false, ex.Message);
         }
         finally
         {

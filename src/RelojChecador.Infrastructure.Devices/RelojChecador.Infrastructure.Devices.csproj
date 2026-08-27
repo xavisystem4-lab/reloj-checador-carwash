@@ -11,6 +11,13 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <!-- Permite probar ZKComWorker (internal — no forma parte de la API pública del
+       adaptador, ver ZKTecoDeviceAdapter) directo desde RelojChecador.Infrastructure.Tests,
+       sin tener que hacerlo público solo para poder probarlo. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="RelojChecador.Infrastructure.Tests" />
+  </ItemGroup>
+
   <!-- SDK de ZKTeco (ver third-party/zkteco-sdk/README.md): se copian junto al .exe final
        de quien referencie este proyecto (RelojChecador.WPF) para que ZKTecoDeviceAdapter
        los encuentre en tiempo de ejecución. zkemkeeper.dll además se registra como
