@@ -790,7 +790,15 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
                 {
                     int flag = 0;
                     string tmpData = "";
-                    bool ok = _zk!.GetUserTmpExStr(MachineNumber, deviceUserPin, fingerIndex, ref flag, ref tmpData);
+                    // TmpLength: confirmado contra hardware real (ver ComSignatureInspector,
+                    // reportado la primera vez que se probó esta llamada) — la firma real del
+                    // dispositivo trae un 6º parámetro de salida que esta llamada no incluía,
+                    // por lo que el enlace tardío no encontraba ninguna sobrecarga que calzara
+                    // ("Error while invoking GetUserTmpExStr") y fallaba siempre, sin tocar
+                    // nada (por diseño, ver comentario de método). No se usa el valor: TmpData
+                    // como BSTR ya trae su propio largo, esto solo satisface la firma real.
+                    int tmpLength = 0;
+                    bool ok = _zk!.GetUserTmpExStr(MachineNumber, deviceUserPin, fingerIndex, ref flag, ref tmpData, ref tmpLength);
                     if (ok && !string.IsNullOrEmpty(tmpData))
                     {
                         templates.Add(new FingerprintTemplateRecord(fingerIndex, flag, tmpData));
