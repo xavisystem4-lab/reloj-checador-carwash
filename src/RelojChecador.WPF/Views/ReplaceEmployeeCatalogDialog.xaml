@@ -24,11 +24,13 @@
             el catálogo COMPLETO: actualiza a quien ya existe y coincide por nombre, crea a quien es nuevo,
             y da de baja (lógica, nunca borra — conserva historial y vínculos al reloj) a quien ya no
             aparece. La coincidencia es por NOMBRE EXACTO — revisa con cuidado la lista de "Se dará de baja"
-            antes de aplicar. Columnas esperadas:
+            antes de aplicar. Acepta un .csv con estas columnas:
             Number,FullName,Area,Position,HireDate,Status,WeeklySalary,OvertimeHourlyRate,Notes,Pin
             (HireDate en AAAA-MM-DD o DD/MM/AAAA, opcional; Status "Activo"/"Inactivo", opcional = Activo; Pin solo
             dígitos, opcional — si viene, vincula a esa persona con el reloj de su sucursal y, al darle
             después "Enviar empleados al reloj" en Empleados, ese PIN se sube de verdad al dispositivo).
+            También acepta directo el Excel maestro del negocio (.xlsx, hoja "Registro Empleados") o un .csv
+            exportado de esa misma hoja — se convierte automáticamente al formato de arriba antes de procesarlo.
         </TextBlock>
 
         <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,10">

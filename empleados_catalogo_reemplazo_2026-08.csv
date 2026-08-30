@@ -33,7 +33,7 @@ Number,FullName,Area,Position,HireDate,Status,WeeklySalary,OvertimeHourlyRate,No
 32,Luis Fernado Luna Rojas,Drive In Car Wash,Secado,2026-07-18,Activo,,,Sexo: Hombre | Fecha de nacimiento: 14 Septiembre 2009,32
 33,Luis Alfonso Soto Trujillo,Drive In Car Wash,Detallado,2023-04-24,Activo,,,Sexo: Hombre | Fecha de nacimiento: 02 Diciembre 1974,33
 34,Brayan Joseth Flores Ovalles,Otro,Detallado,2026-11-27,Activo,,,Sexo: Hombre | Fecha de nacimiento: 17 Noviembre 2006,34
-35,Jhonny Steven Aranguren Hidalgo,CrisaTec,Polarizado,2025-02-17,Activo,,,Sexo: Hombre | Fecha de nacimiento: 16 Septiembre ,35
+35,Jhonny Steven Aranguren Hidalgo,CrisaTec,Polarizado,2025-02-17,Activo,,,Sexo: Hombre | Fecha de nacimiento: 16 Septiembre,35
 36,Miguel Sauceda,Otro,Supervisión,2025-09-01,Activo,,,Sexo: Hombre,36
 37,Leslie Michelle Beltran Castellanos,Otro,Mercadotecnia,2026-02-23,Activo,,,Sexo: Mujer | Fecha de nacimiento: 21 Abril 2003,37
 38,Adali Monserrat Tabanico Ramos,Drive In Car Wash,Caja,2026-05-11,Activo,,,Sexo: Mujer | Fecha de nacimiento: 04 Diciembre 1999,38
@@ -53,4 +53,4 @@ Number,FullName,Area,Position,HireDate,Status,WeeklySalary,OvertimeHourlyRate,No
 52,Romina Moreno Gonzalez,Arabica Café,Barista,2026-08-17,Activo,,,Sexo: Mujer | Fecha de nacimiento: 03 Febrero 2007,52
 53,Cristofer Aurelio Leyva Guzman,Drive In Car Wash,Secado,2026-08-19,Activo,,,Sexo: Hombre | Fecha de nacimiento: 14 Junio 2009,53
 54,Ernesto Guadalupe Valenzuela Felix,Plaza Sabo,Limpieza,2025-10-05,Activo,,,Sexo: Hombre,54
-201,Javier Galaviz,Drive In Car Wash,,,Activo,,,Ya dado de alta en el reloj checador con PIN 201 — se respeta ese número tal cual.,201
+201,Javier Galaviz,Drive In Car Wash,Sistemas,,Activo,,,Sexo: Hombre,201

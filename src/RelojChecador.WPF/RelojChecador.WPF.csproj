@@ -14,6 +14,9 @@
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.11" />
+    <!-- Lectura de .xlsx en "Reemplazar catálogo" (ver Services/ExcelCatalogReader.cs) —
+         MIT, no requiere Excel instalado en la máquina. -->
+    <PackageReference Include="ClosedXML" Version="0.105.1" />
   </ItemGroup>
 
   <!-- appsettings.json: solo Url + AnonKey de Supabase (seguros de commitear — están
