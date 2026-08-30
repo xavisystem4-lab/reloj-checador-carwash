@@ -1,7 +1,7 @@
 Number,FullName,Area,Position,HireDate,Status,WeeklySalary,OvertimeHourlyRate,Notes,Pin
 1,Adrian Uribe Garcia,Drive In Car Wash,Gerencia,2023-12-07,Activo,,,Sexo: Hombre | Fecha de nacimiento: 20 Diciembre 2005,1
 2,Angel David Gutierrez Gonzalez,Drive In Car Wash,Supervisión,2025-12-03,Activo,,,Sexo: Hombre | Fecha de nacimiento: 09 Diciembre 2008,2
-3,Alexander Rfael Santiago Garcia,Drive In Car Wash,Supervisión,2024-08-17,Activo,,,Sexo: Hombre | Fecha de nacimiento: 02 Febrero 2003,3
+3,Alexander Rafael Santiago Garcia,Drive In Car Wash,Supervisión,2024-08-17,Activo,,,Sexo: Hombre | Fecha de nacimiento: 02 Febrero 2003,3
 4,David Salvador Tapia Castro,Drive In Car Wash,Supervisión,2026-01-05,Activo,,,Sexo: Hombre | Fecha de nacimiento: 04 Diciembre 2008,4
 5,Pedro Rodolfo Navarrete Romo,Drive In Car Wash,Secado,2025-02-10,Activo,,,Sexo: Hombre | Fecha de nacimiento: 11 Septiembre 2006,5
 6,Andres Mateo Herrera Leyva,Drive In Car Wash,Secado,2025-09-06,Activo,,,Sexo: Hombre | Fecha de nacimiento: 14 Junio 2009,6
@@ -53,4 +53,4 @@ Number,FullName,Area,Position,HireDate,Status,WeeklySalary,OvertimeHourlyRate,No
 52,Romina Moreno Gonzalez,Arabica Café,Barista,2026-08-17,Activo,,,Sexo: Mujer | Fecha de nacimiento: 03 Febrero 2007,52
 53,Cristofer Aurelio Leyva Guzman,Drive In Car Wash,Secado,2026-08-19,Activo,,,Sexo: Hombre | Fecha de nacimiento: 14 Junio 2009,53
 54,Ernesto Guadalupe Valenzuela Felix,Plaza Sabo,Limpieza,2025-10-05,Activo,,,Sexo: Hombre,54
-55,Javier Galaviz,Drive In Car Wash,,,Activo,,,Agregado manualmente por el usuario — no aparecía en el Excel ni en el catálogo anterior.,55
+201,Javier Galaviz,Drive In Car Wash,,,Activo,,,Ya dado de alta en el reloj checador con PIN 201 — se respeta ese número tal cual.,201
