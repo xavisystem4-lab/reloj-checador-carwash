@@ -50,7 +50,30 @@ public partial class LinkUnresolvedPinsDialog : Window
         var pins = await _viewModel.GetUnresolvedPinsAsync();
         var employees = await _viewModel.ListLinkableEmployeesAsync();
 
-        _rows = [.. pins.Select(p => new SelectableUnresolvedPinRow(p, employees))];
+        // Sugerencia automática — pedido explícito del usuario: "que busque
+        // automáticamente a donde se va vincular con la información que ya tiene el
+        // software". La única correspondencia que el sistema ya conoce con certeza (no es
+        // una suposición nueva) es Employee.Number == PIN: la misma convención que se
+        // estableció para todo el catálogo ("quiero que se respete tal cual la numeración
+        // del PIN"), usada al generar Pin=Number en cada importación desde entonces. Solo se
+        // sugiere si hay EXACTAMENTE un empleado con ese número — nunca se adivina entre
+        // varios ni se inventa una coincidencia parcial. La fila queda igual de editable:
+        // esto solo rellena el combo, la persona sigue pudiendo cambiarlo o dejarlo vacío
+        // antes de confirmar.
+        var employeeByNumber = employees
+            .GroupBy(e => e.Number.Value, StringComparer.OrdinalIgnoreCase)
+            .Where(g => g.Count() == 1)
+            .ToDictionary(g => g.Key, g => g.Single(), StringComparer.OrdinalIgnoreCase);
+
+        _rows = [.. pins.Select(p =>
+        {
+            var row = new SelectableUnresolvedPinRow(p, employees);
+            if (employeeByNumber.TryGetValue(p.DeviceUserPin, out var suggested))
+            {
+                row.SelectedEmployee = suggested;
+            }
+            return row;
+        })];
         foreach (var row in _rows)
         {
             row.PropertyChanged += (_, _) => UpdateSelectionState();
