@@ -60,6 +60,17 @@ public partial class EmployeesView : UserControl
         }
     }
 
+    private void OnLinkUnresolvedPinsClick(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not EmployeesViewModel viewModel)
+        {
+            return;
+        }
+
+        var dialog = new LinkUnresolvedPinsDialog(viewModel) { Owner = Window.GetWindow(this) };
+        dialog.ShowDialog();
+    }
+
     private void OnDeleteEmployeesClick(object sender, RoutedEventArgs e)
     {
         if (DataContext is not EmployeesViewModel viewModel)

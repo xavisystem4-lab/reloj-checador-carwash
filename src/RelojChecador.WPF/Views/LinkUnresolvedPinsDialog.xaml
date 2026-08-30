@@ -1,0 +1,65 @@
+<Window x:Class="RelojChecador.WPF.Views.LinkUnresolvedPinsDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Vincular pendientes" Height="640" Width="920"
+        MinHeight="420" MinWidth="700"
+        WindowStartupLocation="CenterOwner" ResizeMode="CanResizeWithGrip"
+        ShowInTaskbar="False">
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="🔗 Vincular pendientes" FontSize="18" FontWeight="Bold" Margin="0,0,0,4" />
+        <TextBlock Grid.Row="1" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource BrushTextSecondary}" Margin="0,0,0,10">
+            Marcaciones que llegaron con un PIN que todavía no está vinculado a ningún empleado — elige a quién
+            corresponde cada uno (o márcalos y déjalos para después). Al vincular, se conciliar automáticamente
+            todas las marcaciones ya guardadas de ese PIN, no solo las nuevas.
+        </TextBlock>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,8">
+            <CheckBox x:Name="SelectAllCheckBox" Content="Seleccionar todo" VerticalAlignment="Center"
+                      Margin="0,0,16,0" Checked="OnSelectAllChanged" Unchecked="OnSelectAllChanged" />
+            <TextBlock x:Name="SelectedCountTextBlock" Text="0 seleccionado(s) de 0" VerticalAlignment="Center"
+                       Foreground="{DynamicResource BrushTextSecondary}" />
+        </StackPanel>
+
+        <DataGrid Grid.Row="3" x:Name="PinsGrid" ItemsSource="{Binding}" AutoGenerateColumns="False"
+                  CanUserAddRows="False" GridLinesVisibility="Horizontal" HeadersVisibility="Column">
+            <DataGrid.Columns>
+                <!-- CheckBox real en plantilla, no DataGridCheckBoxColumn — un solo clic
+                     marca/desmarca (ver comentario equivalente en DeleteEmployeesDialog). -->
+                <DataGridTemplateColumn Header="" Width="40">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                      HorizontalAlignment="Center" Click="OnRowCheckedChanged" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTextColumn Header="Dispositivo" Binding="{Binding Row.DeviceName}" Width="130" IsReadOnly="True" />
+                <DataGridTextColumn Header="PIN" Binding="{Binding Row.DeviceUserPin}" Width="70" IsReadOnly="True" />
+                <DataGridTextColumn Header="Marcaciones" Binding="{Binding Row.AttendanceCount}" Width="90" IsReadOnly="True" />
+                <DataGridTextColumn Header="Última vez" Binding="{Binding Row.LastSeenUtc, StringFormat='dd/MM/yyyy HH:mm'}" Width="130" IsReadOnly="True" />
+                <DataGridTemplateColumn Header="Vincular a" Width="*">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <ComboBox ItemsSource="{Binding Employees}" SelectedItem="{Binding SelectedEmployee, Mode=TwoWay}"
+                                      DisplayMemberPath="FullName" IsEditable="False" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+            </DataGrid.Columns>
+        </DataGrid>
+
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
+            <Button Content="Cerrar" Width="100" Margin="0,0,8,0" Click="OnCloseClick" IsCancel="True" />
+            <Button x:Name="LinkButton" Content="Vincular seleccionados" Width="220"
+                    Style="{StaticResource PrimaryButton}" Click="OnLinkClick" IsEnabled="False" />
+        </StackPanel>
+    </Grid>
+</Window>

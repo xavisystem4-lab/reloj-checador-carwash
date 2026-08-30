@@ -290,6 +290,42 @@ public sealed partial class EmployeesViewModel : ObservableObject
 
     public async Task<IReadOnlyList<Device>> GetDevicesAsync() => await _deviceRepository.ListAsync();
 
+    /// <summary>Empleados activos para el combo de "a quién vincular" en el diálogo de
+    /// vinculación masiva — incluye "De permiso" (sigue trabajando, solo temporalmente
+    /// ausente) pero no "Baja"/Terminated (ya no debería recibir marcaciones nuevas).</summary>
+    public async Task<IReadOnlyList<Employee>> ListLinkableEmployeesAsync() =>
+        (await _employeeRepository.ListAsync())
+            .Where(e => e.Status != EmploymentStatus.Terminated)
+            .OrderBy(e => e.FullName)
+            .ToList();
+
+    public sealed record UnresolvedPinRow(
+        Guid DeviceId, string DeviceName, string DeviceUserPin, int AttendanceCount, DateTime FirstSeenUtc, DateTime LastSeenUtc);
+
+    /// <summary>Un renglón por cada combinación (dispositivo, PIN) que todavía tiene
+    /// marcaciones sin vincular a ningún empleado — pedido explícito del usuario: "vincular
+    /// de manera masiva ... seleccionar todos o de 1 por 1". Agrupa
+    /// IAttendanceRepository.ListUnresolvedAsync (todas, sin límite de fecha) por
+    /// dispositivo+PIN para no repetir la misma fila una vez por cada marcación.</summary>
+    public async Task<IReadOnlyList<UnresolvedPinRow>> GetUnresolvedPinsAsync()
+    {
+        const int maxUnresolvedRows = 5000;
+        var unresolved = await _attendanceRepository.ListUnresolvedAsync(maxUnresolvedRows);
+        var deviceNamesById = (await _deviceRepository.ListAsync()).ToDictionary(d => d.Id, d => d.Name);
+
+        return unresolved
+            .GroupBy(a => (a.DeviceId, a.DeviceUserPin))
+            .Select(g => new UnresolvedPinRow(
+                g.Key.DeviceId,
+                deviceNamesById.TryGetValue(g.Key.DeviceId, out var name) ? name : "(dispositivo desconocido)",
+                g.Key.DeviceUserPin,
+                g.Count(),
+                g.Min(a => a.TimestampUtc),
+                g.Max(a => a.TimestampUtc)))
+            .OrderByDescending(r => r.LastSeenUtc)
+            .ToList();
+    }
+
     /// <param name="weeklySalary">Insumo de nómina sin cálculo fiscal — ver comentario de
     /// clase de Employee.</param>
     /// <param name="deviceId">Dispositivo a vincular en la misma operación, o null para
