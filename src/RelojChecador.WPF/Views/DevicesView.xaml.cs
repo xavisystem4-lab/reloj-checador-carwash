@@ -13,6 +13,20 @@ public partial class DevicesView : UserControl
         InitializeComponent();
     }
 
+    private void OnViewFullAttendanceRecordsClick(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not DevicesViewModel viewModel)
+        {
+            return;
+        }
+
+        var dialog = new AttendanceRecordsFullDialog(viewModel.AttendanceRecords, viewModel.AttendanceRecords.Count)
+        {
+            Owner = Window.GetWindow(this),
+        };
+        dialog.ShowDialog();
+    }
+
     private async void OnAddDeviceClick(object sender, RoutedEventArgs e)
     {
         if (DataContext is not DevicesViewModel viewModel)
