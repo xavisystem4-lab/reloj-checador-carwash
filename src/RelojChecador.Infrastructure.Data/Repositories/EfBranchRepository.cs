@@ -17,4 +17,10 @@ public sealed class EfBranchRepository(RelojChecadorDbContext dbContext) : IBran
 
     public async Task AddAsync(Branch branch, CancellationToken cancellationToken = default) =>
         await dbContext.Branches.AddAsync(branch, cancellationToken);
+
+    public Task RemoveAsync(Branch branch, CancellationToken cancellationToken = default)
+    {
+        dbContext.Branches.Remove(branch);
+        return Task.CompletedTask;
+    }
 }

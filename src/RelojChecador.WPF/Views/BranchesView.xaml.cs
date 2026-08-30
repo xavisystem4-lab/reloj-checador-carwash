@@ -138,6 +138,27 @@ public partial class BranchesView : UserControl
     /// papel como para "exportar a PDF" (el usuario elige esa impresora virtual y guarda
     /// el archivo) — cero dependencias nuevas en el .exe self-contained. Patrón queda
     /// disponible para reusarse en otras pantallas si se pide más adelante.</summary>
+    private void OnDeleteBranchesClick(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MainViewModel viewModel)
+        {
+            return;
+        }
+
+        // Ofrece la misma lista visible en pantalla ahora mismo (respeta "Mostrar
+        // sucursales inactivas") — necesita al menos 2 para tener a quién reasignar.
+        if (viewModel.Branches.Count < 2)
+        {
+            MessageBox.Show(
+                Window.GetWindow(this), "Necesitas al menos 2 sucursales visibles para poder borrar una: la que borras y la que se queda.",
+                "No se puede borrar", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var dialog = new DeleteBranchesDialog(viewModel, viewModel.Branches) { Owner = Window.GetWindow(this) };
+        dialog.ShowDialog();
+    }
+
     private void OnPrintClick(object sender, RoutedEventArgs e)
     {
         if (DataContext is not MainViewModel viewModel)

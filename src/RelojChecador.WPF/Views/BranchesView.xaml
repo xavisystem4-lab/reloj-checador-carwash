@@ -24,7 +24,13 @@
                  (incluido de fábrica en Windows 10/11) guarda como PDF sin instalar nada,
                  o se puede elegir cualquier impresora física — cero dependencias nuevas
                  en el .exe self-contained. -->
-            <Button Content="🖶 Imprimir / Exportar PDF" Margin="0,0,16,0" Click="OnPrintClick" />
+            <Button Content="🖶 Imprimir / Exportar PDF" Margin="0,0,8,0" Click="OnPrintClick" />
+            <!-- Borrado FÍSICO y permanente (a diferencia de "Eliminar" por fila, que es
+                 baja lógica) — pedido explícito del usuario para consolidar varias
+                 sucursales de prueba en una sola, reasignando automáticamente sus
+                 empleados/dispositivos/marcaciones (ver DeleteBranchesDialog y
+                 MainViewModel.HardDeleteBranchesAsync). -->
+            <Button Content="🗑️ Borrar" Foreground="{DynamicResource BrushDanger}" Margin="0,0,16,0" Click="OnDeleteBranchesClick" />
             <!-- "Eliminar" es baja lógica (ver MainViewModel.DeleteBranchAsync): la sucursal
                  se oculta de la lista por defecto, no se borra — este checkbox la vuelve a
                  mostrar sin recargar la base de datos, mismo criterio que "Mostrar
