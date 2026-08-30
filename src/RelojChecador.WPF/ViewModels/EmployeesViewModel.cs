@@ -293,7 +293,14 @@ public sealed partial class EmployeesViewModel : ObservableObject
 
     public async Task<IReadOnlyList<Branch>> GetBranchesAsync() => await _branchRepository.ListAsync();
 
-    public async Task<IReadOnlyList<Device>> GetDevicesAsync() => await _deviceRepository.ListAsync();
+    /// <summary>Solo relojes que NO están deshabilitados — pedido explícito del usuario tras
+    /// no encontrar el reloj real ("Checador") entre 5 relojes de prueba en el combo de
+    /// "Vincular a dispositivo" (mismo criterio ya aplicado en GetUnresolvedPinsAsync). Se
+    /// usa en los tres flujos que ofrecen elegir un reloj para vincular a alguien (alta,
+    /// edición, "Vincular a dispositivo" puntual) — nunca tendría sentido vincular a un
+    /// reloj deshabilitado de todos modos.</summary>
+    public async Task<IReadOnlyList<Device>> GetDevicesAsync() =>
+        (await _deviceRepository.ListAsync()).Where(d => d.Status != DeviceStatus.Disabled).ToList();
 
     /// <summary>Empleados activos para el combo de "a quién vincular" en el diálogo de
     /// vinculación masiva — incluye "De permiso" (sigue trabajando, solo temporalmente
