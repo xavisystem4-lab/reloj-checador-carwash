@@ -20,7 +20,10 @@
             Esta operación NUNCA se había probado contra este reloj real; hazla con calma, no cierres la app ni
             desconectes el dispositivo mientras corre (puede tardar varios minutos con muchas personas). Si algo
             falla a medias en una persona, esa persona en particular queda exactamente como estaba — nunca se
-            borra nada hasta confirmar que la copia llegó completa al PIN nuevo.
+            borra nada hasta confirmar que la copia llegó completa al PIN nuevo. Si varios PIN destino forman
+            una cadena cerrada entre sí (el PIN que necesita uno lo tiene otro de la lista, y así en círculo),
+            a esa persona se le mueve dos veces: primero a un PIN temporal para desatorar al resto, y al final
+            a su PIN definitivo — verás "⏳ Aparcado..." mientras tanto, es normal.
         </TextBlock>
 
         <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,8">

@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Controls;
 using CommunityToolkit.Mvvm.ComponentModel;
+using RelojChecador.Application.Devices;
 using RelojChecador.WPF.ViewModels;
 
 namespace RelojChecador.WPF.Views;
@@ -158,11 +159,21 @@ public partial class BulkRenumberDevicePinsDialog : Window
         SelectAllCheckBox.IsEnabled = false;
 
         var pending = selected.ToList();
+        // Ciclos reales (A necesita el PIN de B, B necesita el de A, ninguno está libre desde
+        // el inicio) se resuelven "aparcando" a uno del ciclo en un PIN temporal fuera de
+        // rango — eso libera su PIN viejo, destraba al resto por el camino normal, y al final
+        // se mueve desde el temporal a su destino real (ya libre para entonces). rowByRecord
+        // guarda, para cada fila aparcada, el DeviceUserRow ACTUALIZADO (con el PIN temporal)
+        // porque row.Row.DeviceUserPin sigue apuntando al PIN viejo que ya no existe en el
+        // reloj — usar el original ahí fallaría.
+        var parked = new List<(SelectableRepinRow Row, DeviceUserRow CurrentDeviceRow, string RealTarget)>();
+        var nextTempPin = 9001;
         var moved = 0;
         var failed = 0;
         var consecutiveFailures = 0;
+        var stopped = false;
 
-        while (pending.Count > 0)
+        while (pending.Count > 0 && !stopped)
         {
             var progressMade = false;
 
@@ -203,19 +214,74 @@ public partial class BulkRenumberDevicePinsDialog : Window
                         rest.StatusText = "⏸️ Detenido — 3 fallos seguidos, revisa la conexión con el reloj antes de reintentar.";
                     }
                     pending.Clear();
+                    stopped = true;
                     break;
                 }
             }
 
+            if (stopped)
+            {
+                break;
+            }
+
             if (!progressMade)
             {
-                // Nadie avanzó en toda la vuelta: lo que queda es un ciclo real (A necesita
-                // el PIN de B y viceversa) — se reporta en vez de forzar un movimiento doble.
-                foreach (var stuck in pending)
+                // Nadie avanzó en toda la vuelta: es un ciclo real. Se rompe moviendo a UNO
+                // del grupo a un PIN temporal fuera de rango (libre por construcción) —
+                // queda "aparcado" para su movimiento final más abajo, una vez que todo lo
+                // demás ya se haya acomodado.
+                var breaker = pending[0];
+                string tempPin;
+                do
                 {
-                    stuck.StatusText = "⏸️ Ciclo de PIN — no se pudo mover automáticamente, hazlo a mano en el orden correcto.";
+                    tempPin = nextTempPin++.ToString();
                 }
-                break;
+                while (_viewModel.DeviceUsers.Any(u => u.DeviceUserPin == tempPin));
+
+                breaker.StatusText = $"Moviendo a PIN temporal {tempPin} para romper un ciclo...";
+                var error = await _viewModel.ChangeDeviceUserPinAsync(breaker.Row, tempPin);
+                pending.Remove(breaker);
+
+                if (error is null)
+                {
+                    var currentDeviceRow = new DeviceUserRow(
+                        new DeviceUserRecord(tempPin, breaker.Row.Name, breaker.Row.PrivilegeLevel, breaker.Row.IsEnabled));
+                    parked.Add((breaker, currentDeviceRow, breaker.TargetPin!));
+                    breaker.StatusText = $"⏳ Aparcado en PIN temporal {tempPin} — falta moverlo a su destino final ({breaker.TargetPin}).";
+                }
+                else
+                {
+                    breaker.StatusText = $"❌ No se pudo aparcar para romper el ciclo: {error}";
+                    failed++;
+                    consecutiveFailures++;
+                    if (consecutiveFailures >= 3)
+                    {
+                        foreach (var rest in pending)
+                        {
+                            rest.StatusText = "⏸️ Detenido — 3 fallos seguidos, revisa la conexión con el reloj antes de reintentar.";
+                        }
+                        pending.Clear();
+                        stopped = true;
+                    }
+                }
+            }
+        }
+
+        // Segunda pasada: mover a quien quedó aparcado en un PIN temporal a su destino real —
+        // para este punto ya debería estar libre, porque todo lo demás ya se movió.
+        foreach (var (row, currentDeviceRow, realTarget) in parked)
+        {
+            row.StatusText = "Moviendo del PIN temporal a su destino final...";
+            var error = await _viewModel.ChangeDeviceUserPinAsync(currentDeviceRow, realTarget);
+            if (error is null)
+            {
+                row.StatusText = $"✅ Movido a PIN {realTarget}";
+                moved++;
+            }
+            else
+            {
+                row.StatusText = $"❌ Quedó en el PIN temporal ({currentDeviceRow.DeviceUserPin}), no se pudo terminar el movimiento a {realTarget}: {error}";
+                failed++;
             }
         }
 
