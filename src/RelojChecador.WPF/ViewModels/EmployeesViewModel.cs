@@ -574,6 +574,38 @@ public sealed partial class EmployeesViewModel : ObservableObject
         }
     }
 
+    /// <summary>Borra uno o más vínculos Empleado↔Dispositivo — pedido explícito del
+    /// usuario al ver un vínculo huérfano a un reloj de prueba deshabilitado (caso real:
+    /// alguien vinculado a la vez a "Checador" y a un dispositivo "2" que no es real para
+    /// el negocio). A diferencia de EmployeesViewModel.HardDeleteEmployeesAsync, esto NO
+    /// borra al empleado ni desvincula sus marcaciones — solo quita el vínculo puntual;
+    /// las marcaciones que ya se resolvieron por ese vínculo se quedan tal cual (registro de
+    /// auditoría, nunca se tocan retroactivamente).</summary>
+    public async Task<string?> RemoveMappingsAsync(IReadOnlyList<Guid> mappingIds)
+    {
+        try
+        {
+            foreach (var mappingId in mappingIds)
+            {
+                var mapping = await _mappingRepository.GetByIdAsync(mappingId);
+                if (mapping is null)
+                {
+                    continue; // ya no existe (lista desactualizada) — se sigue con el resto
+                }
+                await _mappingRepository.RemoveAsync(mapping);
+            }
+
+            await _unitOfWork.SaveChangesAsync();
+            await ReloadAsync();
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Error inesperado al borrar vínculo(s) de empleado-dispositivo.");
+            return "Ocurrió un error inesperado al guardar. Revisa el registro de errores.";
+        }
+    }
+
     /// <summary>hiddenCount ahora puede venir tanto de "Mostrar dados de baja" como de
     /// cualquiera de los tres filtros nuevos (búsqueda, sucursal, estatus) — el mensaje ya
     /// no distingue la causa específica, solo deja claro que el total real es mayor al que

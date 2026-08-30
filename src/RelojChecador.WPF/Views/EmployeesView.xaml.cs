@@ -365,16 +365,28 @@ public partial class EmployeesView : UserControl
         }
 
         var dialog = new EditEmployeeMappingsDialog(row.Employee.FullName, mappings) { Owner = Window.GetWindow(this) };
-        if (dialog.ShowDialog() != true || dialog.ChangedPins.Count == 0)
+        if (dialog.ShowDialog() != true || (dialog.ChangedPins.Count == 0 && dialog.RemovedMappingIds.Count == 0))
         {
             return;
         }
 
-        var error = await viewModel.UpdateMappingPinsAsync(dialog.ChangedPins);
-
-        if (error is not null)
+        if (dialog.RemovedMappingIds.Count > 0)
         {
-            MessageBox.Show(Window.GetWindow(this), error, "No se pudo corregir el vínculo", MessageBoxButton.OK, MessageBoxImage.Warning);
+            var removeError = await viewModel.RemoveMappingsAsync(dialog.RemovedMappingIds);
+            if (removeError is not null)
+            {
+                MessageBox.Show(Window.GetWindow(this), removeError, "No se pudo quitar el vínculo", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+        }
+
+        if (dialog.ChangedPins.Count > 0)
+        {
+            var error = await viewModel.UpdateMappingPinsAsync(dialog.ChangedPins);
+            if (error is not null)
+            {
+                MessageBox.Show(Window.GetWindow(this), error, "No se pudo corregir el vínculo", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
         }
     }
 
