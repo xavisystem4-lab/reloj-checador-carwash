@@ -1,6 +1,9 @@
 using System.IO;
 using System.Windows;
 using Microsoft.Win32;
+using RelojChecador.Application.Common;
+using RelojChecador.Application.Employees;
+using RelojChecador.WPF.Services;
 using RelojChecador.WPF.ViewModels;
 
 namespace RelojChecador.WPF.Views;
@@ -12,6 +15,12 @@ namespace RelojChecador.WPF.Views;
 /// EmployeesViewModel.PrepareCatalogReplacePreviewAsync). Mismo patrón de varios pasos que
 /// ImportEmployeesDialog — recibe el ViewModel directo porque el diálogo sigue abierto
 /// entre "elegir archivo" → "ver vista previa" → "confirmar".
+///
+/// El archivo elegido no tiene que traer ya el encabezado canónico: si es un .xlsx, o un
+/// .csv con el encabezado de la hoja "Registro Empleados" del Excel maestro del negocio, se
+/// convierte automáticamente antes de parsear (ver ExcelCatalogReader y
+/// EmployeeCatalogSourceConverter) — pedido explícito del usuario, para no tener que
+/// transformar el Excel a mano cada vez que cambia.
 /// </summary>
 public partial class ReplaceEmployeeCatalogDialog : Window
 {
@@ -57,24 +66,92 @@ public partial class ReplaceEmployeeCatalogDialog : Window
 
     private async void OnSelectFileClick(object sender, RoutedEventArgs e)
     {
-        var fileDialog = new OpenFileDialog { Filter = "Archivo CSV (*.csv)|*.csv|Todos los archivos (*.*)|*.*" };
+        var fileDialog = new OpenFileDialog
+        {
+            Filter = "CSV o Excel (*.csv;*.xlsx)|*.csv;*.xlsx|Archivo CSV (*.csv)|*.csv|Excel (*.xlsx)|*.xlsx|Todos los archivos (*.*)|*.*",
+        };
         if (fileDialog.ShowDialog() != true)
         {
             return;
         }
 
-        try
-        {
-            _csvLines = File.ReadAllLines(fileDialog.FileName);
-        }
-        catch (Exception ex)
+        if (!TryLoadFile(fileDialog.FileName, out var lines, out var error))
         {
             _csvLines = null;
-            ShowErrors([$"No se pudo leer el archivo: {ex.Message}"]);
+            ShowErrors([error!]);
             return;
         }
 
+        _csvLines = lines;
         await RecalculateAsync();
+    }
+
+    /// <summary>Deja el archivo elegido en líneas de CSV con el encabezado canónico, sin
+    /// importar si venía ya así, como un .csv con otro encabezado reconocido, o como .xlsx —
+    /// ver comentario de clase.</summary>
+    private static bool TryLoadFile(string filePath, out string[]? lines, out string? error)
+    {
+        var isExcel = string.Equals(Path.GetExtension(filePath), ".xlsx", StringComparison.OrdinalIgnoreCase);
+
+        try
+        {
+            if (isExcel)
+            {
+                if (!ExcelCatalogReader.TryRead(filePath, out var excelHeader, out var excelRows, out var excelError))
+                {
+                    lines = null;
+                    error = excelError;
+                    return false;
+                }
+
+                if (EmployeeCatalogSourceConverter.IsCanonicalHeader(excelHeader))
+                {
+                    var csvLines = new List<string> { string.Join(",", excelHeader) };
+                    csvLines.AddRange(excelRows.Select(row => string.Join(",", row.Select(c => c ?? ""))));
+                    lines = [.. csvLines];
+                    error = null;
+                    return true;
+                }
+
+                if (!EmployeeCatalogSourceConverter.TryConvert(excelHeader, excelRows, out var converted, out var convertError))
+                {
+                    lines = null;
+                    error = convertError;
+                    return false;
+                }
+
+                lines = [.. converted];
+                error = null;
+                return true;
+            }
+
+            var csvFileLines = File.ReadAllLines(filePath);
+            if (csvFileLines.Length == 0 || EmployeeCatalogSourceConverter.IsCanonicalHeader(CsvLineParser.SplitLine(csvFileLines[0])))
+            {
+                lines = csvFileLines;
+                error = null;
+                return true;
+            }
+
+            var header = CsvLineParser.SplitLine(csvFileLines[0]);
+            var rows = csvFileLines.Skip(1).Select(l => (IReadOnlyList<string?>)CsvLineParser.SplitLine(l)).ToList();
+            if (!EmployeeCatalogSourceConverter.TryConvert(header, rows, out var convertedCsv, out var csvConvertError))
+            {
+                lines = null;
+                error = csvConvertError;
+                return false;
+            }
+
+            lines = [.. convertedCsv];
+            error = null;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            lines = null;
+            error = $"No se pudo leer el archivo: {ex.Message}";
+            return false;
+        }
     }
 
     private async void OnRecalculateClick(object sender, RoutedEventArgs e) => await RecalculateAsync();
