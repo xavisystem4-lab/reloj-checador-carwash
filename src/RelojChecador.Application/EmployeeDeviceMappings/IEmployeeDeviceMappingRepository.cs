@@ -12,4 +12,10 @@ public interface IEmployeeDeviceMappingRepository
     Task<EmployeeDeviceMapping?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
 
     Task AddAsync(EmployeeDeviceMapping mapping, CancellationToken cancellationToken = default);
+
+    /// <summary>Vínculos de un empleado en particular — usado para limpiarlos antes de un
+    /// borrado físico (ver IEmployeeRepository.RemoveAsync).</summary>
+    Task<IReadOnlyList<EmployeeDeviceMapping>> ListByEmployeeAsync(Guid employeeId, CancellationToken cancellationToken = default);
+
+    Task RemoveAsync(EmployeeDeviceMapping mapping, CancellationToken cancellationToken = default);
 }

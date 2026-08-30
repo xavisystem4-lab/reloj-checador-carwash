@@ -14,4 +14,14 @@ public sealed class EfEmployeeDeviceMappingRepository(RelojChecadorDbContext dbC
 
     public async Task AddAsync(EmployeeDeviceMapping mapping, CancellationToken cancellationToken = default) =>
         await dbContext.EmployeeDeviceMappings.AddAsync(mapping, cancellationToken);
+
+    public async Task<IReadOnlyList<EmployeeDeviceMapping>> ListByEmployeeAsync(
+        Guid employeeId, CancellationToken cancellationToken = default) =>
+        await dbContext.EmployeeDeviceMappings.Where(m => m.EmployeeId == employeeId).ToListAsync(cancellationToken);
+
+    public Task RemoveAsync(EmployeeDeviceMapping mapping, CancellationToken cancellationToken = default)
+    {
+        dbContext.EmployeeDeviceMappings.Remove(mapping);
+        return Task.CompletedTask;
+    }
 }

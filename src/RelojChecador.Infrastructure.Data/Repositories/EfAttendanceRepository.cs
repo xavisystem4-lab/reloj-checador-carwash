@@ -43,4 +43,8 @@ public sealed class EfAttendanceRepository(RelojChecadorDbContext dbContext) : I
             .OrderBy(a => a.UpdatedAtUtc)
             .Take(maxCount)
             .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<Attendance>> ListByEmployeeAsync(
+        Guid employeeId, CancellationToken cancellationToken = default) =>
+        await dbContext.Attendances.Where(a => a.EmployeeId == employeeId).ToListAsync(cancellationToken);
 }

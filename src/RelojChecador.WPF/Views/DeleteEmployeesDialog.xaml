@@ -1,0 +1,60 @@
+<Window x:Class="RelojChecador.WPF.Views.DeleteEmployeesDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Borrar empleados" Height="640" Width="820"
+        MinHeight="420" MinWidth="620"
+        WindowStartupLocation="CenterOwner" ResizeMode="CanResizeWithGrip"
+        ShowInTaskbar="False">
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="🗑️ Borrar empleados" FontSize="18" FontWeight="Bold" Margin="0,0,0,4" />
+        <TextBlock Grid.Row="1" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource BrushDanger}" Margin="0,0,0,10">
+            Esto BORRA de verdad (no es la baja lógica de "Eliminar") — se pierde para siempre su vínculo de
+            PIN al reloj y su historial de deducciones de nómina. Sus marcaciones de asistencia NO se borran,
+            pero quedan "sin vincular" otra vez. No se puede deshacer — úsalo solo si en serio quieres
+            empezar de cero antes de importar un catálogo nuevo.
+        </TextBlock>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,8">
+            <CheckBox x:Name="SelectAllCheckBox" Content="Seleccionar todo" VerticalAlignment="Center"
+                      Margin="0,0,16,0" Checked="OnSelectAllChanged" Unchecked="OnSelectAllChanged" />
+            <TextBlock x:Name="SelectedCountTextBlock" Text="0 seleccionado(s) de 0" VerticalAlignment="Center"
+                       Foreground="{DynamicResource BrushTextSecondary}" />
+        </StackPanel>
+
+        <DataGrid Grid.Row="3" x:Name="EmployeesGrid" ItemsSource="{Binding}" AutoGenerateColumns="False"
+                  CanUserAddRows="False" GridLinesVisibility="Horizontal" HeadersVisibility="Column">
+            <DataGrid.Columns>
+                <!-- DataGridTemplateColumn con CheckBox real, no DataGridCheckBoxColumn: ese
+                     exige dos clics (uno para "entrar en modo edición" de la celda, otro
+                     para marcarla) — con un CheckBox de verdad, un solo clic marca/desmarca. -->
+                <DataGridTemplateColumn Header="" Width="40">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                      HorizontalAlignment="Center" Click="OnRowCheckedChanged" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTextColumn Header="Número" Binding="{Binding Row.Employee.Number}" Width="90" IsReadOnly="True" />
+                <DataGridTextColumn Header="Nombre" Binding="{Binding Row.Employee.FullName}" Width="*" IsReadOnly="True" />
+                <DataGridTextColumn Header="Sucursal" Binding="{Binding Row.BranchName}" Width="150" IsReadOnly="True" />
+                <DataGridTextColumn Header="Estatus" Binding="{Binding Row.Employee.Status}" Width="90" IsReadOnly="True" />
+            </DataGrid.Columns>
+        </DataGrid>
+
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
+            <Button Content="Cancelar" Width="100" Margin="0,0,8,0" Click="OnCancelClick" IsCancel="True" />
+            <Button x:Name="DeleteButton" Content="Borrar seleccionados" Width="220"
+                    Foreground="{DynamicResource BrushDanger}" FontWeight="Bold"
+                    Click="OnDeleteClick" IsEnabled="False" />
+        </StackPanel>
+    </Grid>
+</Window>
