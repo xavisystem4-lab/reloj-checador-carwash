@@ -311,9 +311,19 @@ public sealed partial class EmployeesViewModel : ObservableObject
     {
         const int maxUnresolvedRows = 5000;
         var unresolved = await _attendanceRepository.ListUnresolvedAsync(maxUnresolvedRows);
-        var deviceNamesById = (await _deviceRepository.ListAsync()).ToDictionary(d => d.Id, d => d.Name);
+        var devices = await _deviceRepository.ListAsync();
+        var deviceNamesById = devices.ToDictionary(d => d.Id, d => d.Name);
+
+        // Solo relojes que NO están deshabilitados — pedido explícito del usuario tras ver
+        // el mismo PIN repetido una vez por cada reloj de prueba ("Arabica Café", "CrisaTec",
+        // "Plaza Sabo", "Otro", "2"): confirmó que son datos de prueba y no debían aparecer
+        // aquí. Se filtra por Status en vez de por nombre de dispositivo a propósito — si
+        // alguno de esos relojes se vuelve a habilitar de verdad más adelante, sus PINs
+        // pendientes reaparecen solos, sin tener que tocar este código otra vez.
+        var enabledDeviceIds = devices.Where(d => d.Status != DeviceStatus.Disabled).Select(d => d.Id).ToHashSet();
 
         return unresolved
+            .Where(a => enabledDeviceIds.Contains(a.DeviceId))
             .GroupBy(a => (a.DeviceId, a.DeviceUserPin))
             .Select(g => new UnresolvedPinRow(
                 g.Key.DeviceId,
