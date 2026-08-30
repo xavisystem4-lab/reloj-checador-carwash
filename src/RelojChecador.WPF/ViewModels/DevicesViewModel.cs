@@ -30,6 +30,22 @@ public sealed partial class DeviceUserRow : ObservableObject
     [ObservableProperty]
     private bool _isSelected;
 
+    /// <summary>Empleado (Número y nombre) que el SOFTWARE tiene vinculado a este PIN en
+    /// este dispositivo, resuelto aparte después de construir la fila (ver
+    /// DevicesViewModel.LoadDeviceUsersAsync) — pedido explícito del usuario: quería poder
+    /// comparar de un vistazo el PIN real del reloj contra a quién dice el software que le
+    /// pertenece, sin tener que cruzarlo a mano con la pantalla de Empleados. "(sin
+    /// vincular)" si ningún empleado tiene ese PIN capturado en este dispositivo.</summary>
+    [ObservableProperty]
+    private string _linkedEmployeeDisplay = "";
+
+    /// <summary>Number (folio) del empleado vinculado, tal cual — separado de
+    /// LinkedEmployeeDisplay (que ya trae el nombre pegado, pensado para mostrarse, no para
+    /// comparar) porque BulkRenumberDevicePinsDialog necesita el valor limpio para calcular
+    /// el PIN destino.</summary>
+    [ObservableProperty]
+    private string? _linkedEmployeeNumber;
+
     public string DeviceUserPin { get; }
     public string Name { get; }
     public int PrivilegeLevel { get; }
@@ -1711,10 +1727,25 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
                 return;
             }
 
+            // Precomputado una sola vez para todo el lote — mismo criterio que
+            // BuildEmployeeBranchLookupByPinAsync, evita una consulta por cada usuario del
+            // reloj (puede haber decenas).
+            var employeeByPin = await BuildEmployeeBranchLookupByPinAsync(SelectedDevice.Id);
+
             DeviceUsers.Clear();
             foreach (var record in result.Value.OrderBy(u => int.TryParse(u.DeviceUserPin, out var n) ? n : int.MaxValue))
             {
-                DeviceUsers.Add(new DeviceUserRow(record));
+                var row = new DeviceUserRow(record);
+                if (employeeByPin.TryGetValue(record.DeviceUserPin, out var employee))
+                {
+                    row.LinkedEmployeeDisplay = $"{employee.Number.Value} · {employee.FullName}";
+                    row.LinkedEmployeeNumber = employee.Number.Value;
+                }
+                else
+                {
+                    row.LinkedEmployeeDisplay = "(sin vincular)";
+                }
+                DeviceUsers.Add(row);
             }
 
             DeviceUsersStatusMessage = DeviceUsers.Count == 0
