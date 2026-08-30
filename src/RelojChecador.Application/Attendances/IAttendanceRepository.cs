@@ -44,4 +44,12 @@ public interface IAttendanceRepository
     /// borra (es un registro de auditoría, ver comentario de clase de Attendance), solo se
     /// queda "sin vincular" otra vez, igual que antes de que existiera el vínculo.</summary>
     Task<IReadOnlyList<Attendance>> ListByEmployeeAsync(Guid employeeId, CancellationToken cancellationToken = default);
+
+    /// <summary>Marcaciones sin vincular a ningún empleado (EmployeeId null), de CUALQUIER
+    /// dispositivo/PIN y SIN límite de fecha (a diferencia de ListUnresolvedByDeviceAndPinAsync,
+    /// que solo busca un PIN puntual) — usado por "Vincular pendientes" en Empleados para
+    /// mostrar de un vistazo todo lo que falta por vincular en el sistema, sin importar qué
+    /// tan vieja sea la marcación. <paramref name="maxCount"/> es el mismo tope defensivo que
+    /// el resto de las consultas de esta tabla.</summary>
+    Task<IReadOnlyList<Attendance>> ListUnresolvedAsync(int maxCount, CancellationToken cancellationToken = default);
 }
