@@ -51,9 +51,14 @@
                       ItemsSource="{Binding BranchFilterOptions}"
                       SelectedItem="{Binding SelectedBranchFilter, Mode=TwoWay}" />
             <TextBlock Text="Estatus:" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource BrushTextSecondary}" />
-            <ComboBox Width="160"
+            <ComboBox Width="160" Margin="0,0,16,0"
                       ItemsSource="{Binding StatusFilterOptions}"
                       SelectedItem="{Binding SelectedStatusFilter, Mode=TwoWay}" />
+            <!-- Regresa los tres filtros de arriba + "Mostrar dados de baja" a su valor por
+                 defecto, para volver a ver el catálogo completo — pedido explícito del
+                 usuario. Solo afecta qué se muestra en el DataGrid de abajo, nunca borra
+                 ningún dato (ver EmployeesViewModel.ClearFilters). -->
+            <Button Content="🧹 Limpiar" Click="OnClearFiltersClick" />
         </StackPanel>
 
         <!-- Bindea a EmployeeRow (Employee + BranchName ya resuelto), no a Employee

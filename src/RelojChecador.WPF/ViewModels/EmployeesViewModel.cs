@@ -176,6 +176,19 @@ public sealed partial class EmployeesViewModel : ObservableObject
     partial void OnSelectedBranchFilterChanged(string value) => ApplyVisibilityFilter();
     partial void OnSelectedStatusFilterChanged(string value) => ApplyVisibilityFilter();
 
+    /// <summary>Botón "Limpiar" — regresa los cuatro filtros a su valor por defecto para
+    /// volver a ver el catálogo completo, sin tocar ningún dato de la base (esto NUNCA
+    /// borra empleados; solo deja de ocultarlos/filtrarlos en este DataGrid). Cada setter ya
+    /// dispara su propio OnXChanged → ApplyVisibilityFilter, así que no hace falta llamarla
+    /// aparte.</summary>
+    public void ClearFilters()
+    {
+        SearchText = "";
+        SelectedBranchFilter = AllBranchesOption;
+        SelectedStatusFilter = AllStatusesOption;
+        ShowTerminatedEmployees = false;
+    }
+
     /// <summary>Aplica en cadena los cuatro filtros disponibles (dados de baja, búsqueda de
     /// texto, sucursal, estatus) sobre _allRows — todos en memoria, sin volver a tocar la
     /// base de datos, para que escribir en el buscador o cambiar un combo se sienta
