@@ -225,10 +225,15 @@
                                   CanUserAddRows="False" MaxHeight="180" HeadersVisibility="Column"
                                   GridLinesVisibility="Horizontal">
                             <DataGrid.Columns>
-                                <DataGridTextColumn Header="PIN empleado" Binding="{Binding DeviceUserPin}" Width="100" />
-                                <DataGridTextColumn Header="Fecha y hora" Binding="{Binding TimestampUtc, StringFormat='dd/MM/yyyy HH:mm:ss'}" Width="150" />
-                                <DataGridTextColumn Header="Método" Binding="{Binding VerifyMethod}" Width="100" />
-                                <DataGridTextColumn Header="Tipo" Binding="{Binding PunchType, Converter={StaticResource PunchTypeToTextConverter}}" Width="170" />
+                                <!-- Pedido explícito del usuario: "aquí tiene que aparecer
+                                     también el nombre" — resuelto por PIN+dispositivo igual
+                                     que en Asistencia (ver RawAttendanceRow). "PIN empleado"
+                                     se conserva aparte para comparar de un vistazo. -->
+                                <DataGridTextColumn Header="Empleado" Binding="{Binding EmployeeDisplay}" Width="160" />
+                                <DataGridTextColumn Header="PIN empleado" Binding="{Binding Record.DeviceUserPin}" Width="100" />
+                                <DataGridTextColumn Header="Fecha y hora" Binding="{Binding Record.TimestampUtc, StringFormat='dd/MM/yyyy HH:mm:ss'}" Width="150" />
+                                <DataGridTextColumn Header="Método" Binding="{Binding Record.VerifyMethod}" Width="100" />
+                                <DataGridTextColumn Header="Tipo" Binding="{Binding Record.PunchType, Converter={StaticResource PunchTypeToTextConverter}}" Width="170" />
                             </DataGrid.Columns>
                         </DataGrid>
                     </GroupBox>
