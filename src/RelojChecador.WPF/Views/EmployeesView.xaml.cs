@@ -56,6 +56,33 @@ public partial class EmployeesView : UserControl
         }
     }
 
+    private void OnExportCatalogClick(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not EmployeesViewModel viewModel)
+        {
+            return;
+        }
+
+        var saveDialog = new SaveFileDialog
+        {
+            FileName = $"catalogo_empleados_{DateTime.Now:yyyy-MM-dd}.csv",
+            Filter = "Archivo CSV (*.csv)|*.csv",
+        };
+        if (saveDialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        try
+        {
+            File.WriteAllText(saveDialog.FileName, viewModel.BuildCatalogCsv());
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(Window.GetWindow(this), $"No se pudo exportar el catálogo: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
     private void OnDeleteEmployeesClick(object sender, RoutedEventArgs e)
     {
         if (DataContext is not EmployeesViewModel viewModel)
