@@ -2,8 +2,11 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Microsoft.EntityFrameworkCore;
+using RelojChecador.Application.Attendances;
 using RelojChecador.Application.Branches;
 using RelojChecador.Application.Common;
+using RelojChecador.Application.Devices;
+using RelojChecador.Application.Employees;
 using RelojChecador.Domain.Branches;
 using RelojChecador.Domain.Common;
 using Serilog;
@@ -22,6 +25,9 @@ namespace RelojChecador.WPF.ViewModels;
 public sealed partial class MainViewModel : ObservableObject
 {
     private readonly IBranchRepository _branchRepository;
+    private readonly IEmployeeRepository _employeeRepository;
+    private readonly IDeviceRepository _deviceRepository;
+    private readonly IAttendanceRepository _attendanceRepository;
     private readonly IUnitOfWork _unitOfWork;
 
     /// <summary>Lista completa sin filtrar — <see cref="Branches"/> se reconstruye a partir
@@ -42,9 +48,14 @@ public sealed partial class MainViewModel : ObservableObject
 
     public ObservableCollection<Branch> Branches { get; } = [];
 
-    public MainViewModel(IBranchRepository branchRepository, IUnitOfWork unitOfWork)
+    public MainViewModel(
+        IBranchRepository branchRepository, IEmployeeRepository employeeRepository, IDeviceRepository deviceRepository,
+        IAttendanceRepository attendanceRepository, IUnitOfWork unitOfWork)
     {
         _branchRepository = branchRepository;
+        _employeeRepository = employeeRepository;
+        _deviceRepository = deviceRepository;
+        _attendanceRepository = attendanceRepository;
         _unitOfWork = unitOfWork;
     }
 
@@ -199,6 +210,96 @@ public sealed partial class MainViewModel : ObservableObject
         {
             Log.Error(ex, "Error inesperado al dar de baja una sucursal (BranchId={BranchId})", branchId);
             return "Ocurrió un error inesperado al guardar. Revisa el registro de errores.";
+        }
+    }
+
+    public sealed record HardDeleteBranchesOutcome(
+        int BranchesDeleted, int EmployeesReassigned, int DevicesReassigned, int AttendancesReassigned, string? Error)
+    {
+        public bool Success => Error is null;
+    }
+
+    /// <summary>Borrado FÍSICO y permanente de una o más sucursales — a diferencia de
+    /// <see cref="DeleteBranchAsync"/> (baja lógica), esto SÍ elimina el registro de
+    /// verdad. Pedido explícito del usuario para consolidar varias sucursales de prueba en
+    /// una sola, conservando el dato de dónde trabajaba cada quien.
+    ///
+    /// Por cada sucursal a borrar (nunca <paramref name="targetBranchId"/>, esa se protege
+    /// aunque venga incluida por error):
+    /// - Sus empleados se REASIGNAN a <paramref name="targetBranchId"/> (Employee.TransferToBranch)
+    ///   — nunca se borran ni se dan de baja. Si el empleado no tiene ya un Departamento
+    ///   capturado, se le guarda ahí el nombre de la sucursal original (Branch.Name), para
+    ///   no perder ese dato aunque administrativamente ya no exista esa sucursal — pedido
+    ///   explícito: "que en el reporte salga que empleado es de cada sucursal".
+    /// - Sus marcaciones de asistencia se actualizan al mismo destino
+    ///   (Attendance.ReconcileEmployee), igual criterio que el resto de la app: "la sucursal
+    ///   de una marcación siempre se deriva del empleado, nunca es un dato independiente".
+    /// - Sus dispositivos (relojes) se reasignan también, para no dejarlos sin sucursal.
+    /// - Al final se borra la sucursal.
+    /// Todo en un solo SaveChangesAsync.</summary>
+    public async Task<HardDeleteBranchesOutcome> HardDeleteBranchesAsync(IReadOnlyList<Guid> branchIds, Guid targetBranchId)
+    {
+        try
+        {
+            var targetBranch = await _branchRepository.GetByIdAsync(targetBranchId);
+            if (targetBranch is null)
+            {
+                return new HardDeleteBranchesOutcome(0, 0, 0, 0, "No se encontró la sucursal destino — cierra y vuelve a abrir esta pantalla.");
+            }
+
+            var employeesReassigned = 0;
+            var devicesReassigned = 0;
+            var attendancesReassigned = 0;
+            var branchesDeleted = 0;
+
+            foreach (var branchId in branchIds)
+            {
+                if (branchId == targetBranchId)
+                {
+                    continue; // nunca te borras a ti mismo, aunque venga marcada por error
+                }
+
+                var branch = await _branchRepository.GetByIdAsync(branchId);
+                if (branch is null)
+                {
+                    continue; // ya no existe (lista desactualizada) — se sigue con el resto
+                }
+
+                foreach (var employee in await _employeeRepository.ListByBranchAsync(branchId))
+                {
+                    var department = string.IsNullOrWhiteSpace(employee.Department) ? branch.Name : employee.Department;
+                    employee.UpdatePersonalInfo(employee.FullName, department, employee.Position);
+                    employee.TransferToBranch(targetBranchId);
+                    employeesReassigned++;
+
+                    foreach (var attendance in await _attendanceRepository.ListByEmployeeAsync(employee.Id))
+                    {
+                        attendance.ReconcileEmployee(employee.Id, targetBranchId);
+                        attendancesReassigned++;
+                    }
+                }
+
+                foreach (var device in await _deviceRepository.ListByBranchAsync(branchId))
+                {
+                    device.UpdateDetails(
+                        device.Name, device.Brand, device.Model, targetBranchId, device.TimeZoneId,
+                        device.SerialNumber, device.MacAddress);
+                    devicesReassigned++;
+                }
+
+                await _branchRepository.RemoveAsync(branch);
+                branchesDeleted++;
+            }
+
+            await _unitOfWork.SaveChangesAsync();
+            _allBranches = (await _branchRepository.ListAsync()).ToList();
+            ApplyBranchVisibilityFilter();
+            return new HardDeleteBranchesOutcome(branchesDeleted, employeesReassigned, devicesReassigned, attendancesReassigned, null);
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Error inesperado al borrar sucursales físicamente (Count={Count})", branchIds.Count);
+            return new HardDeleteBranchesOutcome(0, 0, 0, 0, "Ocurrió un error inesperado al borrar. Revisa el registro de errores.");
         }
     }
 

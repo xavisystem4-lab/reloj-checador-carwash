@@ -708,12 +708,36 @@ public sealed partial class EmployeesViewModel : ObservableObject
     /// empleados nuevos (nunca los duplicados, ver <see cref="EmployeeImportPreviewRow.WillImport"/>)
     /// — todo en un solo <see cref="IUnitOfWork.SaveChangesAsync"/>, así que si algo falla
     /// a mitad de camino no queda nada a medias.</summary>
+    /// <summary>Diccionario nombre→Id de sucursal, a salvo del ArgumentException críptico
+    /// ("An item with the same key has already been added") que lanza un .ToDictionary liso
+    /// si hay dos sucursales con el mismo nombre — nada en la base lo impide (Branch.Code es
+    /// único, Branch.Name no; caso real). En vez de adivinar cuál de las dos usar (podría
+    /// vincular gente a la sucursal equivocada sin que nadie se dé cuenta), se explica el
+    /// problema con una DomainException — tanto ImportEmployeesAsync como
+    /// ApplyCatalogReplaceAsync ya la manejan igual que cualquier otro error de
+    /// validación.</summary>
+    private static Dictionary<string, Guid> BuildBranchIdsByName(IReadOnlyList<Branch> branches)
+    {
+        var duplicateNames = branches
+            .GroupBy(b => b.Name, StringComparer.OrdinalIgnoreCase)
+            .Where(g => g.Count() > 1)
+            .Select(g => g.Key)
+            .ToList();
+        if (duplicateNames.Count > 0)
+        {
+            throw new DomainException(
+                $"Hay más de una sucursal con el mismo nombre en tu base ({string.Join(", ", duplicateNames)}) " +
+                "— corrígelo en Sucursales (renombra o da de baja la que sobra) antes de continuar.");
+        }
+
+        return branches.ToDictionary(b => b.Name, b => b.Id, StringComparer.OrdinalIgnoreCase);
+    }
+
     public async Task<EmployeeImportOutcome> ImportEmployeesAsync(EmployeeImportPreview preview)
     {
         try
         {
-            var branchIdsByName = (await _branchRepository.ListAsync())
-                .ToDictionary(b => b.Name, b => b.Id, StringComparer.OrdinalIgnoreCase);
+            var branchIdsByName = BuildBranchIdsByName(await _branchRepository.ListAsync());
 
             var branchesCreated = new List<string>();
             foreach (var areaName in preview.BranchesToCreate)
@@ -908,8 +932,7 @@ public sealed partial class EmployeesViewModel : ObservableObject
     {
         try
         {
-            var branchIdsByName = (await _branchRepository.ListAsync())
-                .ToDictionary(b => b.Name, b => b.Id, StringComparer.OrdinalIgnoreCase);
+            var branchIdsByName = BuildBranchIdsByName(await _branchRepository.ListAsync());
 
             var branchesCreated = new List<string>();
             foreach (var areaName in preview.BranchesToCreate)
