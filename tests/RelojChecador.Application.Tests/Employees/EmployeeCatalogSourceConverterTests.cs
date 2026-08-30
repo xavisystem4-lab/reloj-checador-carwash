@@ -103,6 +103,32 @@ public class EmployeeCatalogSourceConverterTests
     }
 
     [Fact]
+    public void TryConvert_ConPrimeraColumnaLlamadaPin_TambienLaReconoce()
+    {
+        // El usuario le cambió el nombre a la primera columna de "ID Empleado" a "PIN" en
+        // una revisión posterior del Excel maestro — mismo dato, mismo significado.
+        string[] headerConPin =
+        [
+            "PIN", "Nombre completo", "Fecha de ingreso", "Estado", "Fecha de salida",
+            "Antigüedad (años)", "Sexo", "Lugar de trabajo", "Posición", "Sueldo", "Fecha de nacimiento",
+        ];
+        var rows = new IReadOnlyList<string?>[]
+        {
+            ["1", "Adrian Uribe Garcia", "", "Activo", "", "", "", "CAR-WASH", "", "", ""],
+        };
+
+        Assert.True(EmployeeCatalogSourceConverter.IsRecognizedHeader(headerConPin));
+        var ok = EmployeeCatalogSourceConverter.TryConvert(headerConPin, rows, out var csvLines, out var error);
+
+        Assert.True(ok);
+        Assert.Null(error);
+        var row = Assert.Single(EmployeeCatalogReplaceParser.Parse(csvLines).Rows);
+        Assert.Equal("1", row.Number);
+        Assert.Equal("1", row.Pin);
+        Assert.Equal("CAR-WASH", row.Area);
+    }
+
+    [Fact]
     public void TryConvert_ConEncabezadoDesconocido_DevuelveError()
     {
         var ok = EmployeeCatalogSourceConverter.TryConvert(

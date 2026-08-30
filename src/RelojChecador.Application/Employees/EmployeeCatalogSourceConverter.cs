@@ -28,15 +28,23 @@ public static class EmployeeCatalogSourceConverter
     private static readonly string[] CanonicalHeader =
         ["Number", "FullName", "Area", "Position", "HireDate", "Status", "WeeklySalary", "OvertimeHourlyRate", "Notes", "Pin"];
 
-    /// <summary>Encabezado real de la hoja "Registro Empleados" del Excel maestro
-    /// (REGISTRO EJECUTIVO EMPLEADOS.xlsx). "Fecha de salida" y "Antigüedad (años)" se leen
-    /// pero se ignoran al convertir: la baja ya la expresa "Estado" y la antigüedad se
-    /// recalcula sola a partir de HireDate, igual que en el resto de la app.</summary>
-    private static readonly string[] RegistroEmpleadosHeader =
+    /// <summary>Encabezado real de la hoja "Registro Empleados" del Excel maestro del
+    /// negocio, SIN contar la primera columna (ver <see cref="RegistroEmpleadosFirstColumnAliases"/>
+    /// — el usuario le cambió el nombre de "ID Empleado" a "PIN" en una revisión posterior
+    /// del archivo, mismo dato, mismo significado). "Fecha de salida" y "Antigüedad (años)"
+    /// se leen pero se ignoran al convertir: la baja ya la expresa "Estado" y la antigüedad
+    /// se recalcula sola a partir de HireDate, igual que en el resto de la app.</summary>
+    private static readonly string[] RegistroEmpleadosHeaderRest =
     [
-        "ID Empleado", "Nombre completo", "Fecha de ingreso", "Estado", "Fecha de salida",
+        "Nombre completo", "Fecha de ingreso", "Estado", "Fecha de salida",
         "Antigüedad (años)", "Sexo", "Lugar de trabajo", "Posición", "Sueldo", "Fecha de nacimiento",
     ];
+
+    /// <summary>Nombres que ha tenido la primera columna de "Registro Empleados" — el mismo
+    /// dato (el ID/PIN del empleado) bajo distintas etiquetas según la versión del archivo.
+    /// Agregar aquí cualquier otro alias nuevo que aparezca, en vez de reemplazar los que ya
+    /// hay: un Excel viejo guardado por accidente no debería dejar de reconocerse.</summary>
+    private static readonly string[] RegistroEmpleadosFirstColumnAliases = ["ID Empleado", "PIN"];
 
     /// <summary>True si el encabezado ya es el que espera <see cref="EmployeeCatalogReplaceParser"/>
     /// tal cual — en ese caso no hace falta convertir nada.</summary>
@@ -47,7 +55,7 @@ public static class EmployeeCatalogSourceConverter
     /// busca la fila de encabezado dentro de un archivo (p. ej. ExcelCatalogReader, que tiene
     /// que saltarse título/instrucciones antes de llegar a la fila real de encabezados).</summary>
     public static bool IsRecognizedHeader(IReadOnlyList<string> header) =>
-        IsCanonicalHeader(header) || HeaderMatches(header, RegistroEmpleadosHeader);
+        IsCanonicalHeader(header) || IsRegistroEmpleadosHeader(header);
 
     /// <summary>Intenta convertir <paramref name="header"/> + <paramref name="rows"/> (ya
     /// separados en celdas de texto, sin importar si vinieron de un CSV o de un .xlsx) al
@@ -59,7 +67,7 @@ public static class EmployeeCatalogSourceConverter
         IReadOnlyList<string> header, IReadOnlyList<IReadOnlyList<string?>> rows,
         out IReadOnlyList<string> csvLines, out string? error)
     {
-        if (HeaderMatches(header, RegistroEmpleadosHeader))
+        if (IsRegistroEmpleadosHeader(header))
         {
             csvLines = ConvertFromRegistroEmpleados(rows);
             error = null;
@@ -121,6 +129,11 @@ public static class EmployeeCatalogSourceConverter
 
     private static string Cell(IReadOnlyList<string?> row, int index) =>
         (index < row.Count ? row[index] : null)?.Trim() ?? "";
+
+    private static bool IsRegistroEmpleadosHeader(IReadOnlyList<string> header) =>
+        header.Count == RegistroEmpleadosHeaderRest.Length + 1
+        && RegistroEmpleadosFirstColumnAliases.Contains(header[0].Trim(), StringComparer.OrdinalIgnoreCase)
+        && HeaderMatches(header.Skip(1).ToArray(), RegistroEmpleadosHeaderRest);
 
     private static bool HeaderMatches(IReadOnlyList<string> header, string[] expected) =>
         header.Count == expected.Length
