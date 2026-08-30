@@ -1,5 +1,8 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using Microsoft.Win32;
+using RelojChecador.Application.Employees;
 using RelojChecador.Domain.Devices;
 using RelojChecador.WPF.ViewModels;
 using Serilog;
@@ -20,6 +23,28 @@ public partial class EmployeesView : UserControl
     public EmployeesView()
     {
         InitializeComponent();
+    }
+
+    private void OnExportTemplateClick(object sender, RoutedEventArgs e)
+    {
+        var saveDialog = new SaveFileDialog
+        {
+            FileName = "plantilla_reemplazar_catalogo.csv",
+            Filter = "Archivo CSV (*.csv)|*.csv",
+        };
+        if (saveDialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        try
+        {
+            File.WriteAllText(saveDialog.FileName, EmployeeCatalogReplaceParser.SampleTemplateCsv);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(Window.GetWindow(this), $"No se pudo guardar la plantilla: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
     }
 
     private void OnDeleteEmployeesClick(object sender, RoutedEventArgs e)

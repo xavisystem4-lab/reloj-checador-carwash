@@ -66,6 +66,14 @@ public static class EmployeeCatalogReplaceParser
     private static readonly string[] ExpectedHeader =
         ["Number", "FullName", "Area", "Position", "HireDate", "Status", "WeeklySalary", "OvertimeHourlyRate", "Notes", "Pin"];
 
+    /// <summary>Encabezado + una fila de ejemplo, en el formato exacto que espera
+    /// <see cref="Parse"/> — única fuente para el botón "Exportar plantilla", tanto en
+    /// ReplaceEmployeeCatalogDialog como el atajo directo en la pantalla de Empleados (ver
+    /// EmployeesView.xaml.cs), para no mantener el mismo texto duplicado en dos archivos.</summary>
+    public static readonly string SampleTemplateCsv =
+        string.Join(",", ExpectedHeader) + "\r\n" +
+        "EMP-001,Nombre Ejemplo,Drive In Car Wash,Puesto ejemplo,2024-01-15,Activo,3500,125,Borra esta fila de ejemplo antes de importar,1\r\n";
+
     public static EmployeeCatalogParseResult Parse(IReadOnlyList<string> lines)
     {
         var rows = new List<EmployeeCatalogRow>();
@@ -77,7 +85,11 @@ public static class EmployeeCatalogReplaceParser
             return new EmployeeCatalogParseResult(rows, errors);
         }
 
-        var header = CsvLineParser.SplitLine(lines[0]);
+        // Detectado UNA VEZ sobre el encabezado y usado para todo el archivo — ver
+        // CsvLineParser.DetectDelimiter (Excel en español exporta CSV con ';' en vez de
+        // ',').
+        var delimiter = CsvLineParser.DetectDelimiter(lines[0]);
+        var header = CsvLineParser.SplitLine(lines[0], delimiter);
         if (!HeaderMatches(header))
         {
             errors.Add($"El encabezado no coincide con el esperado ({string.Join(",", ExpectedHeader)}).");
@@ -95,7 +107,7 @@ public static class EmployeeCatalogReplaceParser
             }
 
             var lineNumber = i + 1;
-            var fields = CsvLineParser.SplitLine(line);
+            var fields = CsvLineParser.SplitLine(line, delimiter);
             if (fields.Length != ExpectedHeader.Length)
             {
                 errors.Add($"Línea {lineNumber}: se esperaban {ExpectedHeader.Length} columnas, se encontraron {fields.Length}.");

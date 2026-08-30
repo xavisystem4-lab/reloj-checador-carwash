@@ -24,7 +24,12 @@
                  nunca toca a quien ya existe (regla explícita del usuario) — esto trata el
                  archivo como el catálogo COMPLETO (actualiza/crea/da de baja), pedido
                  explícito tras subir un catálogo más completo. -->
-            <Button Content="🔁 Reemplazar catálogo" Click="OnReplaceCatalogClick" Margin="0,0,16,0" />
+            <Button Content="🔁 Reemplazar catálogo" Click="OnReplaceCatalogClick" Margin="0,0,8,0" />
+            <!-- Atajo directo del mismo botón que ya vivía dentro de "Reemplazar catálogo"
+                 — pedido explícito del usuario para no tener que abrir ese diálogo primero
+                 solo para bajar el modelo del archivo. Misma plantilla exacta en los dos
+                 lados (ver EmployeeCatalogReplaceParser.SampleTemplateCsv). -->
+            <Button Content="📄 Exportar plantilla" Click="OnExportTemplateClick" Margin="0,0,16,0" />
             <!-- Movido desde Dispositivos a pedido explícito del usuario — antes solo vivía
                  ahí y exigía tener ya un dispositivo seleccionado/conectado a mano. Este
                  botón conecta, envía y desconecta él solo (ver

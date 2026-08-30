@@ -33,6 +33,28 @@ public class EmployeeCatalogReplaceParserTests
     }
 
     [Fact]
+    public void Parse_ConArchivoSeparadoPorPuntoYComa_LoDetectaYParseaIgual()
+    {
+        // Caso real: Excel en configuración regional en español (México y la mayoría de
+        // Latinoamérica) exporta "Guardar como CSV" con ';' en vez de ',' — ver
+        // CsvLineParser.DetectDelimiter.
+        var lines = new[]
+        {
+            "Number;FullName;Area;Position;HireDate;Status;WeeklySalary;OvertimeHourlyRate;Notes;Pin",
+            "EMP-001;Adrian Uribe Garcia;Drive In Car Wash;Gerencia;2023-12-07;Activo;3800;135.71;Nota;7",
+        };
+
+        var result = EmployeeCatalogReplaceParser.Parse(lines);
+
+        Assert.Empty(result.Errors);
+        var row = Assert.Single(result.Rows);
+        Assert.Equal("EMP-001", row.Number);
+        Assert.Equal("Adrian Uribe Garcia", row.FullName);
+        Assert.Equal(3800m, row.WeeklySalary);
+        Assert.Equal("7", row.Pin);
+    }
+
+    [Fact]
     public void Parse_ConHireDateVacio_DevuelveNull()
     {
         var lines = new[]
