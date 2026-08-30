@@ -65,6 +65,16 @@ public sealed partial class DeviceUserRow : ObservableObject
 /// dispositivo real de prueba; revisar esto antes de soportar varios relojes conectados
 /// simultáneamente.
 /// </summary>
+/// <summary>Une un <see cref="RawAttendanceRecord"/> (tal cual lo entrega el dispositivo)
+/// con el nombre del empleado ya resuelto por PIN — pedido explícito del usuario: "aquí
+/// tiene que aparecer también el nombre" en la tabla de "Asistencias descargadas". Nulo si
+/// ese PIN todavía no está vinculado a ningún empleado (mismo caso que
+/// AttendanceRow.EmployeeName en la pantalla de Asistencia).</summary>
+public sealed record RawAttendanceRow(RawAttendanceRecord Record, string? EmployeeName)
+{
+    public string EmployeeDisplay => EmployeeName ?? $"PIN {Record.DeviceUserPin} · sin vincular";
+}
+
 public sealed partial class DevicesViewModel : ObservableObject, IDisposable
 {
     private readonly IDeviceRepository _deviceRepository;
@@ -169,7 +179,7 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
     private bool _showDisabledDevices;
 
     public ObservableCollection<Device> Devices { get; } = [];
-    public ObservableCollection<RawAttendanceRecord> AttendanceRecords { get; } = [];
+    public ObservableCollection<RawAttendanceRow> AttendanceRecords { get; } = [];
     public ObservableCollection<string> LogEntries { get; } = [];
 
     public DevicesViewModel(
@@ -346,12 +356,24 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
     /// UnobservedTaskException, tumbaba la app entera) venía de un caso hermano de este
     /// mismo patrón (ver OnRemoteSyncRequested) donde el fire-and-forget quedaba FUERA del
     /// bloque marshalizado — PersistAttendanceAsync también llama AppendLog en sus rutas de
-    /// error, así que tenía que quedar dentro del mismo Dispatcher.Invoke.</summary>
-    private void OnAttendancePunchReceived(object? sender, RawAttendanceRecord record)
+    /// error, así que tenía que quedar dentro del mismo Dispatcher.Invoke.
+    ///
+    /// La resolución del nombre (ResolveEmployeeAndBranchAsync) SÍ se hace afuera, antes del
+    /// Dispatcher.Invoke — es solo una lectura, no toca ninguna ObservableCollection, así que
+    /// puede correr tranquila en este mismo hilo de background sin romper el patrón de
+    /// arriba. async void es el patrón aceptado para un event handler (no hay quién le haga
+    /// await de otra forma, ver IAttendanceDeviceAdapter.AttendancePunchReceived).</summary>
+    private async void OnAttendancePunchReceived(object? sender, RawAttendanceRecord record)
     {
+        string? employeeName = null;
+        if (SelectedDevice is { } device)
+        {
+            (_, _, employeeName) = await ResolveEmployeeAndBranchAsync(device.Id, record.DeviceUserPin);
+        }
+
         System.Windows.Application.Current?.Dispatcher.Invoke(() =>
         {
-            AttendanceRecords.Insert(0, record);
+            AttendanceRecords.Insert(0, new RawAttendanceRow(record, employeeName));
             AppendLog($"🟢 Marcación en vivo — PIN {record.DeviceUserPin} · {record.TimestampUtc:HH:mm:ss} · {record.VerifyMethod}");
 
             // Fire-and-forget deliberado: no se puede "esperar" aquí sin bloquear el hilo de
@@ -389,17 +411,17 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
     /// (tiempo real) — la descarga en lote precomputa esto una sola vez para todo el lote
     /// en vez de repetir esta consulta cientos de veces, ver
     /// BuildEmployeeBranchLookupByPinAsync.</summary>
-    private async Task<(Guid? EmployeeId, Guid? BranchId)> ResolveEmployeeAndBranchAsync(Guid deviceId, string deviceUserPin)
+    private async Task<(Guid? EmployeeId, Guid? BranchId, string? EmployeeName)> ResolveEmployeeAndBranchAsync(Guid deviceId, string deviceUserPin)
     {
         var mapping = (await _mappingRepository.ListAsync())
             .FirstOrDefault(m => m.DeviceId == deviceId && m.DeviceUserPin == deviceUserPin);
         if (mapping is null)
         {
-            return (null, null);
+            return (null, null, null);
         }
 
         var employee = await _employeeRepository.GetByIdAsync(mapping.EmployeeId);
-        return employee is null ? (null, null) : (employee.Id, employee.BranchId);
+        return employee is null ? (null, null, null) : (employee.Id, employee.BranchId, employee.FullName);
     }
 
     /// <summary>Precomputa, para TODOS los PINs vinculados a <paramref name="deviceId"/>, a
@@ -493,7 +515,7 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
             }
             else
             {
-                (employeeId, branchId) = await ResolveEmployeeAndBranchAsync(device.Id, record.DeviceUserPin);
+                (employeeId, branchId, _) = await ResolveEmployeeAndBranchAsync(device.Id, record.DeviceUserPin);
             }
 
             var attendance = Attendance.Create(
@@ -1169,7 +1191,8 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
             // primera sin depender de esa suposición.
             foreach (var record in result.Value.OrderByDescending(r => r.TimestampUtc))
             {
-                AttendanceRecords.Add(record);
+                var employeeName = employeeByPin.TryGetValue(record.DeviceUserPin, out var employee) ? employee.FullName : null;
+                AttendanceRecords.Add(new RawAttendanceRow(record, employeeName));
                 if (await PersistAttendanceAsync(record, source: "descarga", employeeByPin))
                 {
                     savedCount++;

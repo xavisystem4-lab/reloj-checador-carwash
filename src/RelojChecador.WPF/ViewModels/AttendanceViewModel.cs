@@ -53,7 +53,6 @@ public sealed record AttendanceRow(Attendance Attendance, string BranchName, str
 public sealed partial class AttendanceViewModel : ObservableObject
 {
     private const int MaxRows = 2000;
-    private const string DateFormat = "dd/MM/yyyy";
 
     private readonly IAttendanceRepository _attendanceRepository;
     private readonly IBranchRepository _branchRepository;
@@ -71,11 +70,15 @@ public sealed partial class AttendanceViewModel : ObservableObject
     [ObservableProperty]
     private BranchFilterOption? _selectedBranchOption;
 
+    // DateTime? en vez de texto — pedido explícito del usuario: "que tenga función de
+    // calendario y escribirlo manual también". El DatePicker de WPF (ver AttendanceView.xaml)
+    // ya da las dos cosas con un solo control: el calendario desplegable Y un cuadro de
+    // texto editable a mano, sin tener que armar ninguno de los dos por separado.
     [ObservableProperty]
-    private string _fromDateText = "";
+    private DateTime? _fromDateText;
 
     [ObservableProperty]
-    private string _toDateText = "";
+    private DateTime? _toDateText;
 
     [ObservableProperty]
     private string _searchText = "";
@@ -99,10 +102,10 @@ public sealed partial class AttendanceViewModel : ObservableObject
 
     public async Task InitializeAsync()
     {
-        var today = DateTime.Now;
+        var today = DateTime.Now.Date;
         var weekAgo = today.AddDays(-7);
-        FromDateText = weekAgo.ToString(DateFormat, CultureInfo.InvariantCulture);
-        ToDateText = today.ToString(DateFormat, CultureInfo.InvariantCulture);
+        FromDateText = weekAgo;
+        ToDateText = today;
 
         var branches = await _branchRepository.ListAsync();
         BranchOptions.Clear();
@@ -118,10 +121,9 @@ public sealed partial class AttendanceViewModel : ObservableObject
 
     public async Task LoadAsync()
     {
-        if (!DateTime.TryParseExact(FromDateText.Trim(), DateFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var fromDate) ||
-            !DateTime.TryParseExact(ToDateText.Trim(), DateFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var toDate))
+        if (FromDateText is not { } fromDate || ToDateText is not { } toDate)
         {
-            StatusMessage = "Las fechas deben tener el formato dd/mm/aaaa.";
+            StatusMessage = "Selecciona un rango de fechas completo (Desde y Hasta).";
             return;
         }
 

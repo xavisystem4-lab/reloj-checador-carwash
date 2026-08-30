@@ -72,7 +72,7 @@ public partial class AttendanceView : UserControl
             return;
         }
 
-        var suggestedName = $"asistencias-{viewModel.FromDateText.Replace('/', '-')}-a-{viewModel.ToDateText.Replace('/', '-')}.csv";
+        var suggestedName = $"asistencias-{viewModel.FromDateText:yyyy-MM-dd}-a-{viewModel.ToDateText:yyyy-MM-dd}.csv";
         var dialog = new SaveFileDialog
         {
             FileName = suggestedName,

@@ -28,13 +28,19 @@
                 <ComboBox Width="200" Padding="4" ItemsSource="{Binding BranchOptions}"
                           SelectedItem="{Binding SelectedBranchOption, Mode=TwoWay}" />
             </StackPanel>
+            <!-- DatePicker en vez de TextBox — pedido explícito del usuario: "que tenga
+                 función de calendario y escribirlo manual también". Un solo control ya da
+                 las dos cosas: el botón del calendario desplegable Y el cuadro de texto
+                 sigue editable a mano. Language="es-MX" fija el formato dd/mm/aaaa al
+                 escribir a mano sin importar la configuración regional de Windows — mismo
+                 criterio que el resto de la app (nunca depender del locale de la máquina). -->
             <StackPanel Margin="0,0,14,10">
                 <TextBlock Text="Desde (dd/mm/aaaa)" FontSize="13" FontWeight="SemiBold" Margin="0,0,0,2" />
-                <TextBox Width="120" Padding="4" Text="{Binding FromDateText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                <DatePicker Width="130" Padding="4" Language="es-MX" SelectedDate="{Binding FromDateText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
             </StackPanel>
             <StackPanel Margin="0,0,14,10">
                 <TextBlock Text="Hasta (dd/mm/aaaa)" FontSize="13" FontWeight="SemiBold" Margin="0,0,0,2" />
-                <TextBox Width="120" Padding="4" Text="{Binding ToDateText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                <DatePicker Width="130" Padding="4" Language="es-MX" SelectedDate="{Binding ToDateText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
             </StackPanel>
             <StackPanel Margin="0,0,14,10">
                 <TextBlock Text="Buscar empleado o PIN" FontSize="13" FontWeight="SemiBold" Margin="0,0,0,2" />
