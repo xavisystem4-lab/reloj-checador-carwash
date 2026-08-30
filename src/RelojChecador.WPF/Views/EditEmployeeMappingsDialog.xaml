@@ -1,7 +1,7 @@
 <Window x:Class="RelojChecador.WPF.Views.EditEmployeeMappingsDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Editar vínculos" Height="400" Width="440"
+        Title="Editar vínculos" Height="400" Width="480"
         WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
         ShowInTaskbar="False">
     <Grid Margin="20">
@@ -15,7 +15,7 @@
 
         <TextBlock Grid.Row="0" x:Name="HeaderTextBlock" FontSize="17" FontWeight="Bold" Margin="0,0,0,4"
                    TextWrapping="Wrap" />
-        <TextBlock Grid.Row="1" Text="Corrige el PIN si se capturó mal — el reloj sigue siendo el mismo, solo cambia el número que lo identifica."
+        <TextBlock Grid.Row="1" Text="Corrige el PIN si se capturó mal — el reloj sigue siendo el mismo, solo cambia el número que lo identifica. Usa 🗑 para quitar un vínculo a un dispositivo que no corresponde."
                    FontSize="13" Foreground="{DynamicResource BrushTextSecondary}" TextWrapping="Wrap" Margin="0,0,0,14" />
 
         <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
@@ -27,6 +27,8 @@
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="10" />
                                 <ColumnDefinition Width="110" />
+                                <ColumnDefinition Width="10" />
+                                <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <StackPanel Grid.Column="0" VerticalAlignment="Center">
                                 <TextBlock Text="Dispositivo" FontSize="12" Foreground="{DynamicResource BrushTextSecondary}" />
@@ -36,6 +38,12 @@
                                 <TextBlock Text="PIN" FontSize="12" Foreground="{DynamicResource BrushTextSecondary}" Margin="0,0,0,2" />
                                 <TextBox Text="{Binding NewPin, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Padding="4" MaxLength="50" />
                             </StackPanel>
+                            <!-- Pedido explícito del usuario: poder quitar un vínculo a un
+                                 dispositivo que no corresponde (caso real: alguien vinculado
+                                 de más a un reloj de prueba deshabilitado, además del real). -->
+                            <Button Grid.Column="4" Content="🗑" Padding="8,4" VerticalAlignment="Bottom"
+                                    Foreground="{DynamicResource BrushDanger}" ToolTip="Quitar este vínculo"
+                                    Click="OnRemoveMappingClick" Tag="{Binding}" />
                         </Grid>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
