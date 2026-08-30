@@ -22,6 +22,14 @@ public partial class EmployeesView : UserControl
         InitializeComponent();
     }
 
+    private void OnClearFiltersClick(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is EmployeesViewModel viewModel)
+        {
+            viewModel.ClearFilters();
+        }
+    }
+
     private async void OnAddEmployeeClick(object sender, RoutedEventArgs e)
     {
         if (DataContext is not EmployeesViewModel viewModel)
