@@ -13,4 +13,11 @@ public interface IEmployeeRepository
     Task<IReadOnlyList<Employee>> ListAsync(CancellationToken cancellationToken = default);
 
     Task AddAsync(Employee employee, CancellationToken cancellationToken = default);
+
+    /// <summary>Borrado FÍSICO, no baja lógica (ver Employee.ChangeStatus para eso) —
+    /// usado solo por el flujo explícito de "Borrar" en Empleados, que primero limpia sus
+    /// EmployeeDeviceMapping/PayrollDeduction y desvincula sus Attendance (ver
+    /// EmployeesViewModel.HardDeleteEmployeesAsync). Nunca se llama para dar de baja a
+    /// alguien en el uso normal del día a día.</summary>
+    Task RemoveAsync(Employee employee, CancellationToken cancellationToken = default);
 }

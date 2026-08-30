@@ -8,6 +8,7 @@ using RelojChecador.Application.Common;
 using RelojChecador.Application.Devices;
 using RelojChecador.Application.EmployeeDeviceMappings;
 using RelojChecador.Application.Employees;
+using RelojChecador.Application.Payroll;
 using RelojChecador.Domain.Branches;
 using RelojChecador.Domain.Common;
 using RelojChecador.Domain.Devices;
@@ -66,6 +67,7 @@ public sealed partial class EmployeesViewModel : ObservableObject
     private readonly IDeviceRepository _deviceRepository;
     private readonly IEmployeeDeviceMappingRepository _mappingRepository;
     private readonly IAttendanceRepository _attendanceRepository;
+    private readonly IPayrollDeductionRepository _payrollDeductionRepository;
     private readonly IUnitOfWork _unitOfWork;
 
     private IReadOnlyList<EmployeeRow> _allRows = [];
@@ -110,13 +112,14 @@ public sealed partial class EmployeesViewModel : ObservableObject
     public EmployeesViewModel(
         IEmployeeRepository employeeRepository, IBranchRepository branchRepository, IDeviceRepository deviceRepository,
         IEmployeeDeviceMappingRepository mappingRepository, IAttendanceRepository attendanceRepository,
-        IUnitOfWork unitOfWork)
+        IPayrollDeductionRepository payrollDeductionRepository, IUnitOfWork unitOfWork)
     {
         _employeeRepository = employeeRepository;
         _branchRepository = branchRepository;
         _deviceRepository = deviceRepository;
         _mappingRepository = mappingRepository;
         _attendanceRepository = attendanceRepository;
+        _payrollDeductionRepository = payrollDeductionRepository;
         _unitOfWork = unitOfWork;
     }
 
@@ -176,18 +179,6 @@ public sealed partial class EmployeesViewModel : ObservableObject
     partial void OnSelectedBranchFilterChanged(string value) => ApplyVisibilityFilter();
     partial void OnSelectedStatusFilterChanged(string value) => ApplyVisibilityFilter();
 
-    /// <summary>Botón "Limpiar" — regresa los cuatro filtros a su valor por defecto para
-    /// volver a ver el catálogo completo, sin tocar ningún dato de la base (esto NUNCA
-    /// borra empleados; solo deja de ocultarlos/filtrarlos en este DataGrid). Cada setter ya
-    /// dispara su propio OnXChanged → ApplyVisibilityFilter, así que no hace falta llamarla
-    /// aparte.</summary>
-    public void ClearFilters()
-    {
-        SearchText = "";
-        SelectedBranchFilter = AllBranchesOption;
-        SelectedStatusFilter = AllStatusesOption;
-        ShowTerminatedEmployees = false;
-    }
 
     /// <summary>Aplica en cadena los cuatro filtros disponibles (dados de baja, búsqueda de
     /// texto, sucursal, estatus) sobre _allRows — todos en memoria, sin volver a tocar la
@@ -561,6 +552,80 @@ public sealed partial class EmployeesViewModel : ObservableObject
         {
             Log.Error(ex, "Error inesperado al dar de baja un empleado (EmployeeId={EmployeeId})", employeeId);
             return "Ocurrió un error inesperado al guardar. Revisa el registro de errores.";
+        }
+    }
+
+    public sealed record HardDeleteEmployeesOutcome(
+        int EmployeesDeleted, int MappingsDeleted, int AttendancesUnlinked, int PayrollDeductionsDeleted, string? Error)
+    {
+        public bool Success => Error is null;
+    }
+
+    /// <summary>Borrado FÍSICO y permanente de uno o más empleados — a diferencia de
+    /// <see cref="DeleteEmployeeAsync"/> (baja lógica, la que usa "Eliminar" por fila), esto
+    /// SÍ elimina el registro de verdad. Pedido explícito del usuario ("sí quiero borrado
+    /// real y permanente ... para importar un nuevo documento y no haya conflicto"),
+    /// entendiendo y aceptando que se pierde el historial de nómina de esos empleados.
+    ///
+    /// Orden de limpieza por cada empleado: primero sus EmployeeDeviceMapping (sin valor sin
+    /// el empleado) y PayrollDeduction se BORRAN (a diferencia de Attendance, EmployeeId ahí
+    /// es obligatorio — no se puede dejar "sin vincular"); luego sus Attendance se
+    /// DESVINCULAN, nunca se borran (Attendance.ReconcileEmployee(null, null), igual que
+    /// antes de que existiera el vínculo — es un registro de auditoría, ver comentario de
+    /// clase de Attendance); al final se borra el propio Employee. Todo en un solo
+    /// SaveChangesAsync, para que si algo falla a mitad de camino no quede nada a medias.
+    ///
+    /// NOTA de sincronización: SupabaseSyncBackgroundService solo hace upsert, nunca borra
+    /// — un empleado eliminado aquí sigue existiendo en Supabase hasta limpiarlo aparte.
+    /// </summary>
+    public async Task<HardDeleteEmployeesOutcome> HardDeleteEmployeesAsync(IReadOnlyList<Guid> employeeIds)
+    {
+        try
+        {
+            var mappingsDeleted = 0;
+            var attendancesUnlinked = 0;
+            var deductionsDeleted = 0;
+            var employeesDeleted = 0;
+
+            foreach (var employeeId in employeeIds)
+            {
+                var employee = await _employeeRepository.GetByIdAsync(employeeId);
+                if (employee is null)
+                {
+                    continue; // ya no existe (lista desactualizada) — se sigue con el resto
+                }
+
+                foreach (var mapping in await _mappingRepository.ListByEmployeeAsync(employeeId))
+                {
+                    await _mappingRepository.RemoveAsync(mapping);
+                    mappingsDeleted++;
+                }
+
+                foreach (var deduction in await _payrollDeductionRepository.ListByEmployeeAsync(employeeId))
+                {
+                    await _payrollDeductionRepository.RemoveAsync(deduction);
+                    deductionsDeleted++;
+                }
+
+                foreach (var attendance in await _attendanceRepository.ListByEmployeeAsync(employeeId))
+                {
+                    attendance.ReconcileEmployee(null, null);
+                    attendancesUnlinked++;
+                }
+
+                await _employeeRepository.RemoveAsync(employee);
+                employeesDeleted++;
+            }
+
+            await _unitOfWork.SaveChangesAsync();
+            await ReloadAsync();
+            return new HardDeleteEmployeesOutcome(employeesDeleted, mappingsDeleted, attendancesUnlinked, deductionsDeleted, null);
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Error inesperado al borrar físicamente empleados (Count={Count})", employeeIds.Count);
+            return new HardDeleteEmployeesOutcome(
+                0, 0, 0, 0, "Ocurrió un error inesperado al borrar. Revisa el registro de errores.");
         }
     }
 

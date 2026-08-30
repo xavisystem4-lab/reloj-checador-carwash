@@ -37,4 +37,11 @@ public interface IAttendanceRepository
     /// para poder avanzar el cursor de sincronización de forma segura y determinista.</summary>
     Task<IReadOnlyList<Attendance>> ListChangedSinceAsync(
         DateTime sinceUtc, int maxCount, CancellationToken cancellationToken = default);
+
+    /// <summary>Todas las marcaciones de un empleado, sin límite de fecha — usado SOLO para
+    /// desvincularlas (Attendance.ReconcileEmployee(null, null)) antes de un borrado físico
+    /// del empleado (ver IEmployeeRepository.RemoveAsync): la marcación en sí NUNCA se
+    /// borra (es un registro de auditoría, ver comentario de clase de Attendance), solo se
+    /// queda "sin vincular" otra vez, igual que antes de que existiera el vínculo.</summary>
+    Task<IReadOnlyList<Attendance>> ListByEmployeeAsync(Guid employeeId, CancellationToken cancellationToken = default);
 }

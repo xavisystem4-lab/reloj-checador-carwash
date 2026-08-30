@@ -17,4 +17,14 @@ public sealed class EfPayrollDeductionRepository(RelojChecadorDbContext dbContex
 
     public async Task AddAsync(PayrollDeduction deduction, CancellationToken cancellationToken = default) =>
         await dbContext.PayrollDeductions.AddAsync(deduction, cancellationToken);
+
+    public async Task<IReadOnlyList<PayrollDeduction>> ListByEmployeeAsync(
+        Guid employeeId, CancellationToken cancellationToken = default) =>
+        await dbContext.PayrollDeductions.Where(d => d.EmployeeId == employeeId).ToListAsync(cancellationToken);
+
+    public Task RemoveAsync(PayrollDeduction deduction, CancellationToken cancellationToken = default)
+    {
+        dbContext.PayrollDeductions.Remove(deduction);
+        return Task.CompletedTask;
+    }
 }

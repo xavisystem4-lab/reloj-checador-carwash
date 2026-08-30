@@ -17,4 +17,13 @@ public interface IPayrollDeductionRepository
     Task<PayrollDeduction?> GetByEmployeeAndWeekAsync(Guid employeeId, DateOnly weekStart, CancellationToken cancellationToken = default);
 
     Task AddAsync(PayrollDeduction deduction, CancellationToken cancellationToken = default);
+
+    /// <summary>Deducciones de un empleado en particular — usado para borrarlas antes de un
+    /// borrado físico del empleado (ver IEmployeeRepository.RemoveAsync): a diferencia de
+    /// Attendance, EmployeeId aquí es obligatorio (no se puede "desvincular"), así que un
+    /// borrado físico del empleado también borra su historial de deducciones — pedido
+    /// explícito del usuario, que entiende y acepta esa pérdida.</summary>
+    Task<IReadOnlyList<PayrollDeduction>> ListByEmployeeAsync(Guid employeeId, CancellationToken cancellationToken = default);
+
+    Task RemoveAsync(PayrollDeduction deduction, CancellationToken cancellationToken = default);
 }

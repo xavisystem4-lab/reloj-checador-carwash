@@ -24,4 +24,10 @@ public sealed class EfEmployeeRepository(RelojChecadorDbContext dbContext) : IEm
 
     public async Task AddAsync(Employee employee, CancellationToken cancellationToken = default) =>
         await dbContext.Employees.AddAsync(employee, cancellationToken);
+
+    public Task RemoveAsync(Employee employee, CancellationToken cancellationToken = default)
+    {
+        dbContext.Employees.Remove(employee);
+        return Task.CompletedTask;
+    }
 }

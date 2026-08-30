@@ -22,12 +22,18 @@ public partial class EmployeesView : UserControl
         InitializeComponent();
     }
 
-    private void OnClearFiltersClick(object sender, RoutedEventArgs e)
+    private void OnDeleteEmployeesClick(object sender, RoutedEventArgs e)
     {
-        if (DataContext is EmployeesViewModel viewModel)
+        if (DataContext is not EmployeesViewModel viewModel)
         {
-            viewModel.ClearFilters();
+            return;
         }
+
+        // Ofrece la misma lista que ya está visible en pantalla (respeta los filtros de
+        // Buscar/Sucursal/Estatus/"Mostrar dados de baja" activos ahora mismo) — así se
+        // puede filtrar por sucursal primero y borrar solo a esa gente.
+        var dialog = new DeleteEmployeesDialog(viewModel, viewModel.Employees) { Owner = Window.GetWindow(this) };
+        dialog.ShowDialog();
     }
 
     private async void OnAddEmployeeClick(object sender, RoutedEventArgs e)
