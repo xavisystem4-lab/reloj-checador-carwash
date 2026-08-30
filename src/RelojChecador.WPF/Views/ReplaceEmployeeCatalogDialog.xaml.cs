@@ -50,13 +50,9 @@ public partial class ReplaceEmployeeCatalogDialog : Window
             return;
         }
 
-        const string template =
-            "Number,FullName,Area,Position,HireDate,Status,WeeklySalary,OvertimeHourlyRate,Notes,Pin\r\n" +
-            "EMP-001,Nombre Ejemplo,Drive In Car Wash,Puesto ejemplo,2024-01-15,Activo,3500,125,Borra esta fila de ejemplo antes de importar,1\r\n";
-
         try
         {
-            File.WriteAllText(saveDialog.FileName, template);
+            File.WriteAllText(saveDialog.FileName, EmployeeCatalogReplaceParser.SampleTemplateCsv);
         }
         catch (Exception ex)
         {

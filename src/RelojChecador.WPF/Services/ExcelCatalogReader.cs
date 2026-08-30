@@ -53,14 +53,43 @@ public static class ExcelCatalogReader
         var lastRow = usedRange.LastRow().RowNumber();
         var lastColumn = usedRange.LastColumn().ColumnNumber();
 
+        // Cuántas columnas probar como posible encabezado — no solo el ancho completo de la
+        // fila (lastColumn): Excel a veces "extiende" el rango usado más allá de las
+        // columnas con contenido real, solo porque alguna celda de ahí tiene un formato
+        // aplicado (borde, relleno, ancho de columna ajustado) aunque esté vacía — muy común
+        // en plantillas con estilo como esta. Si se exigiera que el encabezado tuviera
+        // EXACTAMENTE lastColumn celdas, una sola columna fantasma de esas rompería la
+        // detección aunque el contenido real fuera idéntico. Se prueba primero la fila
+        // completa tal cual (compatibilidad con el caso normal) y, si no matchea, se
+        // truncan las longitudes conocidas de encabezado (10 y 11) por si el resto es solo
+        // relleno vacío.
+        int[] candidateLengths = [lastColumn, 10, 11];
+
         var headerRowNumber = -1;
         for (var r = usedRange.FirstRow().RowNumber(); r <= Math.Min(lastRow, MaxHeaderSearchRows); r++)
         {
-            var candidate = ReadRow(worksheet, r, lastColumn).Select(c => c ?? "").ToArray();
-            if (EmployeeCatalogSourceConverter.IsRecognizedHeader(candidate))
+            var fullRow = ReadRow(worksheet, r, lastColumn).Select(c => c ?? "").ToArray();
+
+            foreach (var length in candidateLengths.Distinct())
             {
+                if (length > fullRow.Length)
+                {
+                    continue;
+                }
+
+                var candidate = fullRow[..length];
+                if (!EmployeeCatalogSourceConverter.IsRecognizedHeader(candidate))
+                {
+                    continue;
+                }
+
                 header = candidate;
                 headerRowNumber = r;
+                break;
+            }
+
+            if (headerRowNumber >= 0)
+            {
                 break;
             }
         }

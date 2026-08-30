@@ -58,7 +58,11 @@ public static class EmployeeImportParser
             return new EmployeeImportResult(rows, errors);
         }
 
-        var header = CsvLineParser.SplitLine(lines[0]);
+        // Detectado UNA VEZ sobre el encabezado y usado para todo el archivo — ver
+        // CsvLineParser.DetectDelimiter (Excel en español exporta CSV con ';' en vez de
+        // ',').
+        var delimiter = CsvLineParser.DetectDelimiter(lines[0]);
+        var header = CsvLineParser.SplitLine(lines[0], delimiter);
         if (!HeaderMatches(header))
         {
             errors.Add($"El encabezado no coincide con el esperado ({string.Join(",", ExpectedHeader)}).");
@@ -74,7 +78,7 @@ public static class EmployeeImportParser
             }
 
             var lineNumber = i + 1; // 1-based, coincide con lo que vería el usuario al abrir el archivo
-            var fields = CsvLineParser.SplitLine(line);
+            var fields = CsvLineParser.SplitLine(line, delimiter);
             if (fields.Length != ExpectedHeader.Length)
             {
                 errors.Add($"Línea {lineNumber}: se esperaban {ExpectedHeader.Length} columnas, se encontraron {fields.Length}.");
