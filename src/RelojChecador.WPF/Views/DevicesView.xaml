@@ -220,7 +220,23 @@
                         </Grid>
                     </GroupBox>
 
-                    <GroupBox Header="Asistencias descargadas (esta sesión, aún sin conciliar/persistir)">
+                    <GroupBox>
+                        <GroupBox.Header>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="Asistencias descargadas (esta sesión, aún sin conciliar/persistir)" VerticalAlignment="Center" />
+                                <!-- Pedido explícito del usuario: la tabla de abajo tiene
+                                     alto fijo chico (MaxHeight) para no empujar el resto de
+                                     la pantalla — este botón abre la misma lista en su
+                                     propia ventana, sin ese límite y maximizable (ver
+                                     AttendanceRecordsFullDialog). -->
+                                <Button Grid.Column="1" Content="🔍 Ver completo" Padding="8,2" FontSize="12"
+                                        Click="OnViewFullAttendanceRecordsClick" />
+                            </Grid>
+                        </GroupBox.Header>
                         <DataGrid ItemsSource="{Binding AttendanceRecords}" AutoGenerateColumns="False" IsReadOnly="True"
                                   CanUserAddRows="False" MaxHeight="180" HeadersVisibility="Column"
                                   GridLinesVisibility="Horizontal">
