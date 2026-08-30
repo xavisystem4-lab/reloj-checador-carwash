@@ -45,7 +45,9 @@
                 <DataGridTextColumn Header="PIN actual" Binding="{Binding Row.DeviceUserPin}" Width="90" IsReadOnly="True" />
                 <DataGridTextColumn Header="Nombre (reloj)" Binding="{Binding Row.Name}" Width="150" IsReadOnly="True" />
                 <DataGridTextColumn Header="Vinculado a" Binding="{Binding Row.LinkedEmployeeDisplay}" Width="180" IsReadOnly="True" />
-                <DataGridTextColumn Header="PIN destino" Binding="{Binding TargetPin}" Width="90" IsReadOnly="True" />
+                <!-- Editable — pedido explícito del usuario: poder ajustar el PIN destino a
+                     mano en vez de depender solo del Número sugerido. -->
+                <DataGridTextColumn Header="PIN destino" Binding="{Binding TargetPin, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="90" IsReadOnly="False" />
                 <DataGridTextColumn Header="Estado" Binding="{Binding StatusText}" Width="*" IsReadOnly="True" />
             </DataGrid.Columns>
         </DataGrid>
