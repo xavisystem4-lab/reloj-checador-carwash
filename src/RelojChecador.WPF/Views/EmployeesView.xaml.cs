@@ -3,7 +3,6 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using Microsoft.Win32;
-using RelojChecador.Application.Employees;
 using RelojChecador.Domain.Devices;
 using RelojChecador.WPF.ViewModels;
 using Serilog;
@@ -32,28 +31,6 @@ public partial class EmployeesView : UserControl
         // el DataGrid de por sí (para "de mayor a menor" en Número, o alfabético en Nombre).
         EmployeesGrid.Items.SortDescriptions.Add(new SortDescription(nameof(EmployeeRow.NumberSortKey), ListSortDirection.Ascending));
         NumberColumn.SortDirection = ListSortDirection.Ascending;
-    }
-
-    private void OnExportTemplateClick(object sender, RoutedEventArgs e)
-    {
-        var saveDialog = new SaveFileDialog
-        {
-            FileName = "plantilla_reemplazar_catalogo.csv",
-            Filter = "Archivo CSV (*.csv)|*.csv",
-        };
-        if (saveDialog.ShowDialog() != true)
-        {
-            return;
-        }
-
-        try
-        {
-            File.WriteAllText(saveDialog.FileName, EmployeeCatalogReplaceParser.SampleTemplateCsv);
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(Window.GetWindow(this), $"No se pudo guardar la plantilla: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
-        }
     }
 
     private void OnExportCatalogClick(object sender, RoutedEventArgs e)
