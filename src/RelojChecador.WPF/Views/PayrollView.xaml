@@ -49,6 +49,10 @@
             <DataGrid.Columns>
                 <DataGridTextColumn Header="Empleado" Binding="{Binding EmployeeName}" Width="*" />
                 <DataGridTextColumn Header="Sucursal" Binding="{Binding BranchName}" Width="120" />
+                <!-- Conserva la ubicación original de alguien fusionado a otra sucursal
+                     (ver EmployeesViewModel.ApplyCatalogReplaceAsync) — pedido explícito del
+                     usuario: "que en los reportes se acomoden por sucursal". -->
+                <DataGridTextColumn Header="Departamento" Binding="{Binding Department}" Width="110" />
                 <DataGridTextColumn Header="Horas normales" Binding="{Binding RegularTimeText}" Width="100" />
                 <DataGridTextColumn Header="Horas extra" Binding="{Binding OvertimeTimeText}" Width="90" />
                 <DataGridTextColumn Header="Sueldo semanal" Binding="{Binding WeeklySalaryText}" Width="110" />

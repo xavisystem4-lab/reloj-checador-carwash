@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
@@ -23,6 +24,14 @@ public partial class EmployeesView : UserControl
     public EmployeesView()
     {
         InitializeComponent();
+
+        // Orden por defecto al abrir la pantalla: Número (numérico, no alfabético — ver
+        // EmployeeRow.NumberSortKey) ascendente. Pedido explícito del usuario: "acomodar
+        // por Número de mayor a menor, igual en Nombre por orden alfabético, aunque la
+        // prioridad es por número" — clic en cada encabezado alterna asc/desc como ya hace
+        // el DataGrid de por sí (para "de mayor a menor" en Número, o alfabético en Nombre).
+        EmployeesGrid.Items.SortDescriptions.Add(new SortDescription(nameof(EmployeeRow.NumberSortKey), ListSortDirection.Ascending));
+        NumberColumn.SortDirection = ListSortDirection.Ascending;
     }
 
     private void OnExportTemplateClick(object sender, RoutedEventArgs e)

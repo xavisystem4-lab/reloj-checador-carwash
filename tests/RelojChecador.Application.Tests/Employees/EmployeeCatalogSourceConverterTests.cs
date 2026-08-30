@@ -11,7 +11,7 @@ public class EmployeeCatalogSourceConverterTests
     ];
 
     private static readonly string[] CanonicalHeader =
-        ["Number", "FullName", "Area", "Position", "HireDate", "Status", "WeeklySalary", "OvertimeHourlyRate", "Notes", "Pin"];
+        ["Number", "FullName", "Area", "Position", "HireDate", "Status", "WeeklySalary", "OvertimeHourlyRate", "Notes", "Pin", "Department"];
 
     [Fact]
     public void IsCanonicalHeader_ConElEncabezadoDelCatalogoDeReemplazo_DevuelveTrue()
@@ -32,7 +32,7 @@ public class EmployeeCatalogSourceConverterTests
         {
             [
                 "1", "Adrian Uribe Garcia", "2023-12-07", "Activo", "",
-                "2.7", "Hombre", "Drive In Car Wash", "Gerencia", "3800", "20 Diciembre 2005",
+                "2.7", "Hombre", "Plaza Sabo", "Gerencia", "3800", "20 Diciembre 2005",
             ],
         };
 
@@ -46,12 +46,33 @@ public class EmployeeCatalogSourceConverterTests
         var row = Assert.Single(result.Rows);
         Assert.Equal("1", row.Number);
         Assert.Equal("Adrian Uribe Garcia", row.FullName);
-        Assert.Equal("Drive In Car Wash", row.Area);
+        // Area SIEMPRE es la sucursal unificada — pedido explícito del usuario tras fusionar
+        // varias sucursales en una sola ("sí fusiónalos"). El "Lugar de trabajo" real del
+        // Excel (Plaza Sabo, distinto de la unificada) se conserva en Department.
+        Assert.Equal("CAR-WASH", row.Area);
+        Assert.Equal("Plaza Sabo", row.Department);
         Assert.Equal("Gerencia", row.Position);
         Assert.Equal(new DateOnly(2023, 12, 7), row.HireDate);
         Assert.Equal(3800m, row.WeeklySalary);
         Assert.Equal("Sexo: Hombre | Fecha de nacimiento: 20 Diciembre 2005", row.Notes);
         Assert.Equal("1", row.Pin); // Pin = mismo ID Empleado, convención del negocio
+    }
+
+    [Fact]
+    public void TryConvert_ConLugarDeTrabajoYaIgualALaSucursalUnificada_DepartmentQuedaVacio()
+    {
+        // Si el "Lugar de trabajo" del Excel YA es la sucursal unificada, guardarlo también
+        // en Department sería puro ruido repetido — solo se guarda cuando aporta algo.
+        var rows = new IReadOnlyList<string?>[]
+        {
+            ["1", "Adrian Uribe Garcia", "", "Activo", "", "", "", "CAR-WASH", "", "", ""],
+        };
+
+        EmployeeCatalogSourceConverter.TryConvert(RegistroEmpleadosHeader, rows, out var csvLines, out _);
+
+        var row = Assert.Single(EmployeeCatalogReplaceParser.Parse(csvLines).Rows);
+        Assert.Equal("CAR-WASH", row.Area);
+        Assert.Null(row.Department);
     }
 
     [Fact]
@@ -61,7 +82,7 @@ public class EmployeeCatalogSourceConverterTests
         // reloj checador físico con PIN 201, y el Excel lo trae con ID Empleado=201.
         var rows = new IReadOnlyList<string?>[]
         {
-            ["201", "Javier Galaviz", "", "Activo", "", "", "", "Drive In Car Wash", "", "", ""],
+            ["201", "Javier Galaviz", "", "Activo", "", "", "", "CAR-WASH", "", "", ""],
         };
 
         var ok = EmployeeCatalogSourceConverter.TryConvert(RegistroEmpleadosHeader, rows, out var csvLines, out _);
@@ -77,7 +98,7 @@ public class EmployeeCatalogSourceConverterTests
     {
         var rows = new IReadOnlyList<string?>[]
         {
-            ["1", "Adrian Uribe Garcia", "", "Activo", "", "", "", "Drive In Car Wash", "", "", ""],
+            ["1", "Adrian Uribe Garcia", "", "Activo", "", "", "", "CAR-WASH", "", "", ""],
             ["", "", "", "", "", "", "", "", "", "", ""],
             [null, null, null, null, null, null, null, null, null, null, null],
         };
@@ -93,7 +114,7 @@ public class EmployeeCatalogSourceConverterTests
     {
         var rows = new IReadOnlyList<string?>[]
         {
-            ["9", "Antony Salvador Beltran Garcia", "", "Inactivo", "", "", "Hombre", "Drive In Car Wash", "", "", ""],
+            ["9", "Antony Salvador Beltran Garcia", "", "Inactivo", "", "", "Hombre", "CAR-WASH", "", "", ""],
         };
 
         EmployeeCatalogSourceConverter.TryConvert(RegistroEmpleadosHeader, rows, out var csvLines, out _);

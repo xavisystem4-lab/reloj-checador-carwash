@@ -31,7 +31,17 @@ namespace RelojChecador.WPF.ViewModels;
 /// tener que leerlo dentro del texto del dispositivo. Vacío ("") si no tiene ningún vínculo
 /// todavía, nunca "Sin vincular" — ese texto ya lo cubre LinkedDevicesSummary, repetirlo en
 /// esta columna solo generaría ruido visual en una tabla con muchas filas.</summary>
-public sealed record EmployeeRow(Employee Employee, string BranchName, string LinkedDevicesSummary, string PinSummary);
+public sealed record EmployeeRow(Employee Employee, string BranchName, string LinkedDevicesSummary, string PinSummary)
+{
+    /// <summary>Clave de orden NUMÉRICA para la columna "Número" — pedido explícito del
+    /// usuario ("acomodar por Número de mayor a menor"): Employee.Number es texto (soporta
+    /// formatos viejos como "EMP-001"), así que el orden por defecto del DataGrid lo
+    /// compararía como texto ("10" antes que "2") en vez de como número real. La columna usa
+    /// esto como SortMemberPath mientras sigue MOSTRANDO el texto real (Employee.Number). Un
+    /// número que no se pueda parsear (formato viejo tipo "EMP-001") cae al final
+    /// (int.MaxValue) en vez de romper el orden de los que sí son numéricos.</summary>
+    public int NumberSortKey => int.TryParse(Employee.Number.Value, out var n) ? n : int.MaxValue;
+}
 
 /// <summary>Un vínculo de un empleado a un dispositivo, con el nombre del dispositivo ya
 /// resuelto — usado por EditEmployeeMappingsDialog para poder corregir el PIN sin
@@ -984,7 +994,7 @@ public sealed partial class EmployeesViewModel : ObservableObject
                 {
                     employee = Employee.Create(
                         EmployeeNumber.Create(row.Number), row.FullName, branchId,
-                        row.HireDate ?? today, row.WeeklySalary, department: null, row.Position, row.OvertimeHourlyRate);
+                        row.HireDate ?? today, row.WeeklySalary, row.Department, row.Position, row.OvertimeHourlyRate);
                     if (row.Status != EmploymentStatus.Active)
                     {
                         employee.ChangeStatus(row.Status);
@@ -1002,7 +1012,9 @@ public sealed partial class EmployeesViewModel : ObservableObject
                         ?? throw new InvalidOperationException(
                             $"No se encontró a \"{row.FullName}\" — la lista pudo haber cambiado. Cierra este diálogo y vuelve a intentar.");
 
-                    employee.UpdatePersonalInfo(row.FullName, department: null, row.Position);
+                    // Department vacío en el archivo NO borra uno ya capturado — mismo
+                    // criterio "null nunca sobreescribe un dato real" que WeeklySalary/HireDate.
+                    employee.UpdatePersonalInfo(row.FullName, row.Department ?? employee.Department, row.Position);
                     if (row.HireDate is { } hireDate)
                     {
                         employee.UpdateHireDate(hireDate);

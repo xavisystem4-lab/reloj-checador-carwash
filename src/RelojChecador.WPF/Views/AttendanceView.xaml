@@ -60,6 +60,10 @@
                 <DataGridTextColumn Header="Fecha y hora" Binding="{Binding Attendance.TimestampUtc, StringFormat='dd/MM/yyyy HH:mm:ss'}" Width="160" />
                 <DataGridTextColumn Header="Empleado" Binding="{Binding EmployeeDisplay}" Width="*" />
                 <DataGridTextColumn Header="Sucursal" Binding="{Binding BranchName}" Width="140" />
+                <!-- Conserva la ubicación original de alguien fusionado a otra sucursal
+                     (ver EmployeesViewModel.ApplyCatalogReplaceAsync) — pedido explícito del
+                     usuario: "que en los reportes se acomoden por sucursal". -->
+                <DataGridTextColumn Header="Departamento" Binding="{Binding Department}" Width="120" />
                 <DataGridTextColumn Header="Dispositivo" Binding="{Binding DeviceName}" Width="140" />
                 <DataGridTextColumn Header="Método" Binding="{Binding Attendance.VerifyMethod, Converter={StaticResource VerifyMethodToTextConverter}}" Width="100" />
                 <DataGridTextColumn Header="Tipo" Binding="{Binding Attendance.PunchType, Converter={StaticResource PunchTypeToTextConverter}}" Width="170" />

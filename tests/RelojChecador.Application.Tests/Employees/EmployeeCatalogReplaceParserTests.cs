@@ -5,7 +5,7 @@ namespace RelojChecador.Application.Tests.Employees;
 
 public class EmployeeCatalogReplaceParserTests
 {
-    private const string Header = "Number,FullName,Area,Position,HireDate,Status,WeeklySalary,OvertimeHourlyRate,Notes,Pin";
+    private const string Header = "Number,FullName,Area,Position,HireDate,Status,WeeklySalary,OvertimeHourlyRate,Notes,Pin,Department";
 
     [Fact]
     public void Parse_FilaCompletaYValida_DevuelveLaFilaConLosValoresCorrectos()
@@ -13,7 +13,7 @@ public class EmployeeCatalogReplaceParserTests
         var lines = new[]
         {
             Header,
-            "EMP-001,Adrian Uribe Garcia,Drive In Car Wash,Gerencia,2023-12-07,Activo,3800,135.71,Nota,7",
+            "EMP-001,Adrian Uribe Garcia,CAR-WASH,Gerencia,2023-12-07,Activo,3800,135.71,Nota,7,Plaza Sabo",
         };
 
         var result = EmployeeCatalogReplaceParser.Parse(lines);
@@ -22,7 +22,7 @@ public class EmployeeCatalogReplaceParserTests
         var row = Assert.Single(result.Rows);
         Assert.Equal("EMP-001", row.Number);
         Assert.Equal("Adrian Uribe Garcia", row.FullName);
-        Assert.Equal("Drive In Car Wash", row.Area);
+        Assert.Equal("CAR-WASH", row.Area);
         Assert.Equal("Gerencia", row.Position);
         Assert.Equal(new DateOnly(2023, 12, 7), row.HireDate);
         Assert.Equal(EmploymentStatus.Active, row.Status);
@@ -30,6 +30,22 @@ public class EmployeeCatalogReplaceParserTests
         Assert.Equal(135.71m, row.OvertimeHourlyRate);
         Assert.Equal("Nota", row.Notes);
         Assert.Equal("7", row.Pin);
+        Assert.Equal("Plaza Sabo", row.Department);
+    }
+
+    [Fact]
+    public void Parse_ConDepartmentVacio_DevuelveNull()
+    {
+        var lines = new[]
+        {
+            Header,
+            "EMP-001,Adrian Uribe Garcia,CAR-WASH,Gerencia,2023-12-07,Activo,3800,135.71,Nota,7,",
+        };
+
+        var result = EmployeeCatalogReplaceParser.Parse(lines);
+
+        var row = Assert.Single(result.Rows);
+        Assert.Null(row.Department);
     }
 
     [Fact]
@@ -40,8 +56,8 @@ public class EmployeeCatalogReplaceParserTests
         // CsvLineParser.DetectDelimiter.
         var lines = new[]
         {
-            "Number;FullName;Area;Position;HireDate;Status;WeeklySalary;OvertimeHourlyRate;Notes;Pin",
-            "EMP-001;Adrian Uribe Garcia;Drive In Car Wash;Gerencia;2023-12-07;Activo;3800;135.71;Nota;7",
+            "Number;FullName;Area;Position;HireDate;Status;WeeklySalary;OvertimeHourlyRate;Notes;Pin;Department",
+            "EMP-001;Adrian Uribe Garcia;CAR-WASH;Gerencia;2023-12-07;Activo;3800;135.71;Nota;7;",
         };
 
         var result = EmployeeCatalogReplaceParser.Parse(lines);
@@ -60,7 +76,7 @@ public class EmployeeCatalogReplaceParserTests
         var lines = new[]
         {
             Header,
-            "EMP-201,Javier Galaviz,Drive In Car Wash,,,Activo,,,,",
+            "EMP-201,Javier Galaviz,CAR-WASH,,,Activo,,,,,",
         };
 
         var result = EmployeeCatalogReplaceParser.Parse(lines);
@@ -78,7 +94,7 @@ public class EmployeeCatalogReplaceParserTests
         var lines = new[]
         {
             Header,
-            "EMP-001,Adrian Uribe,Drive In Car Wash,,45267,Activo,,,,",
+            "EMP-001,Adrian Uribe,CAR-WASH,,45267,Activo,,,,,",
         };
 
         var result = EmployeeCatalogReplaceParser.Parse(lines);
@@ -98,7 +114,7 @@ public class EmployeeCatalogReplaceParserTests
         var lines = new[]
         {
             Header,
-            "EMP-001,Adrian Uribe,Drive In Car Wash,,07/12/2023,Activo,,,,",
+            "EMP-001,Adrian Uribe,CAR-WASH,,07/12/2023,Activo,,,,,",
         };
 
         var result = EmployeeCatalogReplaceParser.Parse(lines);
@@ -114,7 +130,7 @@ public class EmployeeCatalogReplaceParserTests
         var lines = new[]
         {
             Header,
-            "EMP-001,Adrian Uribe,Drive In Car Wash,,32/13/2023,Activo,,,,",
+            "EMP-001,Adrian Uribe,CAR-WASH,,32/13/2023,Activo,,,,,",
         };
 
         var result = EmployeeCatalogReplaceParser.Parse(lines);
@@ -135,7 +151,7 @@ public class EmployeeCatalogReplaceParserTests
         var lines = new[]
         {
             Header,
-            $"EMP-001,Adrian Uribe,Drive In Car Wash,,,{statusText},,,,",
+            $"EMP-001,Adrian Uribe,CAR-WASH,,,{statusText},,,,,",
         };
 
         var result = EmployeeCatalogReplaceParser.Parse(lines);
@@ -150,7 +166,7 @@ public class EmployeeCatalogReplaceParserTests
         var lines = new[]
         {
             Header,
-            "EMP-001,Adrian Uribe,Drive In Car Wash,,,DeVacaciones,,,,",
+            "EMP-001,Adrian Uribe,CAR-WASH,,,DeVacaciones,,,,,",
         };
 
         var result = EmployeeCatalogReplaceParser.Parse(lines);
@@ -166,8 +182,8 @@ public class EmployeeCatalogReplaceParserTests
         var lines = new[]
         {
             Header,
-            "EMP-001,Adrian Uribe,Drive In Car Wash,,,,,,,",
-            "EMP-001,Otra Persona,Drive In Car Wash,,,,,,,",
+            "EMP-001,Adrian Uribe,CAR-WASH,,,,,,,,",
+            "EMP-001,Otra Persona,CAR-WASH,,,,,,,,",
         };
 
         var result = EmployeeCatalogReplaceParser.Parse(lines);
@@ -184,7 +200,7 @@ public class EmployeeCatalogReplaceParserTests
         var lines = new[]
         {
             Header,
-            "EMP-001,Adrian Uribe,Drive In Car Wash,,,,,,,",
+            "EMP-001,Adrian Uribe,CAR-WASH,,,,,,,,",
         };
 
         var result = EmployeeCatalogReplaceParser.Parse(lines);
@@ -195,9 +211,9 @@ public class EmployeeCatalogReplaceParserTests
     }
 
     [Theory]
-    [InlineData(",Adrian Uribe,Drive In Car Wash,,,,,,,")] // Number vacío
-    [InlineData("EMP-001,,Drive In Car Wash,,,,,,,")] // FullName vacío
-    [InlineData("EMP-001,Adrian Uribe,,,,,,,,")] // Area vacía
+    [InlineData(",Adrian Uribe,CAR-WASH,,,,,,,,")] // Number vacío
+    [InlineData("EMP-001,,CAR-WASH,,,,,,,,")] // FullName vacío
+    [InlineData("EMP-001,Adrian Uribe,,,,,,,,,")] // Area vacía
     public void Parse_ConCampoObligatorioVacio_ReportaErrorYNoAgregaLaFila(string line)
     {
         var lines = new[] { Header, line };
@@ -214,7 +230,7 @@ public class EmployeeCatalogReplaceParserTests
         var lines = new[]
         {
             Header,
-            "EMP-001,Adrian Uribe,Drive In Car Wash,,,,,,,42",
+            "EMP-001,Adrian Uribe,CAR-WASH,,,,,,,42,",
         };
 
         var result = EmployeeCatalogReplaceParser.Parse(lines);
@@ -229,7 +245,7 @@ public class EmployeeCatalogReplaceParserTests
         var lines = new[]
         {
             Header,
-            "EMP-001,Adrian Uribe,Drive In Car Wash,,,,,,,",
+            "EMP-001,Adrian Uribe,CAR-WASH,,,,,,,,",
         };
 
         var result = EmployeeCatalogReplaceParser.Parse(lines);
@@ -244,7 +260,7 @@ public class EmployeeCatalogReplaceParserTests
         var lines = new[]
         {
             Header,
-            "EMP-001,Adrian Uribe,Drive In Car Wash,,,,,,,EMP-001",
+            "EMP-001,Adrian Uribe,CAR-WASH,,,,,,,EMP-001,",
         };
 
         var result = EmployeeCatalogReplaceParser.Parse(lines);
@@ -259,8 +275,8 @@ public class EmployeeCatalogReplaceParserTests
     {
         var lines = new[]
         {
-            "Number,FullName,Area,Position,WeeklySalary,OvertimeHourlyRate,Notes", // encabezado del formato viejo (sin HireDate/Status)
-            "EMP-001,Adrian Uribe,Drive In Car Wash,,3800,,",
+            "Number,FullName,Area,Position,WeeklySalary,OvertimeHourlyRate,Notes", // encabezado del formato viejo (sin HireDate/Status/Pin/Department)
+            "EMP-001,Adrian Uribe,CAR-WASH,,3800,,",
         };
 
         var result = EmployeeCatalogReplaceParser.Parse(lines);

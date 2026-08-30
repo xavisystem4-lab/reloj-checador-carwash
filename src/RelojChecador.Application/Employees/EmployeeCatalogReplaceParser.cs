@@ -22,6 +22,7 @@ public sealed record EmployeeCatalogRow(
     decimal? OvertimeHourlyRate,
     string? Notes,
     string? Pin,
+    string? Department,
     IReadOnlyList<string> Alerts)
 {
     public bool HasAlerts => Alerts.Count > 0;
@@ -39,7 +40,14 @@ public sealed record EmployeeCatalogParseResult(IReadOnlyList<EmployeeCatalogRow
 /// ACTUALIZA a quien ya existe y coincide por nombre, CREA a quien es nuevo, y DA DE BAJA
 /// (lógica, nunca borra) a quien ya no aparece — pedido explícito del usuario: "el excel que
 /// te pasé es el único registro que quiero actualmente". Columnas esperadas:
-/// <c>Number,FullName,Area,Position,HireDate,Status,WeeklySalary,OvertimeHourlyRate,Notes,Pin</c>.
+/// <c>Number,FullName,Area,Position,HireDate,Status,WeeklySalary,OvertimeHourlyRate,Notes,Pin,Department</c>.
+///
+/// <c>Department</c> (agregada a pedido explícito del usuario, tras fusionar varias
+/// sucursales en una sola: "que en los reportes se acomoden por sucursal") es OPCIONAL —
+/// guarda la ubicación/sucursal ORIGINAL de alguien cuando ya no coincide con su Area actual
+/// (p. ej. alguien fusionado de "Arabica Café" hacia "CAR-WASH" conserva "Arabica Café" aquí),
+/// para no perder ese dato en Asistencia/Reportes aunque administrativamente ya solo exista
+/// una sucursal. Vacío = sin diferencia que registrar.
 ///
 /// <c>Pin</c> (agregada a pedido explícito del usuario: "quiero que agregue la columna PIN
 /// ... para que el PIN lo detecte el sistema al importarlo") es OPCIONAL y, si viene, debe
@@ -64,7 +72,7 @@ public sealed record EmployeeCatalogParseResult(IReadOnlyList<EmployeeCatalogRow
 public static class EmployeeCatalogReplaceParser
 {
     private static readonly string[] ExpectedHeader =
-        ["Number", "FullName", "Area", "Position", "HireDate", "Status", "WeeklySalary", "OvertimeHourlyRate", "Notes", "Pin"];
+        ["Number", "FullName", "Area", "Position", "HireDate", "Status", "WeeklySalary", "OvertimeHourlyRate", "Notes", "Pin", "Department"];
 
     /// <summary>Encabezado + una fila de ejemplo, en el formato exacto que espera
     /// <see cref="Parse"/> — única fuente para el botón "Exportar plantilla", tanto en
@@ -72,7 +80,7 @@ public static class EmployeeCatalogReplaceParser
     /// EmployeesView.xaml.cs), para no mantener el mismo texto duplicado en dos archivos.</summary>
     public static readonly string SampleTemplateCsv =
         string.Join(",", ExpectedHeader) + "\r\n" +
-        "EMP-001,Nombre Ejemplo,Drive In Car Wash,Puesto ejemplo,2024-01-15,Activo,3500,125,Borra esta fila de ejemplo antes de importar,1\r\n";
+        "EMP-001,Nombre Ejemplo,Drive In Car Wash,Puesto ejemplo,2024-01-15,Activo,3500,125,Borra esta fila de ejemplo antes de importar,1,\r\n";
 
     public static EmployeeCatalogParseResult Parse(IReadOnlyList<string> lines)
     {
@@ -119,6 +127,7 @@ public static class EmployeeCatalogReplaceParser
             var area = fields[2].Trim();
             var position = NullIfEmpty(fields[3]);
             var notes = NullIfEmpty(fields[8]);
+            var department = NullIfEmpty(fields[10]);
 
             if (number.Length == 0 || fullName.Length == 0 || area.Length == 0)
             {
@@ -170,7 +179,7 @@ public static class EmployeeCatalogReplaceParser
 
             rows.Add(new EmployeeCatalogRow(
                 lineNumber, number, fullName, area, position, hireDate, status,
-                weeklySalary, overtimeHourlyRate, notes, pin, alerts));
+                weeklySalary, overtimeHourlyRate, notes, pin, department, alerts));
         }
 
         return new EmployeeCatalogParseResult(rows, errors);

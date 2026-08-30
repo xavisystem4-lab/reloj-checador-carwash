@@ -28,7 +28,7 @@ public sealed record BranchFilterOption(Branch? Branch, string Label)
 /// <summary>Une una <see cref="Attendance"/> con sucursal/dispositivo/empleado ya
 /// resueltos — mismos tres cruces que EmployeesViewModel.EmployeeRow ya hace para
 /// Branch/Device, más la resolución de empleado (ver comentario de clase del ViewModel).</summary>
-public sealed record AttendanceRow(Attendance Attendance, string BranchName, string DeviceName, string? EmployeeName)
+public sealed record AttendanceRow(Attendance Attendance, string BranchName, string DeviceName, string? EmployeeName, string? Department)
 {
     public string EmployeeDisplay => EmployeeName ?? $"PIN {Attendance.DeviceUserPin} · sin vincular";
 }
@@ -148,6 +148,11 @@ public sealed partial class AttendanceViewModel : ObservableObject
             var branchNamesById = branches.ToDictionary(b => b.Id, b => b.Name);
             var deviceNamesById = devices.ToDictionary(d => d.Id, d => d.Name);
             var employeeNamesById = employees.ToDictionary(e => e.Id, e => e.FullName);
+            // Pedido explícito del usuario tras fusionar varias sucursales en una sola:
+            // "que en los reportes se acomoden por sucursal" — Department conserva la
+            // ubicación original de quien se fusionó (ver EmployeesViewModel.ApplyCatalogReplaceAsync),
+            // así se puede seguir distinguiendo de dónde era cada quien.
+            var employeeDepartmentsById = employees.ToDictionary(e => e.Id, e => e.Department);
             var employeeIdByDeviceAndPin = mappings.ToDictionary(m => (m.DeviceId, m.DeviceUserPin), m => m.EmployeeId);
 
             _allRows = attendances.Select(a =>
@@ -167,7 +172,10 @@ public sealed partial class AttendanceViewModel : ObservableObject
                 var employeeName = resolvedEmployeeId is not null && employeeNamesById.TryGetValue(resolvedEmployeeId.Value, out var en)
                     ? en
                     : null;
-                return new AttendanceRow(a, branchName, deviceName, employeeName);
+                var department = resolvedEmployeeId is not null && employeeDepartmentsById.TryGetValue(resolvedEmployeeId.Value, out var dep)
+                    ? dep
+                    : null;
+                return new AttendanceRow(a, branchName, deviceName, employeeName, department);
             }).ToList();
 
             ApplySearchFilter();
@@ -339,7 +347,7 @@ public sealed partial class AttendanceViewModel : ObservableObject
     /// conoce tipos de WPF).</summary>
     public string BuildCsv()
     {
-        var header = new[] { "Fecha y hora", "Empleado", "PIN", "Sucursal", "Dispositivo", "Método", "Tipo" };
+        var header = new[] { "Fecha y hora", "Empleado", "PIN", "Sucursal", "Departamento", "Dispositivo", "Método", "Tipo" };
         var lines = new List<string> { string.Join(",", header.Select(CsvEscape)) };
 
         foreach (var row in Attendances)
@@ -350,6 +358,7 @@ public sealed partial class AttendanceViewModel : ObservableObject
                 row.EmployeeName ?? "(sin vincular)",
                 row.Attendance.DeviceUserPin,
                 row.BranchName,
+                row.Department ?? "",
                 row.DeviceName,
                 VerifyMethodToTextConverter.Describe(row.Attendance.VerifyMethod),
                 PunchTypeToTextConverter.Describe(row.Attendance.PunchType),
