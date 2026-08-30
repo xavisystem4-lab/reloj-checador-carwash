@@ -6,7 +6,7 @@ namespace RelojChecador.Application.Employees;
 /// <summary>
 /// Normaliza un archivo de origen que NO trae ya el encabezado canónico de
 /// <see cref="EmployeeCatalogReplaceParser"/> (<c>Number,FullName,Area,Position,HireDate,Status,
-/// WeeklySalary,OvertimeHourlyRate,Notes,Pin</c>) a ese mismo formato — pedido explícito del
+/// WeeklySalary,OvertimeHourlyRate,Notes,Pin,Department</c>) a ese mismo formato — pedido explícito del
 /// usuario: "que en cuanto suba un CSV o Excel automáticamente lo convierta ... para que sea
 /// compatible al momento de importarlo", para no tener que transformar el Excel a mano cada
 /// vez (como pasó con "REGISTRO EJECUTIVO EMPLEADOS.xlsx" antes de existir esta clase).
@@ -26,7 +26,16 @@ namespace RelojChecador.Application.Employees;
 public static class EmployeeCatalogSourceConverter
 {
     private static readonly string[] CanonicalHeader =
-        ["Number", "FullName", "Area", "Position", "HireDate", "Status", "WeeklySalary", "OvertimeHourlyRate", "Notes", "Pin"];
+        ["Number", "FullName", "Area", "Position", "HireDate", "Status", "WeeklySalary", "OvertimeHourlyRate", "Notes", "Pin", "Department"];
+
+    /// <summary>Todo el mundo termina en esta única sucursal — pedido explícito del usuario
+    /// tras consolidar varias sucursales de prueba/otras ubicaciones en una sola: "sí
+    /// fusiónalos [Arabica Café, CrisaTec, Otro, Plaza Sabo son reales] pero en los reportes
+    /// que se acomoden por sucursal". Sin esto, cada vez que se reimporta el Excel (que sí
+    /// trae esas otras ubicaciones en "Lugar de trabajo") se volverían a crear esas
+    /// sucursales, deshaciendo la consolidación — ver el Department calculado abajo para
+    /// dónde queda el dato real de cada quien.</summary>
+    private const string UnifiedAreaName = "CAR-WASH";
 
     /// <summary>Encabezado real de la hoja "Registro Empleados" del Excel maestro del
     /// negocio, SIN contar la primera columna (ver <see cref="RegistroEmpleadosFirstColumnAliases"/>
@@ -97,10 +106,18 @@ public static class EmployeeCatalogSourceConverter
             var status = string.Equals(Cell(row, 3), "Inactivo", StringComparison.OrdinalIgnoreCase) ? "Inactivo" : "Activo";
             // Cell(row, 4) = Fecha de salida, Cell(row, 5) = Antigüedad (años): ignoradas, ver comentario de clase.
             var sexo = Cell(row, 6);
-            var area = Cell(row, 7);
+            var originalArea = Cell(row, 7);
             var position = Cell(row, 8);
             var salary = Cell(row, 9);
             var birthDate = Cell(row, 10);
+
+            // Area SIEMPRE es la única sucursal unificada — el "Lugar de trabajo" real del
+            // Excel se conserva en Department, pero solo cuando de verdad aporta algo (si ya
+            // era la misma sucursal unificada, guardarlo ahí sería puro ruido repetido).
+            var area = UnifiedAreaName;
+            var department = string.Equals(originalArea, UnifiedAreaName, StringComparison.OrdinalIgnoreCase)
+                ? ""
+                : originalArea;
 
             // Misma nota compuesta que ya se usaba al armar este catálogo a mano — "Sexo: X |
             // Fecha de nacimiento: Y" — para no perder esos dos datos, que el formato
@@ -120,7 +137,7 @@ public static class EmployeeCatalogSourceConverter
             // negocio (el "ID Empleado" del Excel es el mismo número que se usa como PIN en
             // el reloj checador) — pedido explícito del usuario al restructurar el catálogo:
             // "quiero que se respete tal cual la numeración del PIN ... en ese orden".
-            var fields = new[] { number, fullName, area, position, hireDate, status, salary, "", notes, number };
+            var fields = new[] { number, fullName, area, position, hireDate, status, salary, "", notes, number, department };
             lines.Add(string.Join(",", fields.Select(CsvEscape)));
         }
 

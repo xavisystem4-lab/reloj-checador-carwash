@@ -70,10 +70,14 @@
 
         <!-- Bindea a EmployeeRow (Employee + BranchName ya resuelto), no a Employee
              directo — Employee solo guarda BranchId, sin navegación a Branch. -->
-        <DataGrid Grid.Row="4" ItemsSource="{Binding Employees}" AutoGenerateColumns="False" IsReadOnly="True"
+        <DataGrid Grid.Row="4" x:Name="EmployeesGrid" ItemsSource="{Binding Employees}" AutoGenerateColumns="False" IsReadOnly="True"
                   CanUserAddRows="False" GridLinesVisibility="Horizontal" HeadersVisibility="Column">
             <DataGrid.Columns>
-                <DataGridTextColumn Header="Número" Binding="{Binding Employee.Number}" Width="90" />
+                <!-- SortMemberPath usa la clave numérica (NumberSortKey), no el texto de
+                     Número — así "10" ordena después de "2", no antes. Pedido explícito del
+                     usuario, orden por defecto de la pantalla (ver EmployeesView.xaml.cs). -->
+                <DataGridTextColumn x:Name="NumberColumn" Header="Número" Binding="{Binding Employee.Number}"
+                                     SortMemberPath="NumberSortKey" Width="90" />
                 <DataGridTextColumn Header="PIN" Binding="{Binding PinSummary}" Width="60" />
                 <DataGridTextColumn Header="Nombre" Binding="{Binding Employee.FullName}" Width="*" />
                 <DataGridTextColumn Header="Sucursal" Binding="{Binding BranchName}" Width="150" />

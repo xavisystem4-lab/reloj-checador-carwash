@@ -32,7 +32,8 @@ public sealed record PayrollDeductionValues(decimal IsrAmount, decimal ImssAmoun
 /// otro) capturadas manualmente para esa semana — ver comentario de clase de
 /// <see cref="PayrollDeduction"/> sobre por qué el sistema nunca las calcula.</summary>
 public sealed record PayrollRow(
-    WeeklyPayrollSummary Summary, string EmployeeNumber, string EmployeeName, string BranchName, PayrollDeductionValues Deductions)
+    WeeklyPayrollSummary Summary, string EmployeeNumber, string EmployeeName, string BranchName, string? Department,
+    PayrollDeductionValues Deductions)
 {
     public bool HasWarnings => Summary.Warnings.Count > 0;
     public string WarningsText => string.Join(" | ", Summary.Warnings);
@@ -215,7 +216,7 @@ public sealed partial class PayrollViewModel : ObservableObject
                 var summary = WorkedHoursCalculator.CalculateWeek(employee, _weekStart, employeeAttendances);
                 var branchName = branchNamesById.TryGetValue(employee.BranchId, out var name) ? name : "(sucursal desconocida)";
                 var deductionValues = deductionsByEmployeeId.TryGetValue(employee.Id, out var dv) ? dv : PayrollDeductionValues.Empty;
-                rows.Add(new PayrollRow(summary, employee.Number.Value, employee.FullName, branchName, deductionValues));
+                rows.Add(new PayrollRow(summary, employee.Number.Value, employee.FullName, branchName, employee.Department, deductionValues));
             }
 
             _allRows = rows;
@@ -318,7 +319,7 @@ public sealed partial class PayrollViewModel : ObservableObject
     {
         var header = new[]
         {
-            "Empleado", "Sucursal", "Horas normales", "Horas extra", "Sueldo semanal",
+            "Empleado", "Sucursal", "Departamento", "Horas normales", "Horas extra", "Sueldo semanal",
             "Pago horas extra", "Total a pagar", "ISR", "IMSS", "Otro (monto)", "Otro (concepto)",
             "Neto a pagar", "Notas de deducciones", "Advertencias",
         };
@@ -330,6 +331,7 @@ public sealed partial class PayrollViewModel : ObservableObject
             {
                 row.EmployeeName,
                 row.BranchName,
+                row.Department ?? "",
                 row.RegularTimeText,
                 row.OvertimeTimeText,
                 row.Summary.WeeklySalary?.ToString("0.00") ?? "Pendiente",
