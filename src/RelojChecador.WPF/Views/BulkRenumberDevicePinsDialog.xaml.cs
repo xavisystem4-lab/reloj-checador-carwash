@@ -6,30 +6,43 @@ using RelojChecador.WPF.ViewModels;
 
 namespace RelojChecador.WPF.Views;
 
-/// <summary>Envuelve un <see cref="DeviceUserRow"/> con el PIN destino calculado (el Número
-/// del empleado vinculado) y el estado de la operación — mismo patrón de checkbox que los
-/// demás diálogos de selección masiva, más una columna de progreso que se va llenando
-/// mientras corre (mover una huella no es instantáneo).</summary>
-public sealed partial class SelectableRepinRow(DeviceUserRow row) : ObservableObject
+/// <summary>Envuelve un <see cref="DeviceUserRow"/> con el PIN destino y el estado de la
+/// operación — mismo patrón de checkbox que los demás diálogos de selección masiva, más una
+/// columna de progreso que se va llenando mientras corre (mover una huella no es
+/// instantáneo). El PIN destino arranca sugerido con el Número del empleado vinculado, pero
+/// es EDITABLE — pedido explícito del usuario: "habilita la opción para poder colocar el PIN
+/// destino manualmente para ajustar todo de un jalón" (caso real: alguien sin folio numérico
+/// válido, o que se quiera mandar a un PIN distinto del sugerido).</summary>
+public sealed partial class SelectableRepinRow : ObservableObject
 {
-    public DeviceUserRow Row { get; } = row;
-
-    /// <summary>El Número del empleado vinculado, solo si es un PIN válido (dígitos) y
-    /// distinto del PIN actual — si no, no hay nada que mover para esta fila.</summary>
-    public string? TargetPin { get; } =
-        !string.IsNullOrWhiteSpace(row.LinkedEmployeeNumber)
-        && row.LinkedEmployeeNumber.All(char.IsDigit)
-        && row.LinkedEmployeeNumber != row.DeviceUserPin
-            ? row.LinkedEmployeeNumber
-            : null;
-
-    public bool HasValidTarget => TargetPin is not null;
+    public DeviceUserRow Row { get; }
 
     [ObservableProperty]
     private bool _isSelected;
 
     [ObservableProperty]
     private string _statusText = "";
+
+    /// <summary>Editable desde la columna "PIN destino" del DataGrid — arranca con el Número
+    /// del empleado vinculado si es un PIN válido (dígitos) y distinto del PIN actual; vacío
+    /// si no hay sugerencia (sin folio numérico, o ya coincide). NotifyPropertyChangedFor
+    /// para que HasValidTarget (y por tanto si el checkbox se puede marcar) se actualice al
+    /// instante mientras la persona escribe, no solo al perder el foco.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasValidTarget))]
+    private string? _targetPin;
+
+    public bool HasValidTarget =>
+        !string.IsNullOrWhiteSpace(TargetPin) && TargetPin.All(char.IsDigit) && TargetPin != Row.DeviceUserPin;
+
+    public SelectableRepinRow(DeviceUserRow row)
+    {
+        Row = row;
+        var suggested = row.LinkedEmployeeNumber;
+        _targetPin = !string.IsNullOrWhiteSpace(suggested) && suggested.All(char.IsDigit) && suggested != row.DeviceUserPin
+            ? suggested
+            : null;
+    }
 }
 
 /// <summary>
@@ -61,8 +74,18 @@ public partial class BulkRenumberDevicePinsDialog : Window
         foreach (var row in _rows)
         {
             row.IsSelected = row.HasValidTarget;
-            row.StatusText = row.HasValidTarget ? "Pendiente" : "Sin folio numérico válido o ya coincide — no se puede mover";
-            row.PropertyChanged += (_, _) => UpdateSelectionState();
+            RefreshPendingStatusText(row);
+            row.PropertyChanged += (_, e) =>
+            {
+                // Refleja en vivo un PIN destino escrito a mano (ver TargetPin) — solo
+                // mientras la fila sigue "pendiente"/inválida, nunca pisa el resultado real
+                // de una fila que ya se procesó (✅/❌/⏸️).
+                if (e.PropertyName == nameof(SelectableRepinRow.TargetPin))
+                {
+                    RefreshPendingStatusText(row);
+                }
+                UpdateSelectionState();
+            };
         }
         RowsGrid.ItemsSource = _rows;
         UpdateSelectionState();
@@ -84,6 +107,18 @@ public partial class BulkRenumberDevicePinsDialog : Window
     }
 
     private void OnRowCheckedChanged(object sender, RoutedEventArgs e) => UpdateSelectionState();
+
+    private static readonly string[] ProcessedStatusMarkers = ["✅", "❌", "⏸️", "Moviendo"];
+
+    private static void RefreshPendingStatusText(SelectableRepinRow row)
+    {
+        if (ProcessedStatusMarkers.Any(marker => row.StatusText.Contains(marker)))
+        {
+            return; // ya se intentó de verdad — nunca pisar ese resultado con un texto genérico
+        }
+
+        row.StatusText = row.HasValidTarget ? "Pendiente" : "Sin folio numérico válido o ya coincide — no se puede mover";
+    }
 
     private void UpdateSelectionState()
     {
