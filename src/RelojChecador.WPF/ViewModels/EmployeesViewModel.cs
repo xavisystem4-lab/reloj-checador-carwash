@@ -540,6 +540,54 @@ public sealed partial class EmployeesViewModel : ObservableObject
             : $"{Employees.Count} empleado(s) registrado(s) en la base local.";
     }
 
+    /// <summary>Arma un CSV con los empleados actualmente visibles (respeta los filtros de
+    /// Buscar/Sucursal/Estatus ya aplicados en pantalla) en el mismo formato CANÓNICO que
+    /// espera "Reemplazar catálogo" (mismo encabezado — ver EmployeeCatalogReplaceParser) —
+    /// pedido explícito del usuario: "necesito tener un botón para poder exportar catálogo
+    /// de empleados". A diferencia de "Exportar plantilla" (encabezado + una fila de
+    /// ejemplo, pensada para empezar de cero), esto exporta los datos REALES ya capturados:
+    /// sirve como respaldo, o como punto de partida para editar en Excel y reimportar.
+    ///
+    /// Status colapsa a solo Activo/Inactivo (Active/OnLeave → Activo, Inactive/Terminated →
+    /// Inactivo) porque es lo único que "Reemplazar catálogo" acepta en esa columna — un
+    /// "De permiso" o "Baja" tal cual haría fallar el reimport; quien exporta y solo quiere
+    /// un respaldo de lectura puede ignorar esa pérdida de matiz.</summary>
+    public string BuildCatalogCsv()
+    {
+        var header = new[]
+        {
+            "Number", "FullName", "Area", "Position", "HireDate", "Status",
+            "WeeklySalary", "OvertimeHourlyRate", "Notes", "Pin", "Department",
+        };
+        var lines = new List<string> { string.Join(",", header) };
+
+        foreach (var row in Employees)
+        {
+            var employee = row.Employee;
+            var status = employee.Status is EmploymentStatus.Inactive or EmploymentStatus.Terminated ? "Inactivo" : "Activo";
+            var fields = new[]
+            {
+                employee.Number.Value,
+                employee.FullName,
+                row.BranchName,
+                employee.Position ?? "",
+                employee.HireDate.ToString("yyyy-MM-dd"),
+                status,
+                employee.WeeklySalary?.ToString("0.00") ?? "",
+                employee.OvertimeHourlyRate?.ToString("0.00") ?? "",
+                employee.Notes ?? "",
+                row.PinSummary,
+                employee.Department ?? "",
+            };
+            lines.Add(string.Join(",", fields.Select(CsvEscape)));
+        }
+
+        return string.Join("\r\n", lines) + "\r\n";
+    }
+
+    private static string CsvEscape(string value) =>
+        value.IndexOfAny([',', '"', '\r', '\n']) >= 0 ? $"\"{value.Replace("\"", "\"\"")}\"" : value;
+
     /// <returns>Un mensaje de error comprensible si algo salió mal, o null si se guardó correctamente.</returns>
     public async Task<string?> DeleteEmployeeAsync(Guid employeeId)
     {
