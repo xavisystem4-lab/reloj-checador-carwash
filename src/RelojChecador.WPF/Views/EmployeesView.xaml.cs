@@ -85,6 +85,14 @@ public partial class EmployeesView : UserControl
         dialog.ShowDialog();
     }
 
+    private async void OnRefreshClick(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is EmployeesViewModel viewModel)
+        {
+            await viewModel.InitializeAsync();
+        }
+    }
+
     private async void OnAddEmployeeClick(object sender, RoutedEventArgs e)
     {
         if (DataContext is not EmployeesViewModel viewModel)

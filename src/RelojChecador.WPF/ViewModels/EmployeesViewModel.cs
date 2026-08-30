@@ -133,6 +133,11 @@ public sealed partial class EmployeesViewModel : ObservableObject
         _unitOfWork = unitOfWork;
     }
 
+    /// <summary>Carga inicial de la pantalla, y también lo que llama el botón "🔄
+    /// Actualizar" — pedido explícito del usuario: cambios hechos en OTRA pantalla que sí
+    /// tocan la base (p. ej. "Renumerar PINs" en Dispositivos, que corrige
+    /// EmployeeDeviceMapping directo) no se reflejan solos aquí, esta pantalla no se entera
+    /// hasta que algo la haga recargar.</summary>
     public async Task InitializeAsync()
     {
         try

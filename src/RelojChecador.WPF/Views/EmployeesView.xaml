@@ -19,6 +19,10 @@
 
         <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,12">
             <Button Content="+ Nuevo empleado" Style="{StaticResource PrimaryButton}" Click="OnAddEmployeeClick" Margin="0,0,8,0" />
+            <!-- Pedido explícito del usuario: cambios hechos en OTRA pantalla (p. ej.
+                 "Renumerar PINs" en Dispositivos) no se reflejan solos aquí — esta pantalla
+                 no se entera hasta que algo la haga recargar (ver EmployeesViewModel.InitializeAsync). -->
+            <Button Content="🔄 Actualizar" Click="OnRefreshClick" Margin="0,0,8,0" />
             <Button Content="⬆ Importar desde CSV" Click="OnImportEmployeesClick" Margin="0,0,8,0" />
             <!-- Distinto de "Importar desde CSV" a propósito: ese solo agrega gente nueva,
                  nunca toca a quien ya existe (regla explícita del usuario) — esto trata el
