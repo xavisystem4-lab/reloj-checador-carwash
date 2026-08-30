@@ -89,8 +89,11 @@ public class ZKComWorkerTests
         // carrera entre dos tasks que se resuelven casi al mismo tiempo, así que la prueba
         // solo exige el tipo base común, que es lo único que de verdad importa: todo el
         // código que llama a esto (ZKTecoDeviceAdapter.RunOnComThreadAsync) atrapa
-        // OperationCanceledException, nunca el tipo derivado específico.
-        await Assert.ThrowsAsync<OperationCanceledException>(() => worker.RunAsync(
+        // OperationCanceledException, nunca el tipo derivado específico. ThrowsAnyAsync, NO
+        // ThrowsAsync: este último exige el tipo EXACTO en xUnit (no acepta subclases como
+        // TaskCanceledException), lo que hacía fallar la prueba justo cuando ganaba esa
+        // ruta de la carrera — contradiciendo la intención documentada arriba.
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => worker.RunAsync(
             () => Environment.CurrentManagedThreadId, TimeSpan.FromSeconds(5), cts.Token));
 
         var afterCancelThreadId = await worker.RunAsync(() => Environment.CurrentManagedThreadId, TimeSpan.FromSeconds(5), CancellationToken.None);
