@@ -34,6 +34,13 @@ public partial class DeviceUsersDialog : Window
 
     private async void OnRefreshClick(object sender, RoutedEventArgs e) => await RefreshAsync();
 
+    private async void OnBulkRenumberClick(object sender, RoutedEventArgs e)
+    {
+        var dialog = new BulkRenumberDevicePinsDialog(_viewModel, _viewModel.DeviceUsers) { Owner = this };
+        dialog.ShowDialog();
+        await RefreshAsync(); // por si algo se movió, refleja el estado real más reciente
+    }
+
     private void OnSelectAllClick(object sender, RoutedEventArgs e)
     {
         var selectAll = SelectAllCheckBox.IsChecked == true;
