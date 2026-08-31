@@ -347,6 +347,19 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
 
             if (finished == timeoutTask || !client.Connected)
             {
+                // connectTask sigue corriendo en segundo plano — al salir de este método el
+                // `using` dispone el socket, lo que aborta esa conexión todavía pendiente y
+                // hace que connectTask termine en falla (SocketException 995,
+                // "operación abortada"). Si nadie observa esa excepción, .NET la vuelve a
+                // lanzar más tarde en el hilo del finalizador y tumba TODA la aplicación
+                // (TaskScheduler.UnobservedTaskException) — bug real reportado por el
+                // usuario con la app cerrándose sola. Esta continuación solo "atrapa" la
+                // excepción para marcarla como observada, sin hacer nada más con ella — el
+                // resultado ya se decidió arriba (tiempo agotado).
+                _ = connectTask.ContinueWith(
+                    t => _ = t.Exception,
+                    CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
+
                 return Result.Success(new TcpPortTestResult(IsOpen: false, Elapsed: elapsed,
                     ErrorMessage: $"Tiempo de espera agotado conectando al puerto {tcpPort}.", TestedAtUtc: DateTime.UtcNow));
             }
