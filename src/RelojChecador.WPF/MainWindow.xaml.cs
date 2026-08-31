@@ -14,7 +14,7 @@ public partial class MainWindow : Window
     public MainWindow(
         MainViewModel branchesViewModel, EmployeesViewModel employeesViewModel, DevicesViewModel devicesViewModel,
         AttendanceViewModel attendanceViewModel, PayrollViewModel payrollViewModel, UpdateViewModel updateViewModel,
-        ThemeService themeService)
+        ThemeService themeService, EmployeeColumnPreferencesService columnPreferencesService)
     {
         InitializeComponent();
 
@@ -32,6 +32,11 @@ public partial class MainWindow : Window
         // pasa por DataContext porque el DataContext de EmployeesViewControl ya es
         // EmployeesViewModel, así que se asigna aparte (ver EmployeesView.xaml.cs).
         EmployeesViewControl.DevicesViewModel = devicesViewModel;
+
+        // Mismo criterio: EmployeesView no se resuelve por el contenedor de DI (se crea
+        // directo desde XAML como hijo de esta ventana), así que este servicio Singleton se
+        // le entrega aparte, no por constructor.
+        EmployeesViewControl.ColumnPreferencesService = columnPreferencesService;
 
         // ThemeService.Initialize() ya corrió en App.xaml.cs (antes de crear esta ventana);
         // aquí solo se refleja ese estado ya aplicado en el ícono del botón.

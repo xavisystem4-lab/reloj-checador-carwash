@@ -100,6 +100,10 @@ public partial class App : System.Windows.Application
                     // vida de una ventana en particular.
                     services.AddSingleton(new ThemeService(_appDataDirectory));
 
+                    // Mismo criterio: qué columnas de Empleados mostrar y en qué orden es
+                    // una preferencia global de la app, no de una ventana en particular.
+                    services.AddSingleton(new EmployeeColumnPreferencesService(_appDataDirectory));
+
                     // Scoped, no Singleton: cada ventana principal recibe su propio DbContext con
                     // vida acotada a esa ventana (ver el scope creado más abajo), en vez de
                     // mantener un único DbContext abierto durante toda la sesión de la app.

@@ -76,7 +76,12 @@
                  conflictos. Abre DeleteEmployeesDialog, que deja elegir a quién con
                  checkboxes + "Seleccionar todo" y pide confirmación con el conteo exacto
                  antes de aplicar (ver EmployeesViewModel.HardDeleteEmployeesAsync). -->
-            <Button Content="🗑️ Borrar" Foreground="{DynamicResource BrushDanger}" Click="OnDeleteEmployeesClick" />
+            <Button Content="🗑️ Borrar" Foreground="{DynamicResource BrushDanger}" Click="OnDeleteEmployeesClick" Margin="0,0,8,0" />
+            <!-- Pedido explícito del usuario: "me gustaría tener un botón o una opción de
+                 yo escoger qué columnas quiero y cómo las quiero acomodar" — abre
+                 ColumnPickerDialog (marcar/desmarcar + ▲▼ para reordenar), se recuerda
+                 entre sesiones (ver EmployeeColumnPreferencesService). -->
+            <Button Content="🔧 Columnas" Click="OnColumnsClick" />
         </StackPanel>
 
         <!-- Bindea a EmployeeRow (Employee + BranchName ya resuelto), no a Employee
@@ -89,20 +94,29 @@
                      usuario, orden por defecto de la pantalla (ver EmployeesView.xaml.cs). -->
                 <DataGridTextColumn x:Name="NumberColumn" Header="Número" Binding="{Binding Employee.Number}"
                                      SortMemberPath="NumberSortKey" Width="90" />
-                <DataGridTextColumn Header="PIN" Binding="{Binding PinSummary}" Width="60" />
-                <DataGridTextColumn Header="Nombre" Binding="{Binding Employee.FullName}" Width="*" />
-                <DataGridTextColumn Header="Sucursal" Binding="{Binding BranchName}" Width="150" />
-                <DataGridTextColumn Header="Departamento" Binding="{Binding Employee.Department}" Width="130" />
-                <DataGridTextColumn Header="Puesto" Binding="{Binding Employee.Position}" Width="130" />
+                <DataGridTextColumn x:Name="PinColumn" Header="PIN" Binding="{Binding PinSummary}" Width="60" />
+                <!-- MinWidth a propósito — bug reportado por el usuario con captura: sin
+                     esto, las demás columnas de ancho fijo (sobre todo tras agregar
+                     Horario) apretaban esta columna "*" hasta casi 0px, dejando el nombre
+                     ilegible (2 letras) y hasta el encabezado "Nombre" invisible. Con
+                     MinWidth, al llegar a ese piso el DataGrid empieza a desplazarse en
+                     horizontal en vez de seguir aplastando la columna. -->
+                <DataGridTextColumn x:Name="NameColumn" Header="Nombre" Binding="{Binding Employee.FullName}" Width="*" MinWidth="180" />
+                <DataGridTextColumn x:Name="BranchColumn" Header="Sucursal" Binding="{Binding BranchName}" Width="150" />
+                <DataGridTextColumn x:Name="DepartmentColumn" Header="Departamento" Binding="{Binding Employee.Department}" Width="130" />
+                <DataGridTextColumn x:Name="PositionColumn" Header="Puesto" Binding="{Binding Employee.Position}" Width="130" />
                 <!-- "08:00 - 16:00" o "Sin capturar" — pedido explícito del usuario: "que en
                      Empleados me aparezcan sus horarios" (ver EmployeesViewModel.EmployeeRow.ScheduleSummary). -->
-                <DataGridTextColumn Header="Horario" Binding="{Binding ScheduleSummary}" Width="120" />
-                <DataGridTextColumn Header="Fecha de alta" Binding="{Binding Employee.HireDate, StringFormat='dd/MM/yyyy'}" Width="110" />
-                <DataGridTextColumn Header="Estatus" Binding="{Binding Employee.Status}" Width="90" />
-                <DataGridTextColumn Header="Teléfono" Binding="{Binding Employee.Phone}" Width="110" />
-                <DataGridTextColumn Header="Correo" Binding="{Binding Employee.Email}" Width="160" />
-                <DataGridTextColumn Header="Dispositivos vinculados" Binding="{Binding LinkedDevicesSummary}" Width="220" />
-                <DataGridTemplateColumn Header="" Width="480">
+                <DataGridTextColumn x:Name="ScheduleColumn" Header="Horario" Binding="{Binding ScheduleSummary}" Width="120" />
+                <DataGridTextColumn x:Name="HireDateColumn" Header="Fecha de alta" Binding="{Binding Employee.HireDate, StringFormat='dd/MM/yyyy'}" Width="110" />
+                <DataGridTextColumn x:Name="StatusColumn" Header="Estatus" Binding="{Binding Employee.Status}" Width="90" />
+                <DataGridTextColumn x:Name="PhoneColumn" Header="Teléfono" Binding="{Binding Employee.Phone}" Width="110" />
+                <DataGridTextColumn x:Name="EmailColumn" Header="Correo" Binding="{Binding Employee.Email}" Width="160" />
+                <DataGridTextColumn x:Name="DevicesColumn" Header="Dispositivos vinculados" Binding="{Binding LinkedDevicesSummary}" Width="220" />
+                <!-- Columna de acciones (Editar/Vincular/Eliminar) — a propósito FUERA del
+                     selector de columnas: siempre visible, siempre al final, no es
+                     "contenido" que tenga sentido ocultar u ordenar. -->
+                <DataGridTemplateColumn x:Name="ActionsColumn" Header="" Width="480">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
                             <!-- El DataContext de estos botones es el EmployeeRow de la fila
