@@ -19,7 +19,7 @@
 ; propio Assembly.GetEntryAssembly().Version contra la última versión en GitHub Releases,
 ; así que si estos dos números se desincronizan, el auto-actualizador queda mostrando
 ; una versión incorrecta aunque el instalador esté bien.
-#define MyAppVersion "1.50.1"
+#define MyAppVersion "1.51.0"
 #define MyAppPublisher "Carwash Mexicali"
 #define MyAppExeName "RelojChecador.WPF.exe"
 #define MyPublishDir "publish"

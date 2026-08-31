@@ -40,6 +40,19 @@ public sealed partial class UpdateViewModel : ObservableObject
     [ObservableProperty]
     private bool _isBusy;
 
+    /// <summary>Porcentaje de la descarga en curso (0-100) — pedido explícito del usuario:
+    /// "una barra de progreso, que se llena de 0 a 100% que indica la descarga", a un ladito
+    /// de la versión (ver MainWindow.xaml). Solo tiene sentido mientras
+    /// <see cref="IsDownloading"/> es true; el resto del tiempo se queda en 0.</summary>
+    [ObservableProperty]
+    private double _downloadProgressPercent;
+
+    /// <summary>True únicamente durante la descarga del instalador (no durante "Buscando
+    /// actualizaciones…" ni "Iniciando el instalador…") — controla la visibilidad de la
+    /// barra de progreso, que no tiene nada que mostrar fuera de ese tramo.</summary>
+    [ObservableProperty]
+    private bool _isDownloading;
+
     [ObservableProperty]
     private string _cloudSyncStatusMessage = "☁️ Nube: verificando…";
 
@@ -241,8 +254,15 @@ public sealed partial class UpdateViewModel : ObservableObject
             }
 
             UpdateStatusMessage = "Descargando instalador…";
-            var progress = new Progress<double>(p => UpdateStatusMessage = $"Descargando instalador… {p:P0}");
+            IsDownloading = true;
+            DownloadProgressPercent = 0;
+            var progress = new Progress<double>(p =>
+            {
+                UpdateStatusMessage = $"Descargando instalador… {p:P0}";
+                DownloadProgressPercent = p * 100;
+            });
             var downloadResult = await _updateChecker.DownloadInstallerAsync(update, progress);
+            IsDownloading = false;
             if (downloadResult.IsFailure)
             {
                 UpdateStatusMessage = $"No se pudo descargar la actualización: {downloadResult.Error.Message}";
@@ -269,6 +289,7 @@ public sealed partial class UpdateViewModel : ObservableObject
         finally
         {
             IsBusy = false;
+            IsDownloading = false; // defensivo: cubre también una excepción no esperada durante la descarga
         }
     }
 }
