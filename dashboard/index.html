@@ -339,6 +339,17 @@
         <button id="preview-print-button" class="btn btn-outline" type="button">🖨️ Imprimir</button>
         <button id="preview-excel-button" class="btn btn-outline" type="button">📊 Exportar Excel</button>
         <button id="preview-pdf-button" class="btn btn-outline" type="button">📄 Exportar PDF</button>
+        <!-- Filtro por período — pedido explícito del usuario: "agrégale un filtro para
+             poder buscar por fecha ... que se pueda escribir libre, la fecha y también el
+             calendario, del ícono" — mismo input type="date" nativo que Desde/Hasta del
+             Dashboard (permite escribir la fecha a mano O usar el ícono de calendario).
+             Al cambiar, vuelve a consultar Supabase con el nuevo rango (ver
+             onPreviewDateRangeChange) y mantiene sincronizados from-input/to-input de
+             arriba, para que el nombre de archivo de las exportaciones y el resto del
+             Dashboard queden con el mismo rango. -->
+        <input id="preview-from-input" type="date" class="preview-date-input" aria-label="Desde" />
+        <span class="preview-date-sep">a</span>
+        <input id="preview-to-input" type="date" class="preview-date-input" aria-label="Hasta" />
         <!-- Pedido explícito del usuario: "regálele también un buscador que busque por
              número, PIN, empleado, en cuanto vaya escribiendo, se vaya autorrellenando" —
              filtra las filas de la hoja EN VIVO (sin botón de buscar), mismo criterio que

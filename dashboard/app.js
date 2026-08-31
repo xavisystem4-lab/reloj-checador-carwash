@@ -134,6 +134,13 @@ const previewPdfButton = document.getElementById('preview-pdf-button');
 // autorrellenando" — filtra EN VIVO (sin botón "buscar"), mismo criterio que el buscador
 // principal del Dashboard (ver searchInput más abajo).
 const previewSearchInput = document.getElementById('preview-search-input');
+// Filtro de rango de fechas dentro de la previsualización — pedido explícito del usuario:
+// "agrégale un filtro para poder buscar por fecha ... que se pueda escribir libre, la
+// fecha y también el calendario, del ícono". Se inicializan con el mismo rango que
+// from-input/to-input al abrir el reporte (ver openAttendanceReport) y, al cambiar,
+// mantienen sincronizado ese rango principal (ver onPreviewDateRangeChange).
+const previewFromInput = document.getElementById('preview-from-input');
+const previewToInput = document.getElementById('preview-to-input');
 
 let lastReportRows = []; // última tabla de horas ya calculada (SIN filtrar) — la búsqueda parte de aquí
 let currentPreviewRows = []; // lo que está renderizado AHORA en la hoja (ya filtrado) — Excel/PDF/Imprimir exportan esto, no lastReportRows
@@ -185,6 +192,8 @@ async function init() {
   previewExcelButton.addEventListener('click', onExportReportExcelClick);
   previewPdfButton.addEventListener('click', onExportReportPdfClick);
   previewSearchInput.addEventListener('input', debounce(() => renderPreviewTable(filterReportRows(lastReportRows, previewSearchInput.value)), 150));
+  previewFromInput.addEventListener('change', onPreviewDateRangeChange);
+  previewToInput.addEventListener('change', onPreviewDateRangeChange);
 
   showSignupButton.addEventListener('click', showSignupFormView);
   showLoginButton.addEventListener('click', showLoginFormView);
@@ -1360,12 +1369,31 @@ function openAttendanceReport() {
   }
 
   previewSearchInput.value = '';
+  previewFromInput.value = fromInput.value;
+  previewToInput.value = toInput.value;
   previewRangeText.textContent = reportRangeLabel();
   previewGeneratedText.textContent = `Generado el ${formatDateTime(new Date().toISOString())}`;
   renderPreviewTable(lastReportRows);
 
   reportPreviewModal.hidden = false;
   ensureExportLibrariesLoaded(); // en segundo plano — Excel/PDF no bloquean la vista previa
+}
+
+/// Cambiar Desde/Hasta DENTRO de la previsualización — pedido explícito del usuario:
+/// "agrégale un filtro para poder buscar por fecha". Mantiene sincronizados from-input/
+/// to-input de arriba (así el resto del Dashboard, y el nombre de archivo de las
+/// exportaciones, quedan con el mismo rango) y vuelve a consultar Supabase, porque el
+/// reporte se calcula sobre lastLoadedRows, que solo trae lo que ya se pidió con el rango
+/// ANTERIOR — un rango más amplio necesita datos que todavía no se cargaron.
+async function onPreviewDateRangeChange() {
+  fromInput.value = previewFromInput.value;
+  toInput.value = previewToInput.value;
+
+  await loadReport();
+
+  lastReportRows = buildAttendanceReportRows();
+  previewRangeText.textContent = reportRangeLabel();
+  renderPreviewTable(filterReportRows(lastReportRows, previewSearchInput.value));
 }
 
 /// Dibuja la hoja con EXACTAMENTE estas filas (ya filtradas o no) — currentPreviewRows
