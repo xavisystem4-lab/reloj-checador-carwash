@@ -1299,12 +1299,10 @@ function buildAttendanceReportRows() {
         // ejemplo, car wash, arábica café, otros, plaza sabo" — así TODOS muestran algún
         // área, no solo quienes tienen Department capturado.
         department: row.employeeDepartment || row.branchName || '—',
-        pins: new Set(),
         rows: [],
       });
     }
     const entry = byEmployee.get(key);
-    entry.pins.add(row.device_user_pin);
     entry.rows.push(row);
   }
 
@@ -1313,9 +1311,6 @@ function buildAttendanceReportRows() {
     const { regularMs, overtimeMs } = computeEmployeeHours(entry.rows);
     result.push({
       number: entry.number,
-      // Casi siempre un solo PIN — varios solo si el empleado se enroló en más de un
-      // reloj/PIN dentro del mismo rango; se listan todos, separados por coma.
-      pin: [...entry.pins].join(', '),
       name: entry.name,
       department: entry.department,
       regularHours: regularMs / 3_600_000,
@@ -1330,7 +1325,8 @@ function buildAttendanceReportRows() {
 
 /// Pedido explícito del usuario: "un buscador que busque por número, PIN, empleado, en
 /// cuanto vaya escribiendo, se vaya autorrellenando" — substring, sin distinguir
-/// mayúsculas, sobre cualquiera de los tres campos.
+/// mayúsculas. La columna PIN se quitó de la tabla del reporte ("deja nada más el puro
+/// Número"), así que el buscador ahora solo cubre Número y Empleado.
 function filterReportRows(rows, term) {
   const normalized = term.trim().toLowerCase();
   if (!normalized) {
@@ -1338,7 +1334,6 @@ function filterReportRows(rows, term) {
   }
   return rows.filter(r =>
     (r.number ?? '').toLowerCase().includes(normalized) ||
-    r.pin.toLowerCase().includes(normalized) ||
     r.name.toLowerCase().includes(normalized));
 }
 
@@ -1394,7 +1389,6 @@ function renderPreviewTable(rows) {
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${escapeHtml(row.number ?? '—')}</td>
-      <td>${escapeHtml(row.pin || '—')}</td>
       <td>${escapeHtml(row.name)}</td>
       <td>${escapeHtml(row.department)}</td>
       <td>${formatHours(row.regularHours)} h</td>
@@ -1493,13 +1487,13 @@ async function onExportReportExcelClick() {
       ['Drive In Car Wash — Reporte de asistencia'],
       [reportRangeLabel()],
       [],
-      ['Número', 'PIN', 'Empleado', 'Departamento', 'Horas normales', 'Horas extra', 'Total horas'],
+      ['Número', 'Empleado', 'Departamento', 'Horas normales', 'Horas extra', 'Total horas'],
       // currentPreviewRows, NO lastReportRows — exporta exactamente lo que está en pantalla
       // (respeta el buscador si hay uno en curso).
-      ...currentPreviewRows.map(r => [r.number ?? '', r.pin, r.name, r.department, Number(r.regularHours.toFixed(2)), Number(r.overtimeHours.toFixed(2)), Number(r.totalHours.toFixed(2))]),
+      ...currentPreviewRows.map(r => [r.number ?? '', r.name, r.department, Number(r.regularHours.toFixed(2)), Number(r.overtimeHours.toFixed(2)), Number(r.totalHours.toFixed(2))]),
     ];
     const worksheet = XLSX.utils.aoa_to_sheet(sheetRows);
-    worksheet['!cols'] = [{ wch: 10 }, { wch: 12 }, { wch: 32 }, { wch: 18 }, { wch: 16 }, { wch: 14 }, { wch: 14 }];
+    worksheet['!cols'] = [{ wch: 10 }, { wch: 32 }, { wch: 18 }, { wch: 16 }, { wch: 14 }, { wch: 14 }];
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Asistencia');
 

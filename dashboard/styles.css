@@ -682,6 +682,14 @@ tbody tr:hover { background: var(--brand-soft); }
 }
 .report-preview-table td { padding: 6px 8px; border-bottom: 1px solid #E1E7F0; }
 .report-preview-table tfoot td { font-weight: 800; border-top: 2px solid #0B62A7; }
+/* La tabla del reporte SIEMPRE es blanca (para imprimir/exportar igual sin importar el
+   tema del Dashboard) — pero la regla global "tbody tr:hover" (pensada para las tablas
+   oscuras del Dashboard, usa var(--brand-soft)) se colaba aquí y en modo oscuro pintaba la
+   fila casi negra sobre texto casi negro. Pedido explícito del usuario: "pon lo que lo
+   pinte ... de un color azul y las letras blancas, que se note" — mismo criterio que
+   ::selection más arriba en este archivo. */
+.report-preview-table tbody tr:hover { background: #0B62A7; color: #FFFFFF; }
+.report-preview-table tbody tr:hover td { border-bottom-color: #0B62A7; }
 .report-preview-footer { margin-top: 20px; font-size: 10.5px; color: #96A0AC; text-align: right; }
 
 /* Aísla report-preview-page como la ÚNICA cosa visible al imprimir (o "Guardar como PDF"
