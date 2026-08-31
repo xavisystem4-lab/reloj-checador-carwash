@@ -1,9 +1,11 @@
 using System.ComponentModel;
 using System.IO;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using Microsoft.Win32;
 using RelojChecador.Domain.Devices;
+using RelojChecador.WPF.Services;
 using RelojChecador.WPF.ViewModels;
 using Serilog;
 
@@ -20,9 +22,67 @@ public partial class EmployeesView : UserControl
     /// DevicesViewModel sin pasar por binding.</summary>
     public DevicesViewModel? DevicesViewModel { get; set; }
 
+    // Clave estable (independiente del texto del encabezado, que puede cambiar) → columna
+    // real del DataGrid — pedido explícito del usuario: "que yo escoja qué columnas quiero
+    // y cómo las quiero acomodar" (ver "🔧 Columnas", OnColumnsClick). ActionsColumn
+    // (Editar/Vincular/Eliminar) queda FUERA a propósito: siempre visible, siempre al
+    // final, no es "contenido" que tenga sentido ocultar u ordenar.
+    private Dictionary<string, DataGridColumn> _columnsByKey = [];
+    private Dictionary<DataGridColumn, string> _keysByColumn = [];
+    private IReadOnlyList<string> _defaultColumnOrder = [];
+
+    private static readonly Dictionary<string, string> ColumnDisplayNames = new()
+    {
+        ["Number"] = "Número",
+        ["Pin"] = "PIN",
+        ["Name"] = "Nombre",
+        ["Branch"] = "Sucursal",
+        ["Department"] = "Departamento",
+        ["Position"] = "Puesto",
+        ["Schedule"] = "Horario",
+        ["HireDate"] = "Fecha de alta",
+        ["Status"] = "Estatus",
+        ["Phone"] = "Teléfono",
+        ["Email"] = "Correo",
+        ["Devices"] = "Dispositivos vinculados",
+    };
+
+    private EmployeeColumnPreferencesService? _columnPreferencesService;
+
+    /// <summary>Se asigna aparte desde MainWindow.xaml.cs — mismo motivo que
+    /// <see cref="DevicesViewModel"/> (esta vista no la resuelve el contenedor de DI). Al
+    /// asignarse, aplica de inmediato lo último guardado (si hay algo guardado).</summary>
+    public EmployeeColumnPreferencesService? ColumnPreferencesService
+    {
+        get => _columnPreferencesService;
+        set
+        {
+            _columnPreferencesService = value;
+            ApplySavedColumnPreferences();
+        }
+    }
+
     public EmployeesView()
     {
         InitializeComponent();
+
+        _columnsByKey = new Dictionary<string, DataGridColumn>
+        {
+            ["Number"] = NumberColumn,
+            ["Pin"] = PinColumn,
+            ["Name"] = NameColumn,
+            ["Branch"] = BranchColumn,
+            ["Department"] = DepartmentColumn,
+            ["Position"] = PositionColumn,
+            ["Schedule"] = ScheduleColumn,
+            ["HireDate"] = HireDateColumn,
+            ["Status"] = StatusColumn,
+            ["Phone"] = PhoneColumn,
+            ["Email"] = EmailColumn,
+            ["Devices"] = DevicesColumn,
+        };
+        _keysByColumn = _columnsByKey.ToDictionary(kv => kv.Value, kv => kv.Key);
+        _defaultColumnOrder = [.. _columnsByKey.Keys]; // orden de declaración en el XAML
 
         // Orden por defecto al abrir la pantalla: Número (numérico, no alfabético — ver
         // EmployeeRow.NumberSortKey) ascendente. Pedido explícito del usuario: "acomodar
@@ -31,6 +91,73 @@ public partial class EmployeesView : UserControl
         // el DataGrid de por sí (para "de mayor a menor" en Número, o alfabético en Nombre).
         EmployeesGrid.Items.SortDescriptions.Add(new SortDescription(nameof(EmployeeRow.NumberSortKey), ListSortDirection.Ascending));
         NumberColumn.SortDirection = ListSortDirection.Ascending;
+    }
+
+    /// <summary>"🔧 Columnas" — pedido explícito del usuario: "me gustaría tener un botón o
+    /// una opción de yo escoger qué columnas quiero y cómo las quiero acomodar". Arma las
+    /// filas del diálogo a partir del estado EN VIVO de EmployeesGrid.Columns (no de
+    /// _defaultColumnOrder) para que, si ya se había personalizado antes, se vea reflejado
+    /// tal cual al reabrir.</summary>
+    private void OnColumnsClick(object sender, RoutedEventArgs e)
+    {
+        var rows = EmployeesGrid.Columns
+            .Where(column => column != ActionsColumn)
+            .Select(column =>
+            {
+                var key = _keysByColumn[column];
+                return new ColumnPickerRow(key, ColumnDisplayNames[key], column.Visibility == Visibility.Visible);
+            })
+            .ToList();
+
+        var dialog = new ColumnPickerDialog(rows) { Owner = Window.GetWindow(this) };
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        var newState = dialog.ResetRequested
+            ? _defaultColumnOrder.Select(key => new EmployeeColumnPreference(key, true)).ToList()
+            : dialog.Rows.Select(row => new EmployeeColumnPreference(row.Key, row.IsVisible)).ToList();
+
+        ApplyColumnState(newState);
+        _columnPreferencesService?.TrySave(newState);
+    }
+
+    private void ApplySavedColumnPreferences()
+    {
+        var saved = _columnPreferencesService?.TryLoad();
+        if (saved is null || saved.Count == 0)
+        {
+            return; // primera vez, o archivo ilegible — se queda con el orden/visibilidad por defecto del XAML
+        }
+
+        ApplyColumnState(saved);
+    }
+
+    /// <summary>Reordena EmployeesGrid.Columns para que coincida EXACTAMENTE con el orden
+    /// de <paramref name="state"/> (ActionsColumn nunca se toca, siempre se queda al final
+    /// por ser la única columna que este método nunca reordena) y aplica la visibilidad de
+    /// cada una. Una clave desconocida (archivo guardado de una versión vieja, con una
+    /// columna que ya no existe) se ignora en vez de fallar.</summary>
+    private void ApplyColumnState(IReadOnlyList<EmployeeColumnPreference> state)
+    {
+        var desiredIndex = 0;
+        foreach (var preference in state)
+        {
+            if (!_columnsByKey.TryGetValue(preference.Key, out var column))
+            {
+                continue;
+            }
+
+            column.Visibility = preference.IsVisible ? Visibility.Visible : Visibility.Collapsed;
+
+            var currentIndex = EmployeesGrid.Columns.IndexOf(column);
+            if (currentIndex != desiredIndex)
+            {
+                EmployeesGrid.Columns.Move(currentIndex, desiredIndex);
+            }
+            desiredIndex++;
+        }
     }
 
     private void OnExportCatalogClick(object sender, RoutedEventArgs e)
