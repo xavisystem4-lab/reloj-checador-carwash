@@ -17,7 +17,11 @@
 
         <TextBlock Grid.Row="1" Text="{Binding StatusMessage}" FontSize="14" Foreground="{DynamicResource BrushTextSecondary}" Margin="0,0,0,12" />
 
-        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,12">
+        <!-- WrapPanel, no StackPanel — pedido explícito del usuario: "revisa también en la
+             app de escritorio" (que se adapte al redimensionar la ventana). Con un
+             StackPanel, esta fila de 6 botones + checkbox no tenía forma de envolverse: en
+             una ventana angosta (ver MainWindow MinWidth) simplemente se recortaban. -->
+        <WrapPanel Grid.Row="2" Margin="0,0,0,12">
             <Button Content="+ Nuevo empleado" Style="{StaticResource PrimaryButton}" Click="OnAddEmployeeClick" Margin="0,0,8,0" />
             <!-- Pedido explícito del usuario: cambios hechos en OTRA pantalla (p. ej.
                  "Renumerar PINs" en Dispositivos) no se reflejan solos aquí — esta pantalla
@@ -52,13 +56,13 @@
                  los vuelve a mostrar sin recargar la base de datos. -->
             <CheckBox Content="Mostrar dados de baja" VerticalAlignment="Center"
                       IsChecked="{Binding ShowTerminatedEmployees, Mode=TwoWay}" />
-        </StackPanel>
+        </WrapPanel>
 
         <!-- Filtros — pedido explícito del usuario para poder navegar el catálogo real
              (54+ empleados) sin desplazarse a mano por todo el DataGrid. Los tres se
              combinan entre sí y con "Mostrar dados de baja" de arriba (ver
              EmployeesViewModel.ApplyVisibilityFilter). -->
-        <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,0,0,12">
+        <WrapPanel Grid.Row="3" Margin="0,0,0,12">
             <TextBlock Text="Buscar:" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource BrushTextSecondary}" />
             <TextBox Width="220" VerticalContentAlignment="Center" Margin="0,0,16,0"
                      Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
@@ -82,7 +86,7 @@
                  ColumnPickerDialog (marcar/desmarcar + ▲▼ para reordenar), se recuerda
                  entre sesiones (ver EmployeeColumnPreferencesService). -->
             <Button Content="🔧 Columnas" Click="OnColumnsClick" />
-        </StackPanel>
+        </WrapPanel>
 
         <!-- Bindea a EmployeeRow (Employee + BranchName ya resuelto), no a Employee
              directo — Employee solo guarda BranchId, sin navegación a Branch. -->

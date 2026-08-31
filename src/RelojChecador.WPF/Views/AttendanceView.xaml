@@ -46,7 +46,13 @@
                 <TextBlock Text="Buscar empleado o PIN" FontSize="13" FontWeight="SemiBold" Margin="0,0,0,2" />
                 <TextBox Width="220" Padding="4" Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
             </StackPanel>
-            <StackPanel Margin="0,0,0,10" VerticalAlignment="Bottom" Orientation="Horizontal">
+            <!-- WrapPanel, no StackPanel — pedido explícito del usuario: "revisa también en
+                 la app de escritorio" (que se adapte al redimensionar). Al ser un
+                 StackPanel dentro del WrapPanel de arriba, todo este bloque de 6 botones se
+                 movía como una sola pieza indivisible que NO envolvía sus propios botones —
+                 en una ventana angosta simplemente se recortaban sin ninguna forma de
+                 alcanzarlos. Un WrapPanel envuelve cada botón individualmente. -->
+            <WrapPanel Margin="0,0,0,10" VerticalAlignment="Bottom">
                 <Button Content="Actualizar" Style="{StaticResource PrimaryButton}" Click="OnRefreshClick" Margin="0,0,8,0" />
                 <Button Content="⬇ Exportar CSV" Click="OnExportCsvClick" Margin="0,0,8,0" />
                 <!-- Pedido explícito del usuario: registrar a alguien a quien se le
@@ -72,7 +78,7 @@
                      de un solo golpe (también se refleja en el Dashboard, ver
                      AttendanceViewModel.BulkDeleteAsync). -->
                 <Button Content="🗑 Eliminar seleccionadas" Foreground="{DynamicResource BrushDanger}" Click="OnBulkDeleteClick" />
-            </StackPanel>
+            </WrapPanel>
         </WrapPanel>
 
         <TextBlock Grid.Row="2" Text="{Binding StatusMessage}" FontSize="14" Foreground="{DynamicResource BrushTextSecondary}" Margin="0,0,0,12" />

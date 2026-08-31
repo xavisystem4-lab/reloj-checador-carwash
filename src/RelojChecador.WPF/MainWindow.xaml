@@ -6,7 +6,14 @@
         xmlns:views="clr-namespace:RelojChecador.WPF.Views"
         xmlns:converters="clr-namespace:RelojChecador.WPF.Converters"
         mc:Ignorable="d"
-        Title="Reloj Checador" Height="650" Width="1000">
+        Title="Reloj Checador" Height="650" Width="1000" MinWidth="760" MinHeight="480">
+    <!-- MinWidth/MinHeight — pedido explícito del usuario: "revisa también en la app de
+         escritorio" (que se adapte bien al redimensionar la ventana), tras la optimización
+         responsive del Dashboard web. Sin un mínimo, no había ningún límite para achicar la
+         ventana — las barras de botones/filtros de cada pestaña (ver WrapPanel en
+         BranchesView/EmployeesView/PayrollView, mismo criterio que AttendanceView ya
+         usaba) se cortarían sin ninguna forma de recuperarlos. 760x480 es el mismo mínimo
+         ya usado en PayrollReportPreviewDialog para un contenido de complejidad similar. -->
     <Window.Resources>
         <converters:InverseBoolConverter x:Key="InverseBoolConverter" />
 

@@ -16,7 +16,10 @@
 
         <TextBlock Grid.Row="1" Text="{Binding StatusMessage}" FontSize="14" Foreground="{DynamicResource BrushTextSecondary}" Margin="0,0,0,12" />
 
-        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,12">
+        <!-- WrapPanel, no StackPanel — pedido explícito del usuario: "revisa también en la
+             app de escritorio" (que se adapte al redimensionar la ventana), mismo criterio
+             que EmployeesView/PayrollView. -->
+        <WrapPanel Grid.Row="2" Margin="0,0,0,12">
             <Button Content="+ Nueva sucursal" Style="{StaticResource PrimaryButton}" Margin="0,0,16,0" Click="OnAddBranchClick" />
             <Button Content="⬇ Exportar CSV" Margin="0,0,8,0" Click="OnExportCsvClick" />
             <!-- Un solo botón cubre "exportar a PDF" e "imprimir": abre el PrintDialog
@@ -37,7 +40,7 @@
                  deshabilitados" en Dispositivos y "Mostrar dados de baja" en Empleados. -->
             <CheckBox Content="Mostrar sucursales inactivas" VerticalAlignment="Center" FontSize="12.5"
                       IsChecked="{Binding ShowInactiveBranches, Mode=TwoWay}" />
-        </StackPanel>
+        </WrapPanel>
 
         <DataGrid Grid.Row="3" ItemsSource="{Binding Branches}" AutoGenerateColumns="False" IsReadOnly="True"
                   CanUserAddRows="False" GridLinesVisibility="Horizontal" HeadersVisibility="Column">

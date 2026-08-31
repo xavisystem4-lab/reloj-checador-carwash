@@ -21,7 +21,10 @@
 
         <!-- Semana lunes a domingo (ver WeekBoundary) — navegación en vez de un rango de
              fechas libre, porque la nómina es inherentemente semanal. -->
-        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,10">
+        <!-- WrapPanel, no StackPanel — pedido explícito del usuario: "revisa también en la
+             app de escritorio" (que se adapte al redimensionar la ventana), mismo criterio
+             que EmployeesView/BranchesView. -->
+        <WrapPanel Grid.Row="2" Margin="0,0,0,10">
             <Button Content="‹ Semana anterior" Command="{Binding PreviousWeekCommand}" Margin="0,0,8,0" />
             <TextBlock Text="{Binding WeekRangeText}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,8,0" MinWidth="180" />
             <Button Content="Semana siguiente ›" Command="{Binding NextWeekCommand}" Margin="0,0,16,0" />
@@ -31,12 +34,12 @@
                  logotipo del negocio, con Imprimir/Exportar Excel/Exportar PDF — mismo
                  diseño que ya quedó en el Dashboard web (ver PayrollReportPreviewDialog). -->
             <Button Content="📊 Vista previa e imprimir" Click="OnPreviewReportClick" />
-        </StackPanel>
+        </WrapPanel>
 
         <!-- Filtros — mismo criterio que Empleados: en memoria sobre lo ya calculado para
              la semana actual, sin volver a recalcular la nómina por escribir en el
              buscador o cambiar la sucursal (ver PayrollViewModel.ApplyFilter). -->
-        <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,0,0,12">
+        <WrapPanel Grid.Row="3" Margin="0,0,0,12">
             <TextBlock Text="Buscar:" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource BrushTextSecondary}" />
             <TextBox Width="220" VerticalContentAlignment="Center" Margin="0,0,16,0"
                      Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
@@ -44,7 +47,7 @@
             <ComboBox Width="200"
                       ItemsSource="{Binding BranchFilterOptions}"
                       SelectedItem="{Binding SelectedBranchFilter, Mode=TwoWay}" />
-        </StackPanel>
+        </WrapPanel>
 
         <TextBlock Grid.Row="4" Text="{Binding StatusMessage}" FontSize="14" Foreground="{DynamicResource BrushTextSecondary}" Margin="0,0,0,12" />
 
