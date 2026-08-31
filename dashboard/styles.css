@@ -627,7 +627,7 @@ tbody tr:hover { background: var(--brand-soft); }
   color: var(--text);
   font-size: 13.5px;
   font-family: inherit;
-  width: 200px;
+  width: 230px;
 }
 /* Pedido explícito del usuario: "buscar que las letras que dicen buscar número o emp sean
    de color blanco" — var(--text) en vez de var(--dim): en modo oscuro es casi blanco (que
@@ -656,7 +656,7 @@ tbody tr:hover { background: var(--brand-soft); }
 .preview-date-sep { color: var(--dim); font-size: 13px; }
 /* El <select> de departamento reutiliza .preview-date-input (mismo look que Desde/Hasta),
    esto solo agrega lo específico de un <select>. */
-select.preview-date-input { max-width: 168px; cursor: pointer; }
+select.preview-date-input { max-width: 190px; cursor: pointer; }
 .report-preview-empty { padding: 24px 0; text-align: center; color: #96A0AC; font-size: 13px; }
 
 .report-preview-shell {

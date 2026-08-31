@@ -1364,7 +1364,7 @@ function populatePreviewDepartmentOptions(rows) {
   const previousValue = previewDepartmentSelect.value;
   const departments = [...new Set(rows.map(r => r.department))].sort((a, b) => a.localeCompare(b, 'es-MX'));
 
-  previewDepartmentSelect.innerHTML = '<option value="">Todos los departamentos</option>';
+  previewDepartmentSelect.innerHTML = '<option value="">Todos los deptos.</option>';
   for (const department of departments) {
     const option = document.createElement('option');
     option.value = department;
