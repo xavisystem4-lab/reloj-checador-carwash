@@ -110,6 +110,7 @@
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
@@ -120,9 +121,28 @@
                            Foreground="{DynamicResource BrushTextSecondary}" Margin="0,0,18,0" />
                 <TextBlock Grid.Column="1" Text="{Binding CurrentVersionLabel}" VerticalAlignment="Center"
                            FontWeight="SemiBold" Foreground="{DynamicResource BrushTextSecondary}" Margin="0,0,18,0" />
-                <TextBlock Grid.Column="2" Text="{Binding UpdateStatusMessage}" VerticalAlignment="Center"
+                <!-- Barra de progreso de la descarga — pedido explícito del usuario: "un
+                     lado de la versión una barra de progreso, que se llena de 0 a 100% que
+                     indica la descarga". Azul (BrushAccent, mismo tono que PrimaryButton),
+                     solo visible mientras IsDownloading es true — el resto del tiempo no
+                     ocupa espacio (Visibility Collapsed, no solo invisible). -->
+                <ProgressBar Grid.Column="2" Width="140" Height="16" VerticalAlignment="Center" Margin="0,0,18,0"
+                             Minimum="0" Maximum="100" Value="{Binding DownloadProgressPercent, Mode=OneWay}"
+                             Foreground="{DynamicResource BrushAccent}">
+                    <ProgressBar.Style>
+                        <Style TargetType="ProgressBar">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsDownloading}" Value="True">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </ProgressBar.Style>
+                </ProgressBar>
+                <TextBlock Grid.Column="3" Text="{Binding UpdateStatusMessage}" VerticalAlignment="Center"
                            Foreground="{DynamicResource BrushTextSecondary}" TextTrimming="CharacterEllipsis" />
-                <Button Grid.Column="3" Content="Actualizar versión" Style="{StaticResource PrimaryButton}"
+                <Button Grid.Column="4" Content="Actualizar versión" Style="{StaticResource PrimaryButton}"
                         Command="{Binding CheckForUpdateCommand}" />
             </Grid>
         </Border>
