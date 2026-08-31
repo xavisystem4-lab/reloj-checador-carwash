@@ -489,7 +489,13 @@ thead th {
   white-space: nowrap;
 }
 tbody td { padding: 11px 16px; border-top: 1px solid var(--row-border); white-space: nowrap; }
-tbody tr:hover { background: var(--brand-soft); }
+/* (hover: hover) and (pointer: fine) — solo dispositivos con mouse de verdad. Sin esto,
+   en móvil/tablet un tap deja la fila "pegada" en azul hasta tocar otra cosa (Safari/
+   Chrome en touch simulan :hover tras el toque y no siempre lo sueltan) — bug real visto
+   en capturas de pantalla durante la revisión de la versión móvil. */
+@media (hover: hover) and (pointer: fine) {
+  tbody tr:hover { background: var(--brand-soft); }
+}
 .pill {
   display: inline-block;
   padding: 3px 9px;
@@ -727,8 +733,10 @@ select.preview-date-input { max-width: 190px; cursor: pointer; }
    fila casi negra sobre texto casi negro. Pedido explícito del usuario: "pon lo que lo
    pinte ... de un color azul y las letras blancas, que se note" — mismo criterio que
    ::selection más arriba en este archivo. */
-.report-preview-table tbody tr:hover { background: #0B62A7; color: #FFFFFF; }
-.report-preview-table tbody tr:hover td { border-bottom-color: #0B62A7; }
+@media (hover: hover) and (pointer: fine) {
+  .report-preview-table tbody tr:hover { background: #0B62A7; color: #FFFFFF; }
+  .report-preview-table tbody tr:hover td { border-bottom-color: #0B62A7; }
+}
 .report-preview-footer { margin-top: 20px; font-size: 10.5px; color: #96A0AC; text-align: right; }
 
 /* Aísla report-preview-page como la ÚNICA cosa visible al imprimir (o "Guardar como PDF"
@@ -748,10 +756,165 @@ select.preview-date-input { max-width: 190px; cursor: pointer; }
   @page { size: letter; margin: 0.5in; }
 }
 
+/* =====================================================================
+   Móvil y tablet — pedido explícito del usuario: "trabaja en la
+   optimización de la versión móvil y tablet del sistema ... revisa toda
+   la interfaz ... que se sienta como una aplicación diseñada
+   específicamente para esos dispositivos, no como una versión de
+   escritorio reducida". Todo lo de aquí abajo vive dentro de @media, así
+   que la versión de escritorio (fuera de estos breakpoints) queda EXACTAMENTE
+   igual que antes — ver el resto de este archivo, sin tocar.
+
+   Dos escalones, elegidos por ANCHO (no por orientación: lo que decide si
+   una tabla cabe cómoda es cuánto espacio horizontal hay, no si el
+   dispositivo está en vertical u horizontal — un teléfono en horizontal
+   con ≥641px de ancho ya cae en el escalón de tablet, que le sienta mejor
+   que apilar todo en tarjetas):
+     - Tablet: 641px–1024px — aprovecha el espacio ya disponible (los
+       flex-wrap/grid del resto del archivo ya reflowuean bien solos);
+       aquí solo se agranda el área táctil y se despeja el botón fijo de
+       tema.
+     - Móvil: ≤640px — reestructura de verdad: topbar apilado, tablas
+       convertidas en tarjetas (en vez de solo reducir/achicar), modal del
+       reporte a pantalla completa con su hoja escalada a que quepa sin
+       scroll horizontal (ver fitReportPreviewToViewport en app.js).
+   ===================================================================== */
+
+@media (max-width: 1024px) {
+  /* Red de seguridad: ningún elemento suelto debe poder abrir scroll
+     horizontal en la página completa — los contenedores con overflow-x
+     propio (.table-scroll, .users-table-scroll, .report-preview-scroll)
+     siguen scrolleando internamente sin problema, esto solo evita que algo
+     se "escape" del viewport. */
+  html, body { overflow-x: hidden; max-width: 100%; }
+
+  /* El pestillo de tema es position:fixed en la esquina (top:14 right:14,
+     38px) sobre CUALQUIER pantalla — en anchos donde el contenido del
+     header llega hasta el borde, se empalmaban (bug real visto en
+     captura: el badge "Conectado" quedaba tapado por el botón). */
+  .topbar { padding-right: 60px; }
+
+  /* Área táctil cómoda (mínimo recomendado ~44px) en todo lo que se toca
+     con el dedo — antes el tamaño salía puramente del padding/texto, que
+     en varios controles quedaba por debajo de eso. */
+  .btn, .filter-field input, .filter-field select, #search-input,
+  .invite-form input, .invite-form select,
+  .preview-search-input, .preview-date-input,
+  .login-card input, .login-submit,
+  .modal-close, .theme-toggle, .password-toggle {
+    min-height: 44px;
+  }
+  .theme-toggle, .password-toggle, .modal-close { min-width: 44px; }
+}
+
 @media (max-width: 640px) {
-  .topbar { flex-wrap: wrap; gap: 10px; }
+  /* ---------- Encabezado ---------- */
+  .topbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding: 14px 60px 14px 16px; /* mismo despeje del pestillo de tema que arriba */
+  }
   .topbar-logo { height: 28px; }
-  .filters { flex-direction: column; align-items: stretch; }
-  .filter-actions { margin-left: 0; }
+  .connection-badge { align-self: flex-start; }
+  .topbar-actions { flex-wrap: wrap; gap: 8px; }
+
+  /* ---------- Filtros principales ---------- */
+  .filters { flex-direction: column; align-items: stretch; padding: 18px 16px 0; }
+  .filter-actions { margin-left: 0; width: 100%; }
+  .filter-actions .btn { flex: 1 1 150px; }
+
+  .devices-status-section, .kpi-row, .table-section { padding-left: 16px; padding-right: 16px; }
   .login-card { padding: 32px 24px 28px; }
+
+  /* ---------- Tablas -> tarjetas ----------
+     Pedido explícito del usuario: "cuando una sección no pueda mostrarse
+     correctamente en móvil, adapta su estructura en lugar de simplemente
+     reducirla" — en vez de dejar la tabla de Asistencia/Usuarios con
+     scroll horizontal, cada fila se vuelve su propia tarjeta: el <thead>
+     se oculta y cada <td> muestra su propia etiqueta con ::before +
+     attr(data-label) (ver esos atributos en renderTable/renderUsersTable,
+     app.js). La tabla del REPORTE (report-preview-table) NO se toca
+     aquí a propósito: es una hoja imprimible tamaño Carta real, no una
+     lista de la app — se adapta escalándose completa (ver
+     fitReportPreviewToViewport en app.js), no convirtiéndose en tarjetas. */
+  .table-scroll, .users-table-scroll {
+    overflow-x: visible;
+    border: none;
+    box-shadow: none;
+    background: transparent;
+  }
+  #attendance-table, .users-table { display: block; width: 100%; }
+  #attendance-table thead, .users-table thead { display: none; }
+  #attendance-table tbody, .users-table tbody { display: block; }
+  #attendance-table tbody tr, .users-table tbody tr {
+    display: block;
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: 14px;
+    box-shadow: var(--shadow-sm);
+    padding: 2px 14px;
+    margin-bottom: 10px;
+  }
+  #attendance-table tbody td, .users-table tbody td {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 10px 0;
+    border-top: 1px solid var(--row-border);
+    white-space: normal;
+    text-align: right;
+  }
+  #attendance-table tbody td:first-child, .users-table tbody td:first-child { border-top: none; }
+  #attendance-table tbody td::before, .users-table tbody td::before {
+    content: attr(data-label);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--muted);
+    text-align: left;
+    flex-shrink: 0;
+  }
+  /* El mensaje de "sin resultados" (colspan) es un aviso, no un dato de
+     fila — se muestra centrado, sin la etiqueta. */
+  #attendance-table tbody td[colspan] { display: block; text-align: center; }
+  #attendance-table tbody td[colspan]::before { content: none; }
+
+  /* ---------- Modales ---------- */
+  .modal-overlay { padding: 12px; }
+  .modal-card { padding: 20px 16px; max-height: 90vh; max-height: 90dvh; }
+  .invite-form { flex-direction: column; }
+  .invite-form input, .invite-form select { min-width: 100%; }
+
+  /* ---------- Reporte de asistencia (previsualización) ----------
+     A pantalla completa (sin el margen del overlay) para aprovechar todo
+     el ancho disponible — así la hoja (ver fitReportPreviewToViewport en
+     app.js) se ve lo más grande posible sin scroll horizontal. */
+  #report-preview-modal { padding: 0; }
+  .report-preview-shell {
+    max-width: 100vw;
+    width: 100vw;
+    max-height: 100vh;
+    max-height: 100dvh;
+    border-radius: 0;
+  }
+  .report-preview-toolbar {
+    padding: 10px 12px;
+    /* Tope de altura + scroll propio: en un teléfono angosto Y bajo
+       (horizontal, con poca altura) todos estos controles apilados no
+       deben poder empujar la hoja fuera de la pantalla. */
+    max-height: 60vh;
+    overflow-y: auto;
+  }
+  .report-preview-toolbar .btn { flex: 1 1 30%; text-align: center; }
+  .preview-search-input, .preview-date-input, select.preview-date-input {
+    flex: 1 1 100%;
+    width: 100%;
+    max-width: none;
+  }
+  .preview-date-sep { flex: 0 0 100%; text-align: center; }
+  .report-preview-toolbar .btn-ghost { flex: 1 1 100%; margin-left: 0; }
+  .report-preview-scroll { padding: 12px; }
 }
