@@ -141,6 +141,10 @@ const previewSearchInput = document.getElementById('preview-search-input');
 // mantienen sincronizado ese rango principal (ver onPreviewDateRangeChange).
 const previewFromInput = document.getElementById('preview-from-input');
 const previewToInput = document.getElementById('preview-to-input');
+// Filtro por departamento — pedido explícito del usuario: "otro filtro que sea buscar por
+// departamento". Sus opciones se pueblan en JS (ver populatePreviewDepartmentOptions) a
+// partir de lo que trae el reporte actual, no de una lista fija.
+const previewDepartmentSelect = document.getElementById('preview-department-select');
 
 let lastReportRows = []; // última tabla de horas ya calculada (SIN filtrar) — la búsqueda parte de aquí
 let currentPreviewRows = []; // lo que está renderizado AHORA en la hoja (ya filtrado) — Excel/PDF/Imprimir exportan esto, no lastReportRows
@@ -191,7 +195,8 @@ async function init() {
   previewPrintButton.addEventListener('click', () => window.print());
   previewExcelButton.addEventListener('click', onExportReportExcelClick);
   previewPdfButton.addEventListener('click', onExportReportPdfClick);
-  previewSearchInput.addEventListener('input', debounce(() => renderPreviewTable(filterReportRows(lastReportRows, previewSearchInput.value)), 150));
+  previewSearchInput.addEventListener('input', debounce(applyPreviewFilters, 150));
+  previewDepartmentSelect.addEventListener('change', applyPreviewFilters);
   previewFromInput.addEventListener('change', onPreviewDateRangeChange);
   previewToInput.addEventListener('change', onPreviewDateRangeChange);
 
@@ -1335,15 +1340,46 @@ function buildAttendanceReportRows() {
 /// Pedido explícito del usuario: "un buscador que busque por número, PIN, empleado, en
 /// cuanto vaya escribiendo, se vaya autorrellenando" — substring, sin distinguir
 /// mayúsculas. La columna PIN se quitó de la tabla del reporte ("deja nada más el puro
-/// Número"), así que el buscador ahora solo cubre Número y Empleado.
-function filterReportRows(rows, term) {
+/// Número"), así que el buscador ahora solo cubre Número y Empleado. `department`
+/// (exacto, no substring — viene de un <select> con las opciones ya existentes en el
+/// reporte, ver populatePreviewDepartmentOptions) se aplica junto con el texto, no en vez
+/// de — pedido explícito: "otro filtro que sea buscar por departamento".
+function filterReportRows(rows, term, department) {
   const normalized = term.trim().toLowerCase();
-  if (!normalized) {
-    return rows;
+  return rows.filter(r => {
+    const matchesTerm = !normalized ||
+      (r.number ?? '').toLowerCase().includes(normalized) ||
+      r.name.toLowerCase().includes(normalized);
+    const matchesDepartment = !department || r.department === department;
+    return matchesTerm && matchesDepartment;
+  });
+}
+
+/// Reconstruye las opciones del <select> de departamento a partir de lo que trae el
+/// reporte ACTUAL (catálogo cerrado: car wash, arábica café, otros, plaza sabo, etc. — no
+/// una lista fija en el HTML). Conserva la selección previa si ese departamento sigue
+/// presente; si ya no existe (por ejemplo, se cambió el rango de fechas y ya no hay nadie
+/// de esa área), vuelve a "Todos los departamentos".
+function populatePreviewDepartmentOptions(rows) {
+  const previousValue = previewDepartmentSelect.value;
+  const departments = [...new Set(rows.map(r => r.department))].sort((a, b) => a.localeCompare(b, 'es-MX'));
+
+  previewDepartmentSelect.innerHTML = '<option value="">Todos los departamentos</option>';
+  for (const department of departments) {
+    const option = document.createElement('option');
+    option.value = department;
+    option.textContent = department;
+    previewDepartmentSelect.appendChild(option);
   }
-  return rows.filter(r =>
-    (r.number ?? '').toLowerCase().includes(normalized) ||
-    r.name.toLowerCase().includes(normalized));
+
+  previewDepartmentSelect.value = departments.includes(previousValue) ? previousValue : '';
+}
+
+/// Aplica el buscador de texto Y el filtro de departamento juntos sobre lastReportRows, y
+/// dibuja el resultado — punto único que usan el buscador, el select de departamento y el
+/// cambio de rango de fechas, para que los tres filtros siempre se respeten a la vez.
+function applyPreviewFilters() {
+  renderPreviewTable(filterReportRows(lastReportRows, previewSearchInput.value, previewDepartmentSelect.value));
 }
 
 function formatHours(hours) {
@@ -1371,9 +1407,10 @@ function openAttendanceReport() {
   previewSearchInput.value = '';
   previewFromInput.value = fromInput.value;
   previewToInput.value = toInput.value;
+  populatePreviewDepartmentOptions(lastReportRows);
   previewRangeText.textContent = reportRangeLabel();
   previewGeneratedText.textContent = `Generado el ${formatDateTime(new Date().toISOString())}`;
-  renderPreviewTable(lastReportRows);
+  applyPreviewFilters();
 
   reportPreviewModal.hidden = false;
   ensureExportLibrariesLoaded(); // en segundo plano — Excel/PDF no bloquean la vista previa
@@ -1392,8 +1429,9 @@ async function onPreviewDateRangeChange() {
   await loadReport();
 
   lastReportRows = buildAttendanceReportRows();
+  populatePreviewDepartmentOptions(lastReportRows);
   previewRangeText.textContent = reportRangeLabel();
-  renderPreviewTable(filterReportRows(lastReportRows, previewSearchInput.value));
+  applyPreviewFilters();
 }
 
 /// Dibuja la hoja con EXACTAMENTE estas filas (ya filtradas o no) — currentPreviewRows
@@ -1512,7 +1550,7 @@ async function onExportReportExcelClick() {
     await ensureExportLibrariesLoaded();
 
     const sheetRows = [
-      ['Drive In Car Wash — Reporte de asistencia'],
+      ['Drive In Car Wash — Reporte de Asistencia'],
       [reportRangeLabel()],
       [],
       ['Número', 'Empleado', 'Departamento', 'Horas normales', 'Horas extra', 'Total horas'],
