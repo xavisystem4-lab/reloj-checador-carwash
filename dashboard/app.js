@@ -1003,14 +1003,20 @@ async function enrichAttendances(attendances) {
   const employeeNameById = new Map();
   // "number" (Número de negocio) — pedido explícito del usuario para el Reporte de
   // asistencia (ver openAttendanceReport/buildAttendanceReportRows), distinto del PIN del
-  // dispositivo.
+  // dispositivo. "department" — pedido explícito: "el reporte de asistencia también agrega
+  // departamento, quienes pertenecen a sus áreas. Por ejemplo, car wash, arábica café,
+  // otros, plaza sabo" — conserva la sucursal/área original de alguien fusionado a
+  // CAR-WASH (ver comentario de clase de EmployeesViewModel.ApplyCatalogReplaceAsync en el
+  // repo principal).
   const employeeNumberById = new Map();
+  const employeeDepartmentById = new Map();
   if (employeeIdsToResolve.size > 0) {
     const { data: employees } = await supabase
-      .from('employees').select('id, full_name, number').in('id', [...employeeIdsToResolve]);
+      .from('employees').select('id, full_name, number, department').in('id', [...employeeIdsToResolve]);
     for (const e of employees ?? []) {
       employeeNameById.set(e.id, e.full_name);
       employeeNumberById.set(e.id, e.number);
+      employeeDepartmentById.set(e.id, e.department);
     }
   }
 
@@ -1024,6 +1030,7 @@ async function enrichAttendances(attendances) {
       employeeName: employeeName ?? null,
       resolvedEmployeeId: resolvedEmployeeId,
       employeeNumber: resolvedEmployeeId ? (employeeNumberById.get(resolvedEmployeeId) ?? null) : null,
+      employeeDepartment: resolvedEmployeeId ? (employeeDepartmentById.get(resolvedEmployeeId) ?? null) : null,
       isUnlinked: !employeeName,
     };
   });
@@ -1286,6 +1293,12 @@ function buildAttendanceReportRows() {
       byEmployee.set(key, {
         number: row.employeeNumber ?? null,
         name: row.employeeName ?? `PIN ${row.device_user_pin} · sin vincular`,
+        // Departamento (área original de alguien fusionado a CAR-WASH) si está capturado;
+        // si no, la propia Sucursal — pedido explícito del usuario: "el reporte de
+        // asistencia también agrega departamento, quienes pertenecen a sus áreas. Por
+        // ejemplo, car wash, arábica café, otros, plaza sabo" — así TODOS muestran algún
+        // área, no solo quienes tienen Department capturado.
+        department: row.employeeDepartment || row.branchName || '—',
         pins: new Set(),
         rows: [],
       });
@@ -1304,6 +1317,7 @@ function buildAttendanceReportRows() {
       // reloj/PIN dentro del mismo rango; se listan todos, separados por coma.
       pin: [...entry.pins].join(', '),
       name: entry.name,
+      department: entry.department,
       regularHours: regularMs / 3_600_000,
       overtimeHours: overtimeMs / 3_600_000,
       totalHours: (regularMs + overtimeMs) / 3_600_000,
@@ -1382,6 +1396,7 @@ function renderPreviewTable(rows) {
       <td>${escapeHtml(row.number ?? '—')}</td>
       <td>${escapeHtml(row.pin || '—')}</td>
       <td>${escapeHtml(row.name)}</td>
+      <td>${escapeHtml(row.department)}</td>
       <td>${formatHours(row.regularHours)} h</td>
       <td>${formatHours(row.overtimeHours)} h</td>
       <td>${formatHours(row.totalHours)} h</td>
@@ -1390,7 +1405,7 @@ function renderPreviewTable(rows) {
   }
   const totalTr = document.createElement('tr');
   totalTr.innerHTML = `
-    <td colspan="3">Total</td>
+    <td colspan="4">Total</td>
     <td>${formatHours(totalRegular)} h</td>
     <td>${formatHours(totalOvertime)} h</td>
     <td>${formatHours(totalRegular + totalOvertime)} h</td>
@@ -1444,13 +1459,13 @@ async function onExportReportExcelClick() {
       ['Drive In Car Wash — Reporte de asistencia'],
       [reportRangeLabel()],
       [],
-      ['Número', 'PIN', 'Empleado', 'Horas normales', 'Horas extra', 'Total horas'],
+      ['Número', 'PIN', 'Empleado', 'Departamento', 'Horas normales', 'Horas extra', 'Total horas'],
       // currentPreviewRows, NO lastReportRows — exporta exactamente lo que está en pantalla
       // (respeta el buscador si hay uno en curso).
-      ...currentPreviewRows.map(r => [r.number ?? '', r.pin, r.name, Number(r.regularHours.toFixed(2)), Number(r.overtimeHours.toFixed(2)), Number(r.totalHours.toFixed(2))]),
+      ...currentPreviewRows.map(r => [r.number ?? '', r.pin, r.name, r.department, Number(r.regularHours.toFixed(2)), Number(r.overtimeHours.toFixed(2)), Number(r.totalHours.toFixed(2))]),
     ];
     const worksheet = XLSX.utils.aoa_to_sheet(sheetRows);
-    worksheet['!cols'] = [{ wch: 10 }, { wch: 12 }, { wch: 32 }, { wch: 16 }, { wch: 14 }, { wch: 14 }];
+    worksheet['!cols'] = [{ wch: 10 }, { wch: 12 }, { wch: 32 }, { wch: 18 }, { wch: 16 }, { wch: 14 }, { wch: 14 }];
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Asistencia');
     XLSX.writeFile(workbook, `reporte-asistencia-${fromInput.value}-a-${toInput.value}.xlsx`);

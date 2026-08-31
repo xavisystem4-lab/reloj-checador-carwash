@@ -672,12 +672,15 @@ tbody tr:hover { background: var(--brand-soft); }
 .report-preview-business { font-size: 15px; font-weight: 800; color: #0B62A7; }
 .report-preview-title { font-size: 20px; font-weight: 800; margin-top: 2px; }
 .report-preview-subtitle { font-size: 12.5px; color: #5B6472; margin-top: 4px; }
-.report-preview-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+/* font-size más chico — pedido explícito del usuario al agregar la columna Departamento:
+   "un poquito más chiquita las letras, pero que aparezcan" (con una columna más, el 12.5px
+   original quedaba apretado). */
+.report-preview-table { width: 100%; border-collapse: collapse; font-size: 11px; }
 .report-preview-table th {
-  text-align: left; padding: 8px 10px; background: #E7F0FB; color: #095183;
+  text-align: left; padding: 7px 8px; background: #E7F0FB; color: #095183;
   font-weight: 700; border-bottom: 2px solid #0B62A7;
 }
-.report-preview-table td { padding: 7px 10px; border-bottom: 1px solid #E1E7F0; }
+.report-preview-table td { padding: 6px 8px; border-bottom: 1px solid #E1E7F0; }
 .report-preview-table tfoot td { font-weight: 800; border-top: 2px solid #0B62A7; }
 .report-preview-footer { margin-top: 20px; font-size: 10.5px; color: #96A0AC; text-align: right; }
 
