@@ -82,6 +82,17 @@
   --shadow-lg: 0 28px 70px rgba(0, 0, 0, 0.55);
 }
 
+/* Selección de texto con el mouse — bug reportado por el usuario con captura: sin esto, el
+   navegador usa su color de selección por defecto, que en modo oscuro puede quedar casi
+   negro sobre texto casi negro (ilegible) al seleccionar una fila, sobre todo en
+   report-preview-page (que SIEMPRE es blanca, sin importar el tema). Pedido explícito:
+   "que esté de color azul, azul fuerte y las letras blancas". Global, no solo la
+   previsualización — mismo problema podría darse en cualquier otra parte del Dashboard. */
+::selection {
+  background: #0B62A7;
+  color: #FFFFFF;
+}
+
 /* Pestillo de tema -- fixed para quedar visible sobre login/pending/dashboard por igual. */
 .theme-toggle {
   position: fixed;
@@ -594,8 +605,24 @@ tbody tr:hover { background: var(--brand-soft); }
 .user-name-cell-empty { color: var(--dim); font-style: italic; }
 
 /* ---------- Reporte de asistencia ---------- */
-.modal-card-wide { max-width: 820px; }
-.report-modal-range { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
+/* Buscador de la previsualización — pedido explícito del usuario: "regálele también un
+   buscador que busque por número, PIN, empleado, en cuanto vaya escribiendo". Mismo look
+   que .filter-field input, pero vive en la barra oscura de la previsualización (no en los
+   filtros claros de arriba), así que fija sus propios colores en vez de heredar. */
+.preview-search-input {
+  padding: 9px 12px;
+  border-radius: 9px;
+  border: 1.5px solid var(--card-border);
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: 13.5px;
+  font-family: inherit;
+  width: 220px;
+}
+.preview-search-input:focus {
+  outline: none; border-color: var(--brand); box-shadow: 0 0 0 4px var(--brand-soft);
+}
+.report-preview-empty { padding: 24px 0; text-align: center; color: #96A0AC; font-size: 13px; }
 
 .report-preview-shell {
   width: 100%;

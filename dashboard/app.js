@@ -112,26 +112,31 @@ const devicesStatusRow = document.getElementById('devices-status-row');
 const connectionBadge = document.getElementById('connection-badge');
 const connectionBadgeText = document.getElementById('connection-badge-text');
 
-// ---- Reporte de asistencia (horas trabajadas) — ver openReportModal/computeEmployeeHours ----
+// ---- Reporte de asistencia (horas trabajadas) — ver openAttendanceReport/computeEmployeeHours.
+// Pedido explícito del usuario: "quiero que al darle clic al reporte de asistencia
+// automáticamente se abra la imagen que se acabo de apuntar. No quiero la otra, quiero esa
+// imagen" — "Reporte de asistencia" abre la previsualización DIRECTO, ya no hay una
+// pantalla intermedia con solo la tabla. ----
 const reportButton = document.getElementById('report-button');
-const reportModal = document.getElementById('report-modal');
-const reportModalClose = document.getElementById('report-modal-close');
-const reportRangeText = document.getElementById('report-range-text');
-const reportStatus = document.getElementById('report-status');
-const reportTbody = document.getElementById('report-tbody');
-const reportExportButton = document.getElementById('report-export-button');
 
 const reportPreviewModal = document.getElementById('report-preview-modal');
 const reportPreviewClose = document.getElementById('report-preview-close');
 const reportPreviewPage = document.getElementById('report-preview-page');
 const previewRangeText = document.getElementById('preview-range-text');
 const previewTbody = document.getElementById('preview-tbody');
+const previewEmptyText = document.getElementById('preview-empty-text');
 const previewGeneratedText = document.getElementById('preview-generated-text');
 const previewPrintButton = document.getElementById('preview-print-button');
 const previewExcelButton = document.getElementById('preview-excel-button');
 const previewPdfButton = document.getElementById('preview-pdf-button');
+// Buscador de la previsualización — pedido explícito del usuario: "regálele también un
+// buscador que busque por número, PIN, empleado, en cuanto vaya escribiendo, se vaya
+// autorrellenando" — filtra EN VIVO (sin botón "buscar"), mismo criterio que el buscador
+// principal del Dashboard (ver searchInput más abajo).
+const previewSearchInput = document.getElementById('preview-search-input');
 
-let lastReportRows = []; // última tabla de horas ya calculada — Exportar la reutiliza sin recalcular
+let lastReportRows = []; // última tabla de horas ya calculada (SIN filtrar) — la búsqueda parte de aquí
+let currentPreviewRows = []; // lo que está renderizado AHORA en la hoja (ya filtrado) — Excel/PDF/Imprimir exportan esto, no lastReportRows
 
 let autoRefreshTimer = null;
 let lastLoadedRows = []; // guarda la última carga ya enriquecida, para exportar sin repetir el fetch
@@ -171,12 +176,7 @@ async function init() {
   toInput.addEventListener('change', () => loadReport());
   searchInput.addEventListener('input', debounce(() => renderTable(lastLoadedRows), 200));
 
-  reportButton.addEventListener('click', openReportModal);
-  reportModalClose.addEventListener('click', closeReportModal);
-  reportModal.addEventListener('click', (event) => {
-    if (event.target === reportModal) closeReportModal();
-  });
-  reportExportButton.addEventListener('click', openReportPreview);
+  reportButton.addEventListener('click', openAttendanceReport);
   reportPreviewClose.addEventListener('click', closeReportPreview);
   reportPreviewModal.addEventListener('click', (event) => {
     if (event.target === reportPreviewModal) closeReportPreview();
@@ -184,6 +184,7 @@ async function init() {
   previewPrintButton.addEventListener('click', () => window.print());
   previewExcelButton.addEventListener('click', onExportReportExcelClick);
   previewPdfButton.addEventListener('click', onExportReportPdfClick);
+  previewSearchInput.addEventListener('input', debounce(() => renderPreviewTable(filterReportRows(lastReportRows, previewSearchInput.value)), 150));
 
   showSignupButton.addEventListener('click', showSignupFormView);
   showLoginButton.addEventListener('click', showLoginFormView);
@@ -1001,7 +1002,7 @@ async function enrichAttendances(attendances) {
 
   const employeeNameById = new Map();
   // "number" (Número de negocio) — pedido explícito del usuario para el Reporte de
-  // asistencia (ver openReportModal/buildAttendanceReportRows), distinto del PIN del
+  // asistencia (ver openAttendanceReport/buildAttendanceReportRows), distinto del PIN del
   // dispositivo.
   const employeeNumberById = new Map();
   if (employeeIdsToResolve.size > 0) {
@@ -1274,8 +1275,9 @@ function computeEmployeeHours(employeeRows) {
 
 /// Arma una fila por empleado (agrupando por resolvedEmployeeId — o por PIN si nunca se
 /// vinculó a nadie) a partir de lastLoadedRows, ya filtrado por Sucursal/Desde/Hasta. NO
-/// aplica el buscador de texto libre de la tabla principal — el reporte es de nómina,
-/// siempre sobre TODOS los empleados del rango.
+/// aplica el buscador de texto libre de la tabla principal — el reporte parte siempre de
+/// TODOS los empleados del rango; el buscador propio de la previsualización (ver
+/// filterReportRows) filtra DESPUÉS, sobre esta misma lista ya calculada.
 function buildAttendanceReportRows() {
   const byEmployee = new Map();
   for (const row of lastLoadedRows) {
@@ -1284,10 +1286,13 @@ function buildAttendanceReportRows() {
       byEmployee.set(key, {
         number: row.employeeNumber ?? null,
         name: row.employeeName ?? `PIN ${row.device_user_pin} · sin vincular`,
+        pins: new Set(),
         rows: [],
       });
     }
-    byEmployee.get(key).rows.push(row);
+    const entry = byEmployee.get(key);
+    entry.pins.add(row.device_user_pin);
+    entry.rows.push(row);
   }
 
   const result = [];
@@ -1295,6 +1300,9 @@ function buildAttendanceReportRows() {
     const { regularMs, overtimeMs } = computeEmployeeHours(entry.rows);
     result.push({
       number: entry.number,
+      // Casi siempre un solo PIN — varios solo si el empleado se enroló en más de un
+      // reloj/PIN dentro del mismo rango; se listan todos, separados por coma.
+      pin: [...entry.pins].join(', '),
       name: entry.name,
       regularHours: regularMs / 3_600_000,
       overtimeHours: overtimeMs / 3_600_000,
@@ -1304,6 +1312,20 @@ function buildAttendanceReportRows() {
 
   result.sort((a, b) => a.name.localeCompare(b.name, 'es-MX'));
   return result;
+}
+
+/// Pedido explícito del usuario: "un buscador que busque por número, PIN, empleado, en
+/// cuanto vaya escribiendo, se vaya autorrellenando" — substring, sin distinguir
+/// mayúsculas, sobre cualquiera de los tres campos.
+function filterReportRows(rows, term) {
+  const normalized = term.trim().toLowerCase();
+  if (!normalized) {
+    return rows;
+  }
+  return rows.filter(r =>
+    (r.number ?? '').toLowerCase().includes(normalized) ||
+    r.pin.toLowerCase().includes(normalized) ||
+    r.name.toLowerCase().includes(normalized));
 }
 
 function formatHours(hours) {
@@ -1317,58 +1339,48 @@ function reportRangeLabel() {
   return `Del ${fromInput.value} al ${toInput.value} — ${branchLabel}`;
 }
 
-function openReportModal() {
+/// "Reporte de asistencia" — pedido explícito del usuario: "quiero que al darle clic al
+/// reporte de asistencia automáticamente se abra la imagen que se acabo de apuntar. No
+/// quiero la otra, quiero esa imagen" — calcula las horas y abre la previsualización
+/// DIRECTO, sin ninguna pantalla intermedia.
+function openAttendanceReport() {
   lastReportRows = buildAttendanceReportRows();
-  reportRangeText.textContent = reportRangeLabel();
-  renderReportTable();
-  reportStatus.textContent = lastReportRows.length === 0
-    ? 'Sin marcaciones en este rango.'
-    : `${lastReportRows.length.toLocaleString('es-MX')} empleado(s).`;
-  reportModal.hidden = false;
-}
-
-function closeReportModal() {
-  reportModal.hidden = true;
-}
-
-function renderReportTable() {
-  reportTbody.innerHTML = '';
-  const fragment = document.createDocumentFragment();
-  for (const row of lastReportRows) {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${escapeHtml(row.number ?? '—')}</td>
-      <td>${escapeHtml(row.name)}</td>
-      <td>${formatHours(row.regularHours)} h</td>
-      <td>${formatHours(row.overtimeHours)} h</td>
-      <td><strong>${formatHours(row.totalHours)} h</strong></td>
-    `;
-    fragment.appendChild(tr);
-  }
-  reportTbody.appendChild(fragment);
-}
-
-/// "el botón de exportar al darle clic me abre una previsualización" — muestra la MISMA
-/// lastReportRows ya calculada (sin volver a consultar Supabase) dentro de la hoja tamaño
-/// Carta con el logotipo, lista para Imprimir/Exportar Excel/Exportar PDF.
-function openReportPreview() {
   if (lastReportRows.length === 0) {
+    alert('No hay marcaciones en este rango para generar el reporte.');
     return;
   }
 
+  previewSearchInput.value = '';
   previewRangeText.textContent = reportRangeLabel();
   previewGeneratedText.textContent = `Generado el ${formatDateTime(new Date().toISOString())}`;
+  renderPreviewTable(lastReportRows);
+
+  reportPreviewModal.hidden = false;
+  ensureExportLibrariesLoaded(); // en segundo plano — Excel/PDF no bloquean la vista previa
+}
+
+/// Dibuja la hoja con EXACTAMENTE estas filas (ya filtradas o no) — currentPreviewRows
+/// guarda lo último dibujado, así Imprimir/Exportar Excel/Exportar PDF siempre reflejan lo
+/// que se está viendo, sea el reporte completo o una búsqueda en curso.
+function renderPreviewTable(rows) {
+  currentPreviewRows = rows;
 
   previewTbody.innerHTML = '';
+  previewEmptyText.hidden = rows.length > 0;
+  if (rows.length === 0) {
+    return;
+  }
+
   const fragment = document.createDocumentFragment();
   let totalRegular = 0;
   let totalOvertime = 0;
-  for (const row of lastReportRows) {
+  for (const row of rows) {
     totalRegular += row.regularHours;
     totalOvertime += row.overtimeHours;
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${escapeHtml(row.number ?? '—')}</td>
+      <td>${escapeHtml(row.pin || '—')}</td>
       <td>${escapeHtml(row.name)}</td>
       <td>${formatHours(row.regularHours)} h</td>
       <td>${formatHours(row.overtimeHours)} h</td>
@@ -1378,16 +1390,13 @@ function openReportPreview() {
   }
   const totalTr = document.createElement('tr');
   totalTr.innerHTML = `
-    <td colspan="2">Total</td>
+    <td colspan="3">Total</td>
     <td>${formatHours(totalRegular)} h</td>
     <td>${formatHours(totalOvertime)} h</td>
     <td>${formatHours(totalRegular + totalOvertime)} h</td>
   `;
   fragment.appendChild(totalTr);
   previewTbody.appendChild(fragment);
-
-  reportPreviewModal.hidden = false;
-  ensureExportLibrariesLoaded(); // en segundo plano — Excel/PDF no bloquean la vista previa
 }
 
 function closeReportPreview() {
@@ -1435,11 +1444,13 @@ async function onExportReportExcelClick() {
       ['Drive In Car Wash — Reporte de asistencia'],
       [reportRangeLabel()],
       [],
-      ['Número', 'Empleado', 'Horas normales', 'Horas extra', 'Total horas'],
-      ...lastReportRows.map(r => [r.number ?? '', r.name, Number(r.regularHours.toFixed(2)), Number(r.overtimeHours.toFixed(2)), Number(r.totalHours.toFixed(2))]),
+      ['Número', 'PIN', 'Empleado', 'Horas normales', 'Horas extra', 'Total horas'],
+      // currentPreviewRows, NO lastReportRows — exporta exactamente lo que está en pantalla
+      // (respeta el buscador si hay uno en curso).
+      ...currentPreviewRows.map(r => [r.number ?? '', r.pin, r.name, Number(r.regularHours.toFixed(2)), Number(r.overtimeHours.toFixed(2)), Number(r.totalHours.toFixed(2))]),
     ];
     const worksheet = XLSX.utils.aoa_to_sheet(sheetRows);
-    worksheet['!cols'] = [{ wch: 10 }, { wch: 32 }, { wch: 16 }, { wch: 14 }, { wch: 14 }];
+    worksheet['!cols'] = [{ wch: 10 }, { wch: 12 }, { wch: 32 }, { wch: 16 }, { wch: 14 }, { wch: 14 }];
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Asistencia');
     XLSX.writeFile(workbook, `reporte-asistencia-${fromInput.value}-a-${toInput.value}.xlsx`);

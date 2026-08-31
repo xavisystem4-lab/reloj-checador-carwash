@@ -322,53 +322,29 @@
   </div>
 
   <!-- ===================== MODAL: reporte de asistencia (horas trabajadas) ===================== -->
-  <!-- Pedido explícito del usuario: "que me salgan las horas trabajadas del empleado, que
-       lo pueda filtrar de tal fecha a tal fecha ... para que me ayude a hacer un reporte de
-       nómina". Reutiliza el mismo Desde/Hasta/Sucursal ya elegidos en los filtros
-       principales — el rango se muestra aquí solo de lectura (ver openReportModal en
-       app.js). Horas calculadas emparejando Entrada/Salida por día, mismo criterio que
-       WorkedHoursCalculator del repo principal (ver computeEmployeeHours en app.js). -->
-  <div id="report-modal" class="modal-overlay" hidden>
-    <div class="modal-card modal-card-wide">
-      <div class="modal-header">
-        <h2>Reporte de asistencia</h2>
-        <!-- Pedido explícito del usuario: "el botón de exportar en el sitio web súbelo
-             hasta arriba" — junto al título, no al final de la tabla. Al darle clic abre
-             una previsualización (ver report-preview-modal, más abajo). -->
-        <button id="report-export-button" class="btn btn-primary" type="button">⬇ Exportar</button>
-        <button id="report-modal-close" class="modal-close" type="button" aria-label="Cerrar">✕</button>
-      </div>
-      <p class="report-modal-range" id="report-range-text"></p>
-      <div id="report-status" class="table-status">Cargando…</div>
-      <div class="users-table-scroll">
-        <table class="users-table" id="report-table">
-          <thead>
-            <tr>
-              <th>Número</th>
-              <th>Empleado</th>
-              <th>Horas normales</th>
-              <th>Horas extra</th>
-              <th>Total</th>
-            </tr>
-          </thead>
-          <tbody id="report-tbody"></tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-
-  <!-- ===================== MODAL: previsualización de impresión/exportación ===================== -->
-  <!-- Pedido explícito del usuario: "Tamaño carta, y que venga con el logotipo del car
-       wash. y arriba de esa previsualización lo pueda imprimir, lo pueda exportar en Excel
-       y exportar en PDF". report-preview-page es tamaño Carta real (8.5in x 11in, ver
-       styles.css) — en pantalla se ve dentro de un contenedor con scroll; @media print dej
-       SOLO esa hoja visible al imprimir/guardar como PDF del navegador. -->
+  <!-- ===================== MODAL: reporte de asistencia (previsualización directa) ===================== -->
+  <!-- Pedido explícito del usuario: "quiero que al darle clic al reporte de asistencia
+       automáticamente se abra la imagen que se acabo de apuntar. No quiero la otra, quiero
+       esa imagen" — "Reporte de asistencia" abre ESTA previsualización directo (antes había
+       una pantalla intermedia con solo la tabla; se quitó). Reutiliza el mismo
+       Desde/Hasta/Sucursal ya elegidos en los filtros principales — ver openAttendanceReport
+       en app.js. Horas calculadas emparejando Entrada/Salida por día, mismo criterio que
+       WorkedHoursCalculator del repo principal (ver computeEmployeeHours en app.js).
+       report-preview-page es tamaño Carta real (8.5in x 11in, ver styles.css) — en pantalla
+       se ve dentro de un contenedor con scroll; @media print deja SOLO esa hoja visible al
+       imprimir/guardar como PDF del navegador. -->
   <div id="report-preview-modal" class="modal-overlay" hidden>
     <div class="report-preview-shell">
       <div class="report-preview-toolbar no-print">
         <button id="preview-print-button" class="btn btn-outline" type="button">🖨️ Imprimir</button>
         <button id="preview-excel-button" class="btn btn-outline" type="button">📊 Exportar Excel</button>
         <button id="preview-pdf-button" class="btn btn-outline" type="button">📄 Exportar PDF</button>
+        <!-- Pedido explícito del usuario: "regálele también un buscador que busque por
+             número, PIN, empleado, en cuanto vaya escribiendo, se vaya autorrellenando" —
+             filtra las filas de la hoja EN VIVO (sin botón de buscar), mismo criterio que
+             el buscador principal del Dashboard. Lo que esté filtrado en pantalla es
+             también lo que se imprime/exporta. -->
+        <input id="preview-search-input" type="text" class="preview-search-input" placeholder="Buscar número, PIN o empleado…" />
         <button id="report-preview-close" class="btn btn-ghost" type="button">✕ Cerrar</button>
       </div>
       <div class="report-preview-scroll">
@@ -385,6 +361,7 @@
             <thead>
               <tr>
                 <th>Número</th>
+                <th>PIN</th>
                 <th>Empleado</th>
                 <th>Horas normales</th>
                 <th>Horas extra</th>
@@ -393,6 +370,7 @@
             </thead>
             <tbody id="preview-tbody"></tbody>
           </table>
+          <div id="preview-empty-text" class="report-preview-empty" hidden>Sin resultados para esta búsqueda.</div>
           <div class="report-preview-footer" id="preview-generated-text"></div>
         </div>
       </div>
