@@ -198,6 +198,11 @@
              y se completa sola en cuanto vuelva a estar en línea. -->
         <button id="sync-request-button" class="btn btn-outline" type="button">🔄 Actualizar asistencias</button>
         <span id="sync-request-status" class="sync-request-status" hidden></span>
+        <!-- Pedido explícito del usuario: "quiero tener un botón que se llame reporte de
+             asistencia ... que me salgan las horas trabajadas del empleado ... que me
+             ayude a hacer un reporte de nómina". Usa el mismo rango Desde/Hasta y Sucursal
+             ya elegidos arriba — "Hasta" ya nace en el día de hoy (ver init() en app.js). -->
+        <button id="report-button" class="btn btn-outline" type="button">📊 Reporte de asistencia</button>
       </div>
     </section>
 
@@ -312,6 +317,85 @@
           </thead>
           <tbody id="users-tbody"></tbody>
         </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== MODAL: reporte de asistencia (horas trabajadas) ===================== -->
+  <!-- Pedido explícito del usuario: "que me salgan las horas trabajadas del empleado, que
+       lo pueda filtrar de tal fecha a tal fecha ... para que me ayude a hacer un reporte de
+       nómina". Reutiliza el mismo Desde/Hasta/Sucursal ya elegidos en los filtros
+       principales — el rango se muestra aquí solo de lectura (ver openReportModal en
+       app.js). Horas calculadas emparejando Entrada/Salida por día, mismo criterio que
+       WorkedHoursCalculator del repo principal (ver computeEmployeeHours en app.js). -->
+  <div id="report-modal" class="modal-overlay" hidden>
+    <div class="modal-card modal-card-wide">
+      <div class="modal-header">
+        <h2>Reporte de asistencia</h2>
+        <button id="report-modal-close" class="modal-close" type="button" aria-label="Cerrar">✕</button>
+      </div>
+      <p class="report-modal-range" id="report-range-text"></p>
+      <div id="report-status" class="table-status">Cargando…</div>
+      <div class="users-table-scroll">
+        <table class="users-table" id="report-table">
+          <thead>
+            <tr>
+              <th>Número</th>
+              <th>Empleado</th>
+              <th>Horas normales</th>
+              <th>Horas extra</th>
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody id="report-tbody"></tbody>
+        </table>
+      </div>
+      <div class="report-modal-actions">
+        <!-- Pedido explícito del usuario: "el botón de exportar al darle clic me abre una
+             previsualización" (ver report-preview-modal, más abajo). -->
+        <button id="report-export-button" class="btn btn-primary" type="button">⬇ Exportar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== MODAL: previsualización de impresión/exportación ===================== -->
+  <!-- Pedido explícito del usuario: "Tamaño carta, y que venga con el logotipo del car
+       wash. y arriba de esa previsualización lo pueda imprimir, lo pueda exportar en Excel
+       y exportar en PDF". report-preview-page es tamaño Carta real (8.5in x 11in, ver
+       styles.css) — en pantalla se ve dentro de un contenedor con scroll; @media print dej
+       SOLO esa hoja visible al imprimir/guardar como PDF del navegador. -->
+  <div id="report-preview-modal" class="modal-overlay" hidden>
+    <div class="report-preview-shell">
+      <div class="report-preview-toolbar no-print">
+        <button id="preview-print-button" class="btn btn-outline" type="button">🖨️ Imprimir</button>
+        <button id="preview-excel-button" class="btn btn-outline" type="button">📊 Exportar Excel</button>
+        <button id="preview-pdf-button" class="btn btn-outline" type="button">📄 Exportar PDF</button>
+        <button id="report-preview-close" class="btn btn-ghost" type="button">✕ Cerrar</button>
+      </div>
+      <div class="report-preview-scroll">
+        <div id="report-preview-page" class="report-preview-page">
+          <div class="report-preview-header">
+            <img src="assets/logo.png" alt="Drive In Car Wash" class="report-preview-logo" />
+            <div>
+              <div class="report-preview-business">Drive In Car Wash</div>
+              <div class="report-preview-title">Reporte de asistencia</div>
+              <div class="report-preview-subtitle" id="preview-range-text"></div>
+            </div>
+          </div>
+          <table class="report-preview-table" id="preview-table">
+            <thead>
+              <tr>
+                <th>Número</th>
+                <th>Empleado</th>
+                <th>Horas normales</th>
+                <th>Horas extra</th>
+                <th>Total</th>
+              </tr>
+            </thead>
+            <tbody id="preview-tbody"></tbody>
+          </table>
+          <div class="report-preview-footer" id="preview-generated-text"></div>
+        </div>
       </div>
     </div>
   </div>
