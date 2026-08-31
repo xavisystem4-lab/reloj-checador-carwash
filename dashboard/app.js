@@ -1448,6 +1448,40 @@ function ensureExportLibrariesLoaded() {
   return exportLibrariesPromise;
 }
 
+/// Pedido explícito del usuario: "que te pregunte en qué carpeta quieres guardar las
+/// exportaciones ... no que luego luego lo mande a descargas". showSaveFilePicker (File
+/// System Access API) SÍ pregunta dónde guardar — disponible en Chrome/Edge, no en Firefox/
+/// Safari a la fecha. Donde no exista (o el usuario la cancele con Escape/"Cancelar", que
+/// lanza AbortError — eso NO es un error real, simplemente no se guarda nada), cae de
+/// vuelta a la descarga directa de siempre en vez de dejar al usuario sin poder exportar.
+async function saveBlobWithPicker(blob, suggestedName, description, mimeType, extension) {
+  if ('showSaveFilePicker' in window) {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName,
+        types: [{ description, accept: { [mimeType]: [extension] } }],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      return;
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        return; // el usuario cerró/canceló el diálogo — no es un error, no se guarda nada
+      }
+      // Cualquier otro error real (poco común) cae al respaldo de abajo en vez de fallar
+      // la exportación por completo.
+    }
+  }
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = suggestedName;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 async function onExportReportExcelClick() {
   const originalLabel = previewExcelButton.textContent;
   previewExcelButton.disabled = true;
@@ -1468,7 +1502,12 @@ async function onExportReportExcelClick() {
     worksheet['!cols'] = [{ wch: 10 }, { wch: 12 }, { wch: 32 }, { wch: 18 }, { wch: 16 }, { wch: 14 }, { wch: 14 }];
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Asistencia');
-    XLSX.writeFile(workbook, `reporte-asistencia-${fromInput.value}-a-${toInput.value}.xlsx`);
+
+    const xlsxBytes = XLSX.write(workbook, { type: 'array', bookType: 'xlsx' });
+    const blob = new Blob([xlsxBytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    await saveBlobWithPicker(
+      blob, `reporte-asistencia-${fromInput.value}-a-${toInput.value}.xlsx`,
+      'Libro de Excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', '.xlsx');
   } catch (error) {
     alert('No se pudo exportar a Excel: ' + error.message);
   } finally {
@@ -1508,7 +1547,10 @@ async function onExportReportPdfClick() {
       remainingHeightIn -= pageHeightIn;
     }
 
-    pdf.save(`reporte-asistencia-${fromInput.value}-a-${toInput.value}.pdf`);
+    const blob = pdf.output('blob');
+    await saveBlobWithPicker(
+      blob, `reporte-asistencia-${fromInput.value}-a-${toInput.value}.pdf`,
+      'Documento PDF', 'application/pdf', '.pdf');
   } catch (error) {
     alert('No se pudo exportar a PDF: ' + error.message);
   } finally {
