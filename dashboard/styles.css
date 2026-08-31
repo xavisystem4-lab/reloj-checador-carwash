@@ -691,6 +691,15 @@ select.preview-date-input { max-width: 190px; cursor: pointer; }
 .report-preview-toolbar .btn-ghost { margin-left: auto; }
 .report-preview-scroll { overflow: auto; padding: 24px; display: flex; justify-content: center; background: #5B6472; }
 
+/* Marco que fitReportPreviewToViewport() (app.js) redimensiona a mano al ancho/alto YA
+   escalados cuando la hoja no cabe completa en pantallas angostas — ver el comentario
+   junto a esa función para el porqué (transform:scale no cambia el layout, así que algo
+   tiene que ocupar el espacio visual correcto en su lugar). Sin contenido propio ni
+   tamaño fijo por CSS: en escritorio/tablet ancho, donde no hace falta escalar, se
+   comporta exactamente como si report-preview-page fuera hijo directo de
+   report-preview-scroll, igual que antes. */
+.report-preview-page-frame { flex-shrink: 0; overflow: hidden; }
+
 /* Tamaño Carta real (8.5in x 11in) — pedido explícito del usuario. En pantalla se ve
    dentro de un contenedor con scroll (fondo gris alrededor, como una hoja sobre un
    escritorio); @media print más abajo deja SOLO esta hoja visible al imprimir/guardar
@@ -825,6 +834,11 @@ select.preview-date-input { max-width: 190px; cursor: pointer; }
   .filter-actions .btn { flex: 1 1 150px; }
 
   .devices-status-section, .kpi-row, .table-section { padding-left: 16px; padding-right: 16px; }
+  /* Buscador reubicado justo arriba de la tabla en móvil — ver
+     placeSearchFieldForViewport() en app.js. min-width:140px (pensado para la fila de
+     .filters) no debe limitar su ancho aquí; ya es un <div> de bloque, así que ocupa el
+     100% solo. */
+  .table-section > .filter-field { min-width: 0; margin-bottom: 14px; }
   .login-card { padding: 32px 24px 28px; }
 
   /* ---------- Tablas -> tarjetas ----------
@@ -856,30 +870,35 @@ select.preview-date-input { max-width: 190px; cursor: pointer; }
     padding: 2px 14px;
     margin-bottom: 10px;
   }
+  /* display:block (etiqueta arriba, valor abajo) y NO flex con justify-content:
+     space-between — esa primera versión, ya corregida, dejaba nombres largos y otros
+     valores DESBORDANDO la tarjeta hacia la derecha (bug real reportado por el usuario,
+     con captura: el texto se salía de la pantalla) porque un elemento de flex NO se
+     encoge/envuelve por debajo de su ancho de contenido a menos que se le diga
+     explícitamente — con texto plano dentro de un <td>, no hay forma limpia de dárselo
+     sin envolver el valor en su propio <span>. Bloque evita el problema de raíz: el texto
+     envuelve solo, como cualquier párrafo normal. */
   #attendance-table tbody td, .users-table tbody td {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 14px;
-    padding: 10px 0;
+    display: block;
+    padding: 8px 0;
     border-top: 1px solid var(--row-border);
     white-space: normal;
-    text-align: right;
+    overflow-wrap: anywhere;
   }
   #attendance-table tbody td:first-child, .users-table tbody td:first-child { border-top: none; }
   #attendance-table tbody td::before, .users-table tbody td::before {
     content: attr(data-label);
+    display: block;
     font-size: 11px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.03em;
     color: var(--muted);
-    text-align: left;
-    flex-shrink: 0;
+    margin-bottom: 2px;
   }
   /* El mensaje de "sin resultados" (colspan) es un aviso, no un dato de
      fila — se muestra centrado, sin la etiqueta. */
-  #attendance-table tbody td[colspan] { display: block; text-align: center; }
+  #attendance-table tbody td[colspan] { text-align: center; }
   #attendance-table tbody td[colspan]::before { content: none; }
 
   /* ---------- Modales ---------- */

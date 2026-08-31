@@ -373,6 +373,15 @@
         <button id="report-preview-close" class="btn btn-ghost" type="button">✕ Cerrar</button>
       </div>
       <div class="report-preview-scroll">
+        <!-- Marco que SÍ ocupa el tamaño visual real de la hoja escalada — necesario
+             porque transform:scale (usado por fitReportPreviewToViewport en app.js para
+             que la hoja quepa sin scroll horizontal en pantallas angostas) NO cambia el
+             espacio que el elemento reserva en el layout, solo su apariencia. Sin este
+             marco, el padre (display:flex; justify-content:center) seguía centrando el
+             hueco de 816px de ancho SIN escalar, dejando la hoja ya achicada "flotando"
+             desfasada dentro de ese hueco — bug real reportado por el usuario ("sale
+             desfasado el reporte de asistencia"). -->
+        <div id="report-preview-page-frame" class="report-preview-page-frame">
         <div id="report-preview-page" class="report-preview-page">
           <div class="report-preview-header">
             <img src="assets/logo.png" alt="Drive In Car Wash" class="report-preview-logo" />
@@ -400,6 +409,7 @@
           </table>
           <div id="preview-empty-text" class="report-preview-empty" hidden>Sin resultados para esta búsqueda.</div>
           <div class="report-preview-footer" id="preview-generated-text"></div>
+        </div>
         </div>
       </div>
     </div>
