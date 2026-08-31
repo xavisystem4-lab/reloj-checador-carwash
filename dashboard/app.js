@@ -96,6 +96,12 @@ const branchSelect = document.getElementById('branch-select');
 const fromInput = document.getElementById('from-input');
 const toInput = document.getElementById('to-input');
 const searchInput = document.getElementById('search-input');
+// Ver placeSearchFieldForViewport() más abajo — reubica el campo de búsqueda principal
+// justo arriba de la tabla en móvil.
+const searchFieldWrap = searchInput.closest('.filter-field');
+const filtersSection = document.querySelector('.filters');
+const tableSection = document.querySelector('.table-section');
+const mobileSearchQuery = window.matchMedia('(max-width: 640px)');
 const refreshButton = document.getElementById('refresh-button');
 const exportButton = document.getElementById('export-button');
 const syncRequestButton = document.getElementById('sync-request-button');
@@ -122,6 +128,9 @@ const reportButton = document.getElementById('report-button');
 const reportPreviewModal = document.getElementById('report-preview-modal');
 const reportPreviewClose = document.getElementById('report-preview-close');
 const reportPreviewPage = document.getElementById('report-preview-page');
+// Ver fitReportPreviewToViewport() más abajo — este marco es lo que de verdad se
+// redimensiona; report-preview-page solo se transforma visualmente dentro de él.
+const reportPreviewPageFrame = document.getElementById('report-preview-page-frame');
 const previewRangeText = document.getElementById('preview-range-text');
 const previewTbody = document.getElementById('preview-tbody');
 const previewEmptyText = document.getElementById('preview-empty-text');
@@ -148,7 +157,7 @@ const previewDepartmentSelect = document.getElementById('preview-department-sele
 
 let lastReportRows = []; // última tabla de horas ya calculada (SIN filtrar) — la búsqueda parte de aquí
 let currentPreviewRows = []; // lo que está renderizado AHORA en la hoja (ya filtrado) — Excel/PDF/Imprimir exportan esto, no lastReportRows
-let reportPreviewZoomBeforePrint = ''; // ver beforeprint/afterprint en init() — restaura el zoom móvil tras imprimir
+let reportPreviewScaleBeforePrint = null; // ver beforeprint/afterprint en init() — restaura el escalado móvil tras imprimir
 
 let autoRefreshTimer = null;
 let lastLoadedRows = []; // guarda la última carga ya enriquecida, para exportar sin repetir el fetch
@@ -188,6 +197,20 @@ async function init() {
   toInput.addEventListener('change', () => loadReport());
   searchInput.addEventListener('input', debounce(() => renderTable(lastLoadedRows), 200));
 
+  // Reubicación del buscador en móvil — pedido explícito del usuario: "que el buscador en
+  // la version movil quede arriba de la lista de empleados". El buscador vive dentro de
+  // .filters (junto a Sucursal/Desde/Hasta) porque ahí tiene sentido en escritorio, pero
+  // en móvil queda lejos de la tabla (separado por Sucursal/Desde/Hasta arriba, y por
+  // Relojes checadores + las 4 tarjetas KPI + los botones de acción abajo). En vez de
+  // duplicarlo (dos <input id="search-input"> confundirían al resto del código), se MUEVE
+  // el mismo nodo del DOM justo antes de la tabla cuando el ancho es de móvil, y se
+  // regresa a .filters cuando deja de serlo — placeSearchFieldForViewport() se llama una
+  // vez al inicio y cada vez que se cruza el punto de quiebre de 640px (matchMedia
+  // 'change', no un listener de resize genérico: solo dispara al cruzar el umbral, no en
+  // cada pixel). En escritorio el resultado es idéntico a como estaba siempre.
+  placeSearchFieldForViewport();
+  mobileSearchQuery.addEventListener('change', placeSearchFieldForViewport);
+
   reportButton.addEventListener('click', openAttendanceReport);
   reportPreviewClose.addEventListener('click', closeReportPreview);
   reportPreviewModal.addEventListener('click', (event) => {
@@ -200,20 +223,19 @@ async function init() {
   previewDepartmentSelect.addEventListener('change', applyPreviewFilters);
   previewFromInput.addEventListener('change', onPreviewDateRangeChange);
   previewToInput.addEventListener('change', onPreviewDateRangeChange);
-  // Recalcula el zoom de la hoja al girar el teléfono/tablet o cambiar de tamaño de
+  // Recalcula el escalado de la hoja al girar el teléfono/tablet o cambiar de tamaño de
   // ventana — fitReportPreviewToViewport ya se sale sola si el modal está cerrado.
   window.addEventListener('resize', debounce(fitReportPreviewToViewport, 150));
   window.addEventListener('orientationchange', () => setTimeout(fitReportPreviewToViewport, 200));
-  // El zoom es solo para la VISTA en pantalla — imprimir (Ctrl+P, el botón Imprimir, o el
-  // propio menú del navegador) debe salir siempre a tamaño real, sin importar qué tan
+  // El escalado es solo para la VISTA en pantalla — imprimir (Ctrl+P, el botón Imprimir, o
+  // el propio menú del navegador) debe salir siempre a tamaño real, sin importar qué tan
   // achicada se estuviera viendo la hoja en un teléfono. beforeprint/afterprint cubren
   // cualquier forma de imprimir, no solo el botón.
   window.addEventListener('beforeprint', () => {
-    reportPreviewZoomBeforePrint = reportPreviewPage.style.zoom;
-    reportPreviewPage.style.zoom = '';
+    reportPreviewScaleBeforePrint = resetReportPreviewScale();
   });
   window.addEventListener('afterprint', () => {
-    reportPreviewPage.style.zoom = reportPreviewZoomBeforePrint ?? '';
+    restoreReportPreviewScale(reportPreviewScaleBeforePrint);
   });
 
   showSignupButton.addEventListener('click', showSignupFormView);
@@ -1178,6 +1200,20 @@ function escapeHtml(value) {
   return div.innerHTML;
 }
 
+/// Mueve el <div class="filter-field"> del buscador principal (#search-input) entre
+/// .filters (su lugar de siempre, en escritorio) y justo antes de la tabla (en móvil) —
+/// ver el comentario junto a mobileSearchQuery.addEventListener en init(). Idempotente:
+/// no hace nada si el campo ya está donde debe.
+function placeSearchFieldForViewport() {
+  if (mobileSearchQuery.matches) {
+    if (tableSection.firstElementChild !== searchFieldWrap) {
+      tableSection.insertBefore(searchFieldWrap, tableSection.firstElementChild);
+    }
+  } else if (searchFieldWrap.parentElement !== filtersSection) {
+    filtersSection.appendChild(searchFieldWrap);
+  }
+}
+
 function debounce(fn, ms) {
   let timeoutId;
   return (...args) => {
@@ -1442,21 +1478,68 @@ function openAttendanceReport() {
 /// innecesario". La hoja del reporte SIEMPRE mide 8.5in (816px) de ancho real (necesario
 /// para que se imprima/exporte a Carta tal cual — ver .report-preview-page), pero en una
 /// pantalla angosta eso obligaba a hacer scroll horizontal para ver el resto de la tabla.
-/// Aquí se calcula cuánto "zoom" (no transform:scale — zoom SÍ recalcula el alto ocupado,
-/// así no queda un hueco en blanco enorme debajo) hace falta para que la hoja quepa
-/// completa en el ancho disponible, sin recortar nada. Nunca agranda por encima de 100%
-/// (min con 1) — en pantallas anchas la hoja se ve a su tamaño real, igual que siempre.
-const REPORT_PAGE_WIDTH_PX = 8.5 * 96; // 1in = 96px en CSS, mismo criterio que width:8.5in
-
+///
+/// Usa transform:scale (NO la propiedad CSS "zoom") sobre report-preview-page, dentro de
+/// report-preview-page-frame — un marco al que se le fija a mano el ancho/alto YA
+/// escalados. Motivo del cambio (bug real reportado por el usuario, con captura: "sale
+/// desfasado el reporte de asistencia"): report-preview-page es hijo directo de un
+/// contenedor flex (report-preview-scroll, display:flex; justify-content:center) —
+/// "zoom" cambia cómo se VE el elemento pero, aplicado a un hijo flex, algunos
+/// navegadores (Safari/iOS entre ellos) NO recalculan bien cuánto espacio ocupa para el
+/// centrado/scroll del contenedor, dejando la hoja ya achicada "flotando" desfasada
+/// dentro del hueco de 816px sin escalar. transform:scale nunca tiene ese problema porque
+/// NUNCA afecta el layout — por eso hace falta el marco: sin él, el contenedor seguiría
+/// centrando el tamaño SIN escalar (el mismo bug, solo que con otra propiedad).
+///
+/// Nunca agranda por encima de 100% (min con 1) — en pantallas anchas la hoja se ve a su
+/// tamaño real, igual que siempre.
 function fitReportPreviewToViewport() {
   if (reportPreviewModal.hidden) return;
-  const container = reportPreviewPage.parentElement;
-  if (!container) return;
-  const style = getComputedStyle(container);
+  const scrollContainer = reportPreviewPageFrame.parentElement;
+  if (!scrollContainer) return;
+
+  // Mide SIEMPRE a tamaño real primero — si no, un cálculo anterior (por ejemplo, antes
+  // de rotar el teléfono) contaminaría la medición de este.
+  reportPreviewPage.style.transform = '';
+  reportPreviewPageFrame.style.width = '';
+  reportPreviewPageFrame.style.height = '';
+
+  const style = getComputedStyle(scrollContainer);
   const paddingX = parseFloat(style.paddingLeft || '0') + parseFloat(style.paddingRight || '0');
-  const available = container.clientWidth - paddingX;
-  const scale = Math.min(1, available / REPORT_PAGE_WIDTH_PX);
-  reportPreviewPage.style.zoom = scale > 0 ? scale : 1;
+  const available = scrollContainer.clientWidth - paddingX;
+  const naturalWidth = reportPreviewPage.offsetWidth;
+  const naturalHeight = reportPreviewPage.offsetHeight;
+  if (naturalWidth <= 0) return;
+
+  const scale = Math.min(1, available / naturalWidth);
+  if (scale >= 1) return; // tamaño real — nada que ajustar (ya se dejó así arriba)
+
+  reportPreviewPage.style.transform = `scale(${scale})`;
+  reportPreviewPage.style.transformOrigin = 'top left';
+  reportPreviewPageFrame.style.width = `${naturalWidth * scale}px`;
+  reportPreviewPageFrame.style.height = `${naturalHeight * scale}px`;
+}
+
+/// Reset a tamaño real antes de imprimir/exportar (ver beforeprint/afterprint en init() y
+/// onExportReportPdfClick) — devuelve {transform, width, height} para poder restaurarlo
+/// después con restoreReportPreviewScale().
+function resetReportPreviewScale() {
+  const previous = {
+    transform: reportPreviewPage.style.transform,
+    width: reportPreviewPageFrame.style.width,
+    height: reportPreviewPageFrame.style.height,
+  };
+  reportPreviewPage.style.transform = '';
+  reportPreviewPageFrame.style.width = '';
+  reportPreviewPageFrame.style.height = '';
+  return previous;
+}
+
+function restoreReportPreviewScale(previous) {
+  if (!previous) return;
+  reportPreviewPage.style.transform = previous.transform;
+  reportPreviewPageFrame.style.width = previous.width;
+  reportPreviewPageFrame.style.height = previous.height;
 }
 
 /// Cambiar Desde/Hasta DENTRO de la previsualización — pedido explícito del usuario:
@@ -1623,11 +1706,10 @@ async function onExportReportPdfClick() {
   const originalLabel = previewPdfButton.textContent;
   previewPdfButton.disabled = true;
   previewPdfButton.textContent = 'Preparando…';
-  // Igual que con imprimir: el zoom es solo para verse completa en pantallas angostas
+  // Igual que con imprimir: el escalado es solo para verse completa en pantallas angostas
   // (ver fitReportPreviewToViewport) — html2canvas debe capturar la hoja a tamaño real,
   // si no el PDF saldría con todo achicado en vez de a tamaño Carta real.
-  const zoomBeforeExport = reportPreviewPage.style.zoom;
-  reportPreviewPage.style.zoom = '';
+  const scaleBeforeExport = resetReportPreviewScale();
   try {
     await ensureExportLibrariesLoaded();
 
@@ -1662,7 +1744,7 @@ async function onExportReportPdfClick() {
   } catch (error) {
     alert('No se pudo exportar a PDF: ' + error.message);
   } finally {
-    reportPreviewPage.style.zoom = zoomBeforeExport;
+    restoreReportPreviewScale(scaleBeforeExport);
     previewPdfButton.disabled = false;
     previewPdfButton.textContent = originalLabel;
   }
