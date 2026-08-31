@@ -112,6 +112,27 @@ const devicesStatusRow = document.getElementById('devices-status-row');
 const connectionBadge = document.getElementById('connection-badge');
 const connectionBadgeText = document.getElementById('connection-badge-text');
 
+// ---- Reporte de asistencia (horas trabajadas) — ver openReportModal/computeEmployeeHours ----
+const reportButton = document.getElementById('report-button');
+const reportModal = document.getElementById('report-modal');
+const reportModalClose = document.getElementById('report-modal-close');
+const reportRangeText = document.getElementById('report-range-text');
+const reportStatus = document.getElementById('report-status');
+const reportTbody = document.getElementById('report-tbody');
+const reportExportButton = document.getElementById('report-export-button');
+
+const reportPreviewModal = document.getElementById('report-preview-modal');
+const reportPreviewClose = document.getElementById('report-preview-close');
+const reportPreviewPage = document.getElementById('report-preview-page');
+const previewRangeText = document.getElementById('preview-range-text');
+const previewTbody = document.getElementById('preview-tbody');
+const previewGeneratedText = document.getElementById('preview-generated-text');
+const previewPrintButton = document.getElementById('preview-print-button');
+const previewExcelButton = document.getElementById('preview-excel-button');
+const previewPdfButton = document.getElementById('preview-pdf-button');
+
+let lastReportRows = []; // última tabla de horas ya calculada — Exportar la reutiliza sin recalcular
+
 let autoRefreshTimer = null;
 let lastLoadedRows = []; // guarda la última carga ya enriquecida, para exportar sin repetir el fetch
 
@@ -149,6 +170,20 @@ async function init() {
   fromInput.addEventListener('change', () => loadReport());
   toInput.addEventListener('change', () => loadReport());
   searchInput.addEventListener('input', debounce(() => renderTable(lastLoadedRows), 200));
+
+  reportButton.addEventListener('click', openReportModal);
+  reportModalClose.addEventListener('click', closeReportModal);
+  reportModal.addEventListener('click', (event) => {
+    if (event.target === reportModal) closeReportModal();
+  });
+  reportExportButton.addEventListener('click', openReportPreview);
+  reportPreviewClose.addEventListener('click', closeReportPreview);
+  reportPreviewModal.addEventListener('click', (event) => {
+    if (event.target === reportPreviewModal) closeReportPreview();
+  });
+  previewPrintButton.addEventListener('click', () => window.print());
+  previewExcelButton.addEventListener('click', onExportReportExcelClick);
+  previewPdfButton.addEventListener('click', onExportReportPdfClick);
 
   showSignupButton.addEventListener('click', showSignupFormView);
   showLoginButton.addEventListener('click', showLoginFormView);
@@ -965,11 +1000,16 @@ async function enrichAttendances(attendances) {
   }
 
   const employeeNameById = new Map();
+  // "number" (Número de negocio) — pedido explícito del usuario para el Reporte de
+  // asistencia (ver openReportModal/buildAttendanceReportRows), distinto del PIN del
+  // dispositivo.
+  const employeeNumberById = new Map();
   if (employeeIdsToResolve.size > 0) {
     const { data: employees } = await supabase
-      .from('employees').select('id, full_name').in('id', [...employeeIdsToResolve]);
+      .from('employees').select('id, full_name, number').in('id', [...employeeIdsToResolve]);
     for (const e of employees ?? []) {
       employeeNameById.set(e.id, e.full_name);
+      employeeNumberById.set(e.id, e.number);
     }
   }
 
@@ -981,6 +1021,8 @@ async function enrichAttendances(attendances) {
       branchName: branchNameById.get(a.branch_id) ?? '—',
       deviceName: deviceNameById.get(a.device_id) ?? '—',
       employeeName: employeeName ?? null,
+      resolvedEmployeeId: resolvedEmployeeId,
+      employeeNumber: resolvedEmployeeId ? (employeeNumberById.get(resolvedEmployeeId) ?? null) : null,
       isUnlinked: !employeeName,
     };
   });
@@ -1138,6 +1180,286 @@ function onExportClick() {
 function csvEscape(value) {
   const text = String(value ?? '');
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+// ---- Reporte de asistencia (horas trabajadas) — pedido explícito del usuario: "quiero
+// tener un botón que se llame reporte de asistencia ... que me salgan las horas trabajadas
+// del empleado, que lo pueda filtrar de tal fecha a tal fecha ... para que me ayude a hacer
+// un reporte de nómina ... quiero que me aparezcan las horas trabajadas hasta el día de
+// hoy" (ya cubierto: "Hasta" nace en el día de hoy, ver init()). Reutiliza el rango
+// Desde/Hasta/Sucursal de los filtros principales — no duplica esos controles aquí. ----
+
+const PUNCH_IN = 0;
+const PUNCH_OUT = 1;
+const BREAK_OUT = 2;
+const BREAK_IN = 3;
+const OVERTIME_IN = 4;
+const OVERTIME_OUT = 5;
+
+/// Empareja cronológicamente cada marcación "abre" (openType) con la siguiente "cierra"
+/// (closeType) dentro de un mismo día y suma la diferencia en milisegundos — mismo
+/// criterio que WorkedHoursCalculator.PairAndSum del repo principal (RelojChecador.
+/// Application.Payroll). Un desbalance (dos aperturas seguidas, un cierre sin apertura,
+/// una apertura que nunca cierra) simplemente no se cuenta — este reporte no muestra
+/// advertencias por fila, a diferencia del cálculo de nómina de la app de escritorio.
+function pairAndSumMs(sortedDayRows, openType, closeType) {
+  let totalMs = 0;
+  let openAtIso = null;
+  for (const row of sortedDayRows) {
+    if (row.punch_type === openType) {
+      openAtIso = row.timestamp_utc;
+    } else if (row.punch_type === closeType) {
+      if (openAtIso) {
+        totalMs += new Date(row.timestamp_utc) - new Date(openAtIso);
+        openAtIso = null;
+      }
+    }
+  }
+  return totalMs;
+}
+
+/// Horas normales + horas extra de UN empleado, agrupando primero por día calendario (el
+/// prefijo "YYYY-MM-DD" del timestamp, sin conversión de huso horario — mismo criterio que
+/// el resto del Dashboard) y emparejando Entrada/Salida SOLO dentro de cada día, para no
+/// mezclar una entrada de un día con una salida de otro. Descanso (2/3) resta de las horas
+/// normales, sin bajar de 0.
+function computeEmployeeHours(employeeRows) {
+  const byDay = new Map();
+  for (const row of employeeRows) {
+    const day = row.timestamp_utc.slice(0, 10);
+    if (!byDay.has(day)) byDay.set(day, []);
+    byDay.get(day).push(row);
+  }
+
+  let regularMs = 0;
+  let overtimeMs = 0;
+  for (const dayRows of byDay.values()) {
+    const sorted = [...dayRows].sort((a, b) => a.timestamp_utc.localeCompare(b.timestamp_utc));
+    const dayRegularMs = pairAndSumMs(sorted, PUNCH_IN, PUNCH_OUT);
+    const dayBreakMs = pairAndSumMs(sorted, BREAK_OUT, BREAK_IN);
+    regularMs += Math.max(0, dayRegularMs - dayBreakMs);
+    overtimeMs += pairAndSumMs(sorted, OVERTIME_IN, OVERTIME_OUT);
+  }
+  return { regularMs, overtimeMs };
+}
+
+/// Arma una fila por empleado (agrupando por resolvedEmployeeId — o por PIN si nunca se
+/// vinculó a nadie) a partir de lastLoadedRows, ya filtrado por Sucursal/Desde/Hasta. NO
+/// aplica el buscador de texto libre de la tabla principal — el reporte es de nómina,
+/// siempre sobre TODOS los empleados del rango.
+function buildAttendanceReportRows() {
+  const byEmployee = new Map();
+  for (const row of lastLoadedRows) {
+    const key = row.resolvedEmployeeId ?? `unlinked:${row.device_user_pin}`;
+    if (!byEmployee.has(key)) {
+      byEmployee.set(key, {
+        number: row.employeeNumber ?? null,
+        name: row.employeeName ?? `PIN ${row.device_user_pin} · sin vincular`,
+        rows: [],
+      });
+    }
+    byEmployee.get(key).rows.push(row);
+  }
+
+  const result = [];
+  for (const entry of byEmployee.values()) {
+    const { regularMs, overtimeMs } = computeEmployeeHours(entry.rows);
+    result.push({
+      number: entry.number,
+      name: entry.name,
+      regularHours: regularMs / 3_600_000,
+      overtimeHours: overtimeMs / 3_600_000,
+      totalHours: (regularMs + overtimeMs) / 3_600_000,
+    });
+  }
+
+  result.sort((a, b) => a.name.localeCompare(b.name, 'es-MX'));
+  return result;
+}
+
+function formatHours(hours) {
+  return hours.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function reportRangeLabel() {
+  const branchLabel = branchSelect.value
+    ? (branchSelect.options[branchSelect.selectedIndex]?.textContent ?? '')
+    : 'Todas las sucursales';
+  return `Del ${fromInput.value} al ${toInput.value} — ${branchLabel}`;
+}
+
+function openReportModal() {
+  lastReportRows = buildAttendanceReportRows();
+  reportRangeText.textContent = reportRangeLabel();
+  renderReportTable();
+  reportStatus.textContent = lastReportRows.length === 0
+    ? 'Sin marcaciones en este rango.'
+    : `${lastReportRows.length.toLocaleString('es-MX')} empleado(s).`;
+  reportModal.hidden = false;
+}
+
+function closeReportModal() {
+  reportModal.hidden = true;
+}
+
+function renderReportTable() {
+  reportTbody.innerHTML = '';
+  const fragment = document.createDocumentFragment();
+  for (const row of lastReportRows) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${escapeHtml(row.number ?? '—')}</td>
+      <td>${escapeHtml(row.name)}</td>
+      <td>${formatHours(row.regularHours)} h</td>
+      <td>${formatHours(row.overtimeHours)} h</td>
+      <td><strong>${formatHours(row.totalHours)} h</strong></td>
+    `;
+    fragment.appendChild(tr);
+  }
+  reportTbody.appendChild(fragment);
+}
+
+/// "el botón de exportar al darle clic me abre una previsualización" — muestra la MISMA
+/// lastReportRows ya calculada (sin volver a consultar Supabase) dentro de la hoja tamaño
+/// Carta con el logotipo, lista para Imprimir/Exportar Excel/Exportar PDF.
+function openReportPreview() {
+  if (lastReportRows.length === 0) {
+    return;
+  }
+
+  previewRangeText.textContent = reportRangeLabel();
+  previewGeneratedText.textContent = `Generado el ${formatDateTime(new Date().toISOString())}`;
+
+  previewTbody.innerHTML = '';
+  const fragment = document.createDocumentFragment();
+  let totalRegular = 0;
+  let totalOvertime = 0;
+  for (const row of lastReportRows) {
+    totalRegular += row.regularHours;
+    totalOvertime += row.overtimeHours;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${escapeHtml(row.number ?? '—')}</td>
+      <td>${escapeHtml(row.name)}</td>
+      <td>${formatHours(row.regularHours)} h</td>
+      <td>${formatHours(row.overtimeHours)} h</td>
+      <td>${formatHours(row.totalHours)} h</td>
+    `;
+    fragment.appendChild(tr);
+  }
+  const totalTr = document.createElement('tr');
+  totalTr.innerHTML = `
+    <td colspan="2">Total</td>
+    <td>${formatHours(totalRegular)} h</td>
+    <td>${formatHours(totalOvertime)} h</td>
+    <td>${formatHours(totalRegular + totalOvertime)} h</td>
+  `;
+  fragment.appendChild(totalTr);
+  previewTbody.appendChild(fragment);
+
+  reportPreviewModal.hidden = false;
+  ensureExportLibrariesLoaded(); // en segundo plano — Excel/PDF no bloquean la vista previa
+}
+
+function closeReportPreview() {
+  reportPreviewModal.hidden = true;
+}
+
+// Excel (SheetJS) y PDF (html2canvas + jsPDF) se cargan solo cuando hacen falta — evita
+// que cualquier visita al Dashboard pague ese peso extra solo por tener el botón
+// disponible. loadScriptOnce no repite una carga si el <script> ya está en la página.
+let exportLibrariesPromise = null;
+
+function loadScriptOnce(src) {
+  return new Promise((resolve, reject) => {
+    if (document.querySelector(`script[src="${src}"]`)) {
+      resolve();
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = src;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error('No se pudo cargar ' + src));
+    document.head.appendChild(script);
+  });
+}
+
+function ensureExportLibrariesLoaded() {
+  if (!exportLibrariesPromise) {
+    exportLibrariesPromise = Promise.all([
+      loadScriptOnce('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js'),
+      loadScriptOnce('https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js'),
+      loadScriptOnce('https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js'),
+    ]);
+  }
+  return exportLibrariesPromise;
+}
+
+async function onExportReportExcelClick() {
+  const originalLabel = previewExcelButton.textContent;
+  previewExcelButton.disabled = true;
+  previewExcelButton.textContent = 'Preparando…';
+  try {
+    await ensureExportLibrariesLoaded();
+
+    const sheetRows = [
+      ['Drive In Car Wash — Reporte de asistencia'],
+      [reportRangeLabel()],
+      [],
+      ['Número', 'Empleado', 'Horas normales', 'Horas extra', 'Total horas'],
+      ...lastReportRows.map(r => [r.number ?? '', r.name, Number(r.regularHours.toFixed(2)), Number(r.overtimeHours.toFixed(2)), Number(r.totalHours.toFixed(2))]),
+    ];
+    const worksheet = XLSX.utils.aoa_to_sheet(sheetRows);
+    worksheet['!cols'] = [{ wch: 10 }, { wch: 32 }, { wch: 16 }, { wch: 14 }, { wch: 14 }];
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Asistencia');
+    XLSX.writeFile(workbook, `reporte-asistencia-${fromInput.value}-a-${toInput.value}.xlsx`);
+  } catch (error) {
+    alert('No se pudo exportar a Excel: ' + error.message);
+  } finally {
+    previewExcelButton.disabled = false;
+    previewExcelButton.textContent = originalLabel;
+  }
+}
+
+async function onExportReportPdfClick() {
+  const originalLabel = previewPdfButton.textContent;
+  previewPdfButton.disabled = true;
+  previewPdfButton.textContent = 'Preparando…';
+  try {
+    await ensureExportLibrariesLoaded();
+
+    const canvas = await html2canvas(reportPreviewPage, { scale: 2, backgroundColor: '#FFFFFF' });
+    const imgData = canvas.toDataURL('image/png');
+
+    // Tamaño Carta (8.5in x 11in) — pedido explícito del usuario.
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ unit: 'in', format: 'letter', orientation: 'portrait' });
+    const pageWidthIn = 8.5;
+    const pageHeightIn = 11;
+    const imgHeightIn = (canvas.height * pageWidthIn) / canvas.width;
+
+    // La hoja puede ser más alta que una página Carta (muchos empleados) — se reparte en
+    // varias páginas repitiendo la MISMA imagen alta, desplazada hacia arriba cada vez
+    // (técnica estándar de html2canvas+jsPDF para HTML que no cabe en una sola página).
+    let remainingHeightIn = imgHeightIn;
+    let positionIn = 0;
+    pdf.addImage(imgData, 'PNG', 0, positionIn, pageWidthIn, imgHeightIn);
+    remainingHeightIn -= pageHeightIn;
+    while (remainingHeightIn > 0) {
+      positionIn = remainingHeightIn - imgHeightIn;
+      pdf.addPage();
+      pdf.addImage(imgData, 'PNG', 0, positionIn, pageWidthIn, imgHeightIn);
+      remainingHeightIn -= pageHeightIn;
+    }
+
+    pdf.save(`reporte-asistencia-${fromInput.value}-a-${toInput.value}.pdf`);
+  } catch (error) {
+    alert('No se pudo exportar a PDF: ' + error.message);
+  } finally {
+    previewPdfButton.disabled = false;
+    previewPdfButton.textContent = originalLabel;
+  }
 }
 
 // ---- Auto-actualización: la app de escritorio sube cada ~10s como respaldo periódico
