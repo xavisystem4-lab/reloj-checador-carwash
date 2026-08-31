@@ -111,13 +111,23 @@ public sealed class Attendance : AuditableEntity
 
     /// <summary>Corrección manual del administrador — pedido explícito del usuario: "que las
     /// asistencias se puedan editar ... y pueda colocarle si es entrada o salida ... nota en
-    /// especial también". <paramref name="punchType"/> null es válido (deja el tipo sin
-    /// clasificar, igual que una marcación cruda todavía no procesada); <paramref name="notes"/>
-    /// vacío o solo espacios se guarda como null, nunca como cadena vacía.</summary>
-    public void EditByAdmin(int? punchType, string? notes)
+    /// especial también", y después: "también podamos editar la hora ... el empleado llegó
+    /// temprano, pero checó hasta ahorita ... necesitamos colocar que a la hora en que
+    /// llegó". <paramref name="punchType"/> null es válido (deja el tipo sin clasificar,
+    /// igual que una marcación cruda todavía no procesada); <paramref name="notes"/> vacío o
+    /// solo espacios se guarda como null, nunca como cadena vacía; <paramref name="timestampUtc"/>
+    /// null deja la fecha/hora tal cual estaba (no siempre se corrige junto con el tipo o la
+    /// nota). El índice único (DeviceId, DeviceUserPin, TimestampUtc) sigue vigente — si la
+    /// nueva hora choca con otra marcación real del mismo dispositivo+PIN, el repositorio
+    /// deja que ese error suba tal cual (ver AttendanceViewModel.EditAttendanceAsync).</summary>
+    public void EditByAdmin(int? punchType, string? notes, DateTime? timestampUtc = null)
     {
         PunchType = punchType;
         Notes = string.IsNullOrWhiteSpace(notes) ? null : notes.Trim();
+        if (timestampUtc is { } newTimestamp)
+        {
+            TimestampUtc = DateTime.SpecifyKind(newTimestamp, DateTimeKind.Utc);
+        }
         Touch();
     }
 }

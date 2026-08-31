@@ -151,7 +151,7 @@ public partial class AttendanceView : UserControl
 
         var outcome = dialog.DeleteRequested
             ? await viewModel.DeleteAttendanceAsync(row.Attendance.Id)
-            : await viewModel.EditAttendanceAsync(row.Attendance.Id, dialog.PunchType, dialog.Notes);
+            : await viewModel.EditAttendanceAsync(row.Attendance.Id, dialog.PunchType, dialog.Notes, dialog.Timestamp);
 
         if (!outcome.Success)
         {

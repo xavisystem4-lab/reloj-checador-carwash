@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
+using Microsoft.EntityFrameworkCore;
 using RelojChecador.Application.Attendances;
 using RelojChecador.Application.Branches;
 using RelojChecador.Application.Common;
@@ -370,8 +371,13 @@ public sealed partial class AttendanceViewModel : ObservableObject
         public bool Success => Error is null;
     }
 
-    /// <summary>Edita PunchType y Notes de UNA marcación ya existente.</summary>
-    public async Task<AttendanceEditOutcome> EditAttendanceAsync(Guid attendanceId, int? punchType, string? notes)
+    /// <summary>Edita PunchType, Notes y opcionalmente la fecha/hora de UNA marcación ya
+    /// existente — pedido explícito del usuario: "también podamos editar la hora ... el
+    /// empleado llegó temprano, pero checó hasta ahorita ... necesitamos colocar que a la
+    /// hora en que llegó, que no afecte". <paramref name="timestampLocal"/> null deja la
+    /// fecha/hora tal cual (solo se está corrigiendo tipo/nota).</summary>
+    public async Task<AttendanceEditOutcome> EditAttendanceAsync(
+        Guid attendanceId, int? punchType, string? notes, DateTime? timestampLocal = null)
     {
         try
         {
@@ -382,7 +388,11 @@ public sealed partial class AttendanceViewModel : ObservableObject
                     "No se encontró la marcación — puede que la lista esté desactualizada. Presiona \"Actualizar\".");
             }
 
-            attendance.EditByAdmin(punchType, notes);
+            // TimestampUtc en este proyecto NUNCA es UTC real (ver comentario de clase de
+            // ShiftPunchTypeClassifier) — DateTimeKind.Utc aquí es solo la marca que exige
+            // el campo, no una conversión real de huso horario.
+            var timestampUtc = timestampLocal is { } local ? DateTime.SpecifyKind(local, DateTimeKind.Utc) : (DateTime?)null;
+            attendance.EditByAdmin(punchType, notes, timestampUtc);
             await _unitOfWork.SaveChangesAsync();
 
             // Mismo criterio que cualquier otro cambio de asistencia (ver
@@ -392,6 +402,14 @@ public sealed partial class AttendanceViewModel : ObservableObject
 
             await LoadAsync();
             return new AttendanceEditOutcome(null);
+        }
+        catch (DbUpdateException ex)
+        {
+            // Índice único (DeviceId, DeviceUserPin, TimestampUtc) — la nueva hora
+            // coincide exactamente con otra marcación real del mismo dispositivo+PIN.
+            Log.Warning(ex, "No se pudo editar la marcación por conflicto de hora duplicada (AttendanceId={AttendanceId})", attendanceId);
+            return new AttendanceEditOutcome(
+                "No se pudo guardar: ya existe otra marcación con esa misma fecha y hora exacta para este dispositivo/PIN — cambia la hora aunque sea por un minuto.");
         }
         catch (Exception ex)
         {
