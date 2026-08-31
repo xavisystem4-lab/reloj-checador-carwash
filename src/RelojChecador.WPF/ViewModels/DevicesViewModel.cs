@@ -534,13 +534,32 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
                 (employeeId, branchId, _) = await ResolveEmployeeAndBranchAsync(device.Id, record.DeviceUserPin);
             }
 
+            // El PunchType crudo del dispositivo (dwInOutMode) NO se usa — pedido explícito
+            // del usuario: el F22/ID no tiene botones de Entrada/Salida, ese valor no es
+            // confiable (ver comentario de clase de ShiftPunchTypeClassifier). Se calcula
+            // en su lugar según las 7h50 desde la primera checada real del empleado en el
+            // día — sin empleado resuelto no hay con qué agrupar por persona, así que cae
+            // en Entrada por defecto (igual que cualquier marcación sin vincular).
+            var effectivePunchType = ShiftPunchTypeClassifier.EntradaCode;
+            if (employeeId is { } resolvedEmployeeId)
+            {
+                var dayStartUtc = record.TimestampUtc.Date;
+                var dayEndUtc = dayStartUtc.AddDays(1);
+                var todaysPunches = await _attendanceRepository.ListByEmployeeInRangeAsync(resolvedEmployeeId, dayStartUtc, dayEndUtc);
+                var priorPunches = todaysPunches
+                    .Where(a => a.TimestampUtc < record.TimestampUtc)
+                    .Select(a => (a.TimestampUtc, a.PunchType))
+                    .ToList();
+                effectivePunchType = ShiftPunchTypeClassifier.Classify(priorPunches, record.TimestampUtc);
+            }
+
             var attendance = Attendance.Create(
                 deviceId: device.Id,
                 branchId: branchId,
                 deviceUserPin: record.DeviceUserPin,
                 timestampUtc: record.TimestampUtc,
                 verifyMethod: MapVerifyMethod(record.VerifyMethod),
-                punchType: record.PunchType,
+                punchType: effectivePunchType,
                 rawPayload: record.RawPayload,
                 employeeId: employeeId);
 

@@ -149,4 +149,70 @@ public class EfAttendanceRepositoryTests : IClassFixture<SqliteInMemoryFixture>
         Assert.Single(results);
         Assert.Equal(sinResolver.Id, results[0].Id);
     }
+
+    [Fact]
+    public async Task ListByEmployeeInRangeAsync_FiltraPorEmpleadoYRango()
+    {
+        // Año 2032, exclusivo de este test — mismo criterio que ListAsync_..., la fixture
+        // comparte base entre todos los tests de la clase.
+        var deviceId = Guid.NewGuid();
+        var branchId = Guid.NewGuid();
+        var empleadoA = Guid.NewGuid();
+        var empleadoB = Guid.NewGuid();
+        var dentroDelRango = new DateTime(2032, 1, 13, 8, 0, 0, DateTimeKind.Utc);
+        var fueraDelRango = new DateTime(2032, 1, 14, 8, 0, 0, DateTimeKind.Utc);
+        using var context = _fixture.CreateContext();
+        var repository = new EfAttendanceRepository(context);
+        var esperada = Attendance.Create(
+            deviceId, branchId, "1", dentroDelRango, AttendanceVerifyMethod.Fingerprint, 0, "raw", employeeId: empleadoA);
+        await repository.AddAsync(esperada);
+        await repository.AddAsync(Attendance.Create(
+            deviceId, branchId, "2", dentroDelRango, AttendanceVerifyMethod.Fingerprint, 0, "raw", employeeId: empleadoB));
+        await repository.AddAsync(Attendance.Create(
+            deviceId, branchId, "1", fueraDelRango, AttendanceVerifyMethod.Fingerprint, 0, "raw", employeeId: empleadoA));
+        await context.SaveChangesAsync();
+
+        using var readContext = _fixture.CreateContext();
+        var readRepository = new EfAttendanceRepository(readContext);
+        var results = await readRepository.ListByEmployeeInRangeAsync(
+            empleadoA, new DateTime(2032, 1, 13, 0, 0, 0, DateTimeKind.Utc), new DateTime(2032, 1, 14, 0, 0, 0, DateTimeKind.Utc));
+
+        Assert.Single(results);
+        Assert.Equal(esperada.Id, results[0].Id);
+    }
+
+    [Fact]
+    public async Task SetAllPunchTypesAsync_CambiaTodasLasFilasYActualizaUpdatedAtUtc()
+    {
+        // Año 2033, exclusivo de este test.
+        var deviceId = Guid.NewGuid();
+        var branchId = Guid.NewGuid();
+        var timestamp = new DateTime(2033, 1, 13, 8, 0, 0, DateTimeKind.Utc);
+        using var context = _fixture.CreateContext();
+        var repository = new EfAttendanceRepository(context);
+        var conTipoDistinto = Attendance.Create(
+            deviceId, branchId, "1", timestamp, AttendanceVerifyMethod.Fingerprint, 5, "raw");
+        var sinTipo = Attendance.Create(
+            deviceId, branchId, "2", timestamp, AttendanceVerifyMethod.Fingerprint, null, "raw");
+        var updatedAtOriginal = conTipoDistinto.UpdatedAtUtc;
+        await repository.AddAsync(conTipoDistinto);
+        await repository.AddAsync(sinTipo);
+        await context.SaveChangesAsync();
+
+        using var writeContext = _fixture.CreateContext();
+        var writeRepository = new EfAttendanceRepository(writeContext);
+        var affected = await writeRepository.SetAllPunchTypesAsync(0);
+
+        // >= 2 porque otros tests de esta clase también insertan filas en la misma base
+        // compartida — lo que importa es que AL MENOS las dos de este test se hayan tocado.
+        Assert.True(affected >= 2);
+
+        using var readContext = _fixture.CreateContext();
+        var reloaded = await readContext.Attendances
+            .Where(a => a.Id == conTipoDistinto.Id || a.Id == sinTipo.Id)
+            .ToListAsync();
+
+        Assert.All(reloaded, a => Assert.Equal(0, a.PunchType));
+        Assert.All(reloaded, a => Assert.True(a.UpdatedAtUtc > updatedAtOriginal));
+    }
 }

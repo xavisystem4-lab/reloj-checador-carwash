@@ -38,8 +38,13 @@
                 <ColumnDefinition Width="110" />
             </Grid.ColumnDefinitions>
             <StackPanel Grid.Column="0">
-                <TextBlock Text="Fecha *" FontWeight="SemiBold" Margin="0,0,0,2" />
-                <DatePicker x:Name="DatePickerControl" Padding="4" />
+                <!-- Language="es-MX" fija el formato dd/mm/aaaa al escribir a mano y al
+                     mostrar la fecha ya elegida, sin importar la configuración regional de
+                     Windows — mismo criterio que el resto de la app (ver AttendanceView.xaml,
+                     "que tenga función de calendario y escribirlo manual también"). Sin esto
+                     el control cae al locale de la máquina y puede mostrar m/d/aaaa. -->
+                <TextBlock Text="Fecha * (dd/mm/aaaa)" FontWeight="SemiBold" Margin="0,0,0,2" />
+                <DatePicker x:Name="DatePickerControl" Padding="4" Language="es-MX" />
             </StackPanel>
             <StackPanel Grid.Column="2">
                 <TextBlock Text="Hora (HH:mm) *" FontWeight="SemiBold" Margin="0,0,0,2" />

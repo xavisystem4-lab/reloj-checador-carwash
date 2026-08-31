@@ -52,4 +52,21 @@ public interface IAttendanceRepository
     /// tan vieja sea la marcación. <paramref name="maxCount"/> es el mismo tope defensivo que
     /// el resto de las consultas de esta tabla.</summary>
     Task<IReadOnlyList<Attendance>> ListUnresolvedAsync(int maxCount, CancellationToken cancellationToken = default);
+
+    /// <summary>Marcaciones de UN empleado dentro de un rango [fromUtc, toUtc) — usado por
+    /// ShiftPunchTypeClassifier (vía DevicesViewModel.PersistAttendanceAsync) para saber si
+    /// ya tiene un turno abierto hoy antes de clasificar una marcación nueva. El rango lo
+    /// arma quien llama (normalmente medianoche a medianoche del día de la marcación nueva,
+    /// "hoy" en la misma hora de pared que usa el resto de la app, sin conversión de zona
+    /// horaria real — ver comentario de Device.SyncDeviceTimeAsync).</summary>
+    Task<IReadOnlyList<Attendance>> ListByEmployeeInRangeAsync(
+        Guid employeeId, DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken = default);
+
+    /// <summary>Cambia el PunchType de TODAS las marcaciones existentes de un solo jalón —
+    /// usado por el botón "Normalizar tipos de marcación" (pedido explícito del usuario:
+    /// "ahorita todas las checadas marcalas como entradas normales incluso las que ya
+    /// checaron"), una corrección de datos de una sola vez antes de que
+    /// ShiftPunchTypeClassifier empiece a clasificar las marcaciones NUEVAS que lleguen de
+    /// aquí en adelante.</summary>
+    Task<int> SetAllPunchTypesAsync(int punchType, CancellationToken cancellationToken = default);
 }

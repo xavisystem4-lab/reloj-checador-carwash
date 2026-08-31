@@ -341,6 +341,19 @@ public sealed partial class AttendanceViewModel : ObservableObject
         }
     }
 
+    /// <summary>Pone TODAS las marcaciones existentes (de cualquier empleado, cualquier
+    /// fecha) en "Entrada" de un solo jalón — pedido explícito del usuario: "ahorita todas
+    /// las checadas marcalas como entradas normales incluso las que ya checaron", una
+    /// corrección de datos de una sola vez antes de que ShiftPunchTypeClassifier empiece a
+    /// clasificar las marcaciones NUEVAS que lleguen de aquí en adelante (ver
+    /// DevicesViewModel.PersistAttendanceAsync). Devuelve cuántas filas se tocaron.</summary>
+    public async Task<int> NormalizePunchTypesAsync()
+    {
+        var affected = await _attendanceRepository.SetAllPunchTypesAsync(ShiftPunchTypeClassifier.EntradaCode);
+        await LoadAsync();
+        return affected;
+    }
+
     /// <summary>Arma el CSV de lo que está mostrando el DataGrid ahora mismo (Attendances,
     /// ya con el filtro de texto aplicado) — mismas columnas y traducciones que el CSV del
     /// Dashboard web (dashboard/app.js, onExportClick), para que abra igual en Excel sin

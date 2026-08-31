@@ -97,4 +97,37 @@ public partial class AttendanceView : UserControl
                 "No se pudo exportar", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
+
+    /// <summary>Corrección de datos de una sola vez — pedido explícito del usuario: pone
+    /// TODAS las marcaciones existentes en "Entrada", incluidas las que ya tenían otro tipo.
+    /// De aquí en adelante las marcaciones NUEVAS se siguen clasificando solas según la
+    /// regla de las 7h50 (ver DevicesViewModel.PersistAttendanceAsync); esto solo corrige el
+    /// historial que ya estaba cargado antes de que esa regla existiera.</summary>
+    private async void OnNormalizePunchTypesClick(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not AttendanceViewModel viewModel)
+        {
+            return;
+        }
+
+        var confirmed = MessageBox.Show(
+            Window.GetWindow(this),
+            "¿Marcar TODAS las marcaciones de asistencia (de cualquier empleado, cualquier fecha) como \"Entrada\"?\n\n" +
+            "Esto incluye marcaciones que ya tenían otro tipo asignado. Es una corrección de datos de una sola vez — " +
+            "las marcaciones nuevas que lleguen después se seguirán clasificando solas según la regla de las 7h50. " +
+            "Esto NO se puede deshacer.",
+            "Confirmar normalización",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+        if (confirmed != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        var affected = await viewModel.NormalizePunchTypesAsync();
+        MessageBox.Show(
+            Window.GetWindow(this),
+            $"Se actualizaron {affected} marcación(es) a \"Entrada\".",
+            "Normalización completa", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
 }

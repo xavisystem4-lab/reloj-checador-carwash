@@ -52,6 +52,18 @@ public sealed class Employee : AuditableEntity
     /// mismo controla en vez de que el sistema asuma una regla legal.</summary>
     public decimal? OvertimeHourlyRate { get; private set; }
 
+    /// <summary>Hora de entrada esperada según su horario — pedido explícito del usuario
+    /// ("que en Empleados me aparezcan sus horarios"). Puramente informativa/de reporte por
+    /// ahora: la regla de "salida de turno" (ver
+    /// RelojChecador.Application.Attendances.ShiftPunchTypeClassifier) NO depende de esto,
+    /// cuenta las 7h50 desde la PRIMERA checada real del día, no desde esta hora capturada
+    /// — pedido explícito también. Null = horario todavía sin capturar, nunca se asume un
+    /// valor por defecto.</summary>
+    public TimeOnly? ScheduledStartTime { get; private set; }
+
+    /// <summary>Hora de salida esperada — ver <see cref="ScheduledStartTime"/>.</summary>
+    public TimeOnly? ScheduledEndTime { get; private set; }
+
     private Employee()
     {
         // Constructor privado para EF Core.
@@ -168,6 +180,16 @@ public sealed class Employee : AuditableEntity
     public void ChangeStatus(EmploymentStatus newStatus)
     {
         Status = newStatus;
+        Touch();
+    }
+
+    /// <summary>Captura o corrige el horario esperado — ambos null para dejarlo "sin
+    /// capturar" (no se puede fijar solo uno, un horario a medias no es útil para
+    /// reportar).</summary>
+    public void UpdateSchedule(TimeOnly? scheduledStartTime, TimeOnly? scheduledEndTime)
+    {
+        ScheduledStartTime = scheduledStartTime;
+        ScheduledEndTime = scheduledEndTime;
         Touch();
     }
 
