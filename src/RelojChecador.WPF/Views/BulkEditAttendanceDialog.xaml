@@ -1,0 +1,32 @@
+<Window x:Class="RelojChecador.WPF.Views.BulkEditAttendanceDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Editar marcaciones seleccionadas" Height="220" Width="380"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
+        ShowInTaskbar="False">
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" x:Name="CountTextBlock" TextWrapping="Wrap" Margin="0,0,0,14" />
+
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,10">
+            <TextBlock Text="Tipo *" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,12,0" />
+            <RadioButton x:Name="EntradaRadioButton" Content="Entrada" GroupName="PunchType" IsChecked="True" Margin="0,0,16,0" />
+            <RadioButton x:Name="SalidaRadioButton" Content="Salida" GroupName="PunchType" />
+        </StackPanel>
+
+        <TextBlock Grid.Row="2" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource BrushTextSecondary}" VerticalAlignment="Top">
+            Se aplica el mismo tipo a todas las marcaciones marcadas con el check — cualquier nota que ya tuvieran se conserva tal cual.
+        </TextBlock>
+
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
+            <Button Content="Cancelar" Width="90" Margin="0,0,8,0" Click="OnCancelClick" IsCancel="True" />
+            <Button x:Name="ApplyButton" Content="Aplicar" Width="90" Style="{StaticResource PrimaryButton}" Click="OnApplyClick" IsDefault="True" />
+        </StackPanel>
+    </Grid>
+</Window>

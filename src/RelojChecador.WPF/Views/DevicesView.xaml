@@ -232,8 +232,10 @@
                                      alto fijo chico (MaxHeight) para no empujar el resto de
                                      la pantalla — este botón abre la misma lista en su
                                      propia ventana, sin ese límite y maximizable (ver
-                                     AttendanceRecordsFullDialog). -->
-                                <Button Grid.Column="1" Content="🔍 Ver completo" Padding="8,2" FontSize="12"
+                                     AttendanceRecordsFullDialog). Estilo PrimaryButton (azul)
+                                     — pedido explícito del usuario: "hazlo más llamativo". -->
+                                <Button Grid.Column="1" Content="🔍 Ver completo" Style="{StaticResource PrimaryButton}"
+                                        Padding="10,4" FontSize="12" FontWeight="SemiBold"
                                         Click="OnViewFullAttendanceRecordsClick" />
                             </Grid>
                         </GroupBox.Header>
@@ -245,11 +247,11 @@
                                      también el nombre" — resuelto por PIN+dispositivo igual
                                      que en Asistencia (ver RawAttendanceRow). "PIN empleado"
                                      se conserva aparte para comparar de un vistazo. -->
-                                <DataGridTextColumn Header="Empleado" Binding="{Binding EmployeeDisplay}" Width="160" />
                                 <DataGridTextColumn Header="PIN empleado" Binding="{Binding Record.DeviceUserPin}" Width="100" />
+                                <DataGridTextColumn Header="Empleado" Binding="{Binding EmployeeDisplay}" Width="160" />
+                                <DataGridTextColumn Header="Tipo" Binding="{Binding PreviewPunchTypeDisplay}" Width="170" />
                                 <DataGridTextColumn Header="Fecha y hora" Binding="{Binding Record.TimestampUtc, StringFormat='dd/MM/yyyy HH:mm:ss'}" Width="150" />
                                 <DataGridTextColumn Header="Método" Binding="{Binding Record.VerifyMethod}" Width="100" />
-                                <DataGridTextColumn Header="Tipo" Binding="{Binding Record.PunchType, Converter={StaticResource PunchTypeToTextConverter}}" Width="170" />
                             </DataGrid.Columns>
                         </DataGrid>
                     </GroupBox>

@@ -1,4 +1,5 @@
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
@@ -129,5 +130,66 @@ public partial class AttendanceView : UserControl
             Window.GetWindow(this),
             $"Se actualizaron {affected} marcación(es) a \"Entrada\".",
             "Normalización completa", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    /// <summary>"✏️ Editar" de una fila — pedido explícito del usuario: "que las asistencias
+    /// se puedan editar ... y pueda colocarle si es entrada o salida ... nota en especial
+    /// también. o eliminar Marcación". El diálogo distingue Guardar de Eliminar con
+    /// EditAttendanceDialog.DeleteRequested (ver su comentario de clase).</summary>
+    private async void OnEditAttendanceClick(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not AttendanceViewModel viewModel || (sender as FrameworkElement)?.DataContext is not AttendanceRow row)
+        {
+            return;
+        }
+
+        var dialog = new EditAttendanceDialog(row) { Owner = Window.GetWindow(this) };
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        var outcome = dialog.DeleteRequested
+            ? await viewModel.DeleteAttendanceAsync(row.Attendance.Id)
+            : await viewModel.EditAttendanceAsync(row.Attendance.Id, dialog.PunchType, dialog.Notes);
+
+        if (!outcome.Success)
+        {
+            MessageBox.Show(Window.GetWindow(this), outcome.Error, "No se pudo guardar", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    /// <summary>"✏️ Editar seleccionadas" — pedido explícito del usuario: "editarlo
+    /// masivamente con un check, escoger a los empleados y ponerle si es entrado o
+    /// salida".</summary>
+    private async void OnBulkEditClick(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not AttendanceViewModel viewModel)
+        {
+            return;
+        }
+
+        var selected = viewModel.Attendances.Where(r => r.IsSelected).ToList();
+        if (selected.Count == 0)
+        {
+            MessageBox.Show(
+                Window.GetWindow(this),
+                "Marca el check de al menos una marcación antes de usar \"Editar seleccionadas\".",
+                "Nada seleccionado", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var dialog = new BulkEditAttendanceDialog(selected.Count) { Owner = Window.GetWindow(this) };
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        var ids = selected.Select(r => r.Attendance.Id).ToList();
+        var affected = await viewModel.BulkSetPunchTypeAsync(ids, dialog.PunchType);
+        MessageBox.Show(
+            Window.GetWindow(this),
+            $"Se actualizaron {affected} marcación(es).",
+            "Edición masiva completa", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 }

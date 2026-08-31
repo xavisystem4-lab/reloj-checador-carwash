@@ -87,4 +87,59 @@ public class ShiftPunchTypeClassifierTests
 
         Assert.Equal(ShiftPunchTypeClassifier.EntradaCode, result);
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Regla de horario — pedido explícito del usuario: "cuando cumpla el ciclo o su horario
+    // que diga salida". Cubre el turno CORTO (menor a 7h50), que sin esto nunca cerraría
+    // solo con la regla del ciclo.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Classify_TurnoCortoAlcanzaSuHoraDeSalidaProgramada_EsSalidaAunqueNoLleguenLas7h50()
+    {
+        // Turno de 8:00 a 13:00 (5 horas) — nunca llega a las 7h50, solo la hora
+        // programada puede cerrarlo.
+        var previas = new[] { (At(8, 0), (int?)ShiftPunchTypeClassifier.EntradaCode) };
+        var scheduledEndTime = new TimeOnly(13, 0);
+
+        var result = ShiftPunchTypeClassifier.Classify(previas, At(13, 0), scheduledEndTime);
+
+        Assert.Equal(ShiftPunchTypeClassifier.SalidaCode, result);
+    }
+
+    [Fact]
+    public void Classify_TurnoCortoAntesDeSuHoraDeSalidaProgramada_SigueSiendoEntrada()
+    {
+        var previas = new[] { (At(8, 0), (int?)ShiftPunchTypeClassifier.EntradaCode) };
+        var scheduledEndTime = new TimeOnly(13, 0);
+
+        var result = ShiftPunchTypeClassifier.Classify(previas, At(12, 59), scheduledEndTime);
+
+        Assert.Equal(ShiftPunchTypeClassifier.EntradaCode, result);
+    }
+
+    [Fact]
+    public void Classify_SinHorarioCapturado_SoloAplicaLaRegladel7h50()
+    {
+        // scheduledEndTime null (omitido) — mismo comportamiento que antes de que existiera
+        // Horario de empleados, ver el resto de esta clase de pruebas.
+        var previas = new[] { (At(8, 0), (int?)ShiftPunchTypeClassifier.EntradaCode) };
+
+        var result = ShiftPunchTypeClassifier.Classify(previas, At(13, 0));
+
+        Assert.Equal(ShiftPunchTypeClassifier.EntradaCode, result);
+    }
+
+    [Fact]
+    public void Classify_TurnoLargoCumpleLas7h50AntesDeSuHorario_EsSalidaPorElCiclo()
+    {
+        // Turno de 8:00 a 20:00 (12 horas) — las 7h50 (15:50) llegan mucho antes que la
+        // hora programada (20:00): cualquiera de las dos condiciones basta.
+        var previas = new[] { (At(8, 0), (int?)ShiftPunchTypeClassifier.EntradaCode) };
+        var scheduledEndTime = new TimeOnly(20, 0);
+
+        var result = ShiftPunchTypeClassifier.Classify(previas, At(15, 50), scheduledEndTime);
+
+        Assert.Equal(ShiftPunchTypeClassifier.SalidaCode, result);
+    }
 }

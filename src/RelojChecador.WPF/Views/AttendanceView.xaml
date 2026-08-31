@@ -60,7 +60,12 @@
                      normales incluso las que ya checaron", antes de que la clasificación
                      automática por 7h50 empiece a aplicar a las marcaciones nuevas (ver
                      AttendanceViewModel.NormalizePunchTypesAsync). -->
-                <Button Content="🔧 Normalizar tipos de marcación" Click="OnNormalizePunchTypesClick" />
+                <Button Content="🔧 Normalizar tipos de marcación" Click="OnNormalizePunchTypesClick" Margin="0,0,8,0" />
+                <!-- Pedido explícito del usuario: "editarlo masivamente con un check,
+                     escoger a los empleados y ponerle si es entrado o salida" — aplica a
+                     todas las filas con el check de la columna "Sel." marcado (ver
+                     BulkEditAttendanceDialog). -->
+                <Button Content="✏️ Editar seleccionadas" Click="OnBulkEditClick" />
             </StackPanel>
         </WrapPanel>
 
@@ -69,6 +74,12 @@
         <DataGrid Grid.Row="3" ItemsSource="{Binding Attendances}" AutoGenerateColumns="False" IsReadOnly="True"
                   CanUserAddRows="False" GridLinesVisibility="Horizontal" HeadersVisibility="Column">
             <DataGrid.Columns>
+                <!-- Checkbox de selección para "Editar seleccionadas" — pedido explícito del
+                     usuario: "editarlo masivamente con un check". IsReadOnly="False" a
+                     propósito: esta columna SÍ se puede tocar aunque el resto de la fila sea
+                     de solo lectura (IsReadOnly del DataGrid es solo el valor por defecto,
+                     cada columna lo puede pisar). -->
+                <DataGridCheckBoxColumn Header="Sel." Binding="{Binding IsSelected, Mode=TwoWay}" Width="40" IsReadOnly="False" />
                 <DataGridTextColumn Header="Fecha y hora" Binding="{Binding Attendance.TimestampUtc, StringFormat='dd/MM/yyyy HH:mm:ss'}" Width="160" />
                 <DataGridTextColumn Header="Empleado" Binding="{Binding EmployeeDisplay}" Width="*" />
                 <DataGridTextColumn Header="Sucursal" Binding="{Binding BranchName}" Width="140" />
@@ -78,7 +89,17 @@
                 <DataGridTextColumn Header="Departamento" Binding="{Binding Department}" Width="120" />
                 <DataGridTextColumn Header="Dispositivo" Binding="{Binding DeviceName}" Width="140" />
                 <DataGridTextColumn Header="Método" Binding="{Binding Attendance.VerifyMethod, Converter={StaticResource VerifyMethodToTextConverter}}" Width="100" />
-                <DataGridTextColumn Header="Tipo" Binding="{Binding Attendance.PunchType, Converter={StaticResource PunchTypeToTextConverter}}" Width="170" />
+                <DataGridTextColumn Header="Tipo" Binding="{Binding Attendance.PunchType, Converter={StaticResource PunchTypeToTextConverter}}" Width="150" />
+                <!-- "Nota en especial" — pedido explícito del usuario, capturada desde
+                     "✏️ Editar" (ver EditAttendanceDialog). -->
+                <DataGridTextColumn Header="Nota" Binding="{Binding Attendance.Notes}" Width="160" />
+                <DataGridTemplateColumn Header="" Width="70">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <Button Content="✏️ Editar" Padding="4,2" FontSize="12" Click="OnEditAttendanceClick" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
             </DataGrid.Columns>
         </DataGrid>
     </Grid>

@@ -89,6 +89,15 @@ public sealed partial class DeviceUserRow : ObservableObject
 public sealed record RawAttendanceRow(RawAttendanceRecord Record, string? EmployeeName)
 {
     public string EmployeeDisplay => EmployeeName ?? $"PIN {Record.DeviceUserPin} · sin vincular";
+
+    /// <summary>Siempre "Entrada" — pedido explícito del usuario: el dwInOutMode crudo del
+    /// dispositivo (Record.PunchType) no es confiable (ver comentario de clase de
+    /// ShiftPunchTypeClassifier) y mostraba textos como "Salida (tiempo extra)" en esta
+    /// vista previa que confundían, antes incluso de guardarse. El tipo REAL se calcula
+    /// hasta que la marcación se persiste de verdad (PersistAttendanceAsync), que necesita
+    /// consultar la base para saber si ya hay un turno abierto ese día — algo que esta
+    /// vista previa, de un lote todavía sin guardar, no puede saber de antemano.</summary>
+    public string PreviewPunchTypeDisplay => "Entrada";
 }
 
 public sealed partial class DevicesViewModel : ObservableObject, IDisposable
@@ -384,7 +393,7 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         string? employeeName = null;
         if (SelectedDevice is { } device)
         {
-            (_, _, employeeName) = await ResolveEmployeeAndBranchAsync(device.Id, record.DeviceUserPin);
+            (_, _, employeeName, _) = await ResolveEmployeeAndBranchAsync(device.Id, record.DeviceUserPin);
         }
 
         System.Windows.Application.Current?.Dispatcher.Invoke(() =>
@@ -427,17 +436,19 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
     /// (tiempo real) — la descarga en lote precomputa esto una sola vez para todo el lote
     /// en vez de repetir esta consulta cientos de veces, ver
     /// BuildEmployeeBranchLookupByPinAsync.</summary>
-    private async Task<(Guid? EmployeeId, Guid? BranchId, string? EmployeeName)> ResolveEmployeeAndBranchAsync(Guid deviceId, string deviceUserPin)
+    private async Task<(Guid? EmployeeId, Guid? BranchId, string? EmployeeName, TimeOnly? ScheduledEndTime)> ResolveEmployeeAndBranchAsync(Guid deviceId, string deviceUserPin)
     {
         var mapping = (await _mappingRepository.ListAsync())
             .FirstOrDefault(m => m.DeviceId == deviceId && m.DeviceUserPin == deviceUserPin);
         if (mapping is null)
         {
-            return (null, null, null);
+            return (null, null, null, null);
         }
 
         var employee = await _employeeRepository.GetByIdAsync(mapping.EmployeeId);
-        return employee is null ? (null, null, null) : (employee.Id, employee.BranchId, employee.FullName);
+        return employee is null
+            ? (null, null, null, null)
+            : (employee.Id, employee.BranchId, employee.FullName, employee.ScheduledEndTime);
     }
 
     /// <summary>Precomputa, para TODOS los PINs vinculados a <paramref name="deviceId"/>, a
@@ -516,30 +527,36 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
 
             Guid? employeeId;
             Guid? branchId;
+            TimeOnly? scheduledEndTime;
             if (employeeByPin is not null)
             {
                 if (employeeByPin.TryGetValue(record.DeviceUserPin, out var employee))
                 {
                     employeeId = employee.Id;
                     branchId = employee.BranchId;
+                    scheduledEndTime = employee.ScheduledEndTime;
                 }
                 else
                 {
                     employeeId = null;
                     branchId = null;
+                    scheduledEndTime = null;
                 }
             }
             else
             {
-                (employeeId, branchId, _) = await ResolveEmployeeAndBranchAsync(device.Id, record.DeviceUserPin);
+                (employeeId, branchId, _, scheduledEndTime) = await ResolveEmployeeAndBranchAsync(device.Id, record.DeviceUserPin);
             }
 
             // El PunchType crudo del dispositivo (dwInOutMode) NO se usa — pedido explícito
             // del usuario: el F22/ID no tiene botones de Entrada/Salida, ese valor no es
             // confiable (ver comentario de clase de ShiftPunchTypeClassifier). Se calcula
             // en su lugar según las 7h50 desde la primera checada real del empleado en el
-            // día — sin empleado resuelto no hay con qué agrupar por persona, así que cae
-            // en Entrada por defecto (igual que cualquier marcación sin vincular).
+            // día, O su hora de salida programada si ya la tiene capturada (pedido explícito
+            // del usuario: "cuando cumpla el ciclo o su horario que diga salida" — cubre el
+            // turno corto, que nunca llega a las 7h50) — sin empleado resuelto no hay con qué
+            // agrupar por persona ni horario que consultar, así que cae en Entrada por
+            // defecto (igual que cualquier marcación sin vincular).
             var effectivePunchType = ShiftPunchTypeClassifier.EntradaCode;
             if (employeeId is { } resolvedEmployeeId)
             {
@@ -550,7 +567,7 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
                     .Where(a => a.TimestampUtc < record.TimestampUtc)
                     .Select(a => (a.TimestampUtc, a.PunchType))
                     .ToList();
-                effectivePunchType = ShiftPunchTypeClassifier.Classify(priorPunches, record.TimestampUtc);
+                effectivePunchType = ShiftPunchTypeClassifier.Classify(priorPunches, record.TimestampUtc, scheduledEndTime);
             }
 
             var attendance = Attendance.Create(

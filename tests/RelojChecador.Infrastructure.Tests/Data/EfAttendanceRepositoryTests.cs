@@ -215,4 +215,83 @@ public class EfAttendanceRepositoryTests : IClassFixture<SqliteInMemoryFixture>
         Assert.All(reloaded, a => Assert.Equal(0, a.PunchType));
         Assert.All(reloaded, a => Assert.True(a.UpdatedAtUtc > updatedAtOriginal));
     }
+
+    [Fact]
+    public async Task GetByIdAsync_ConIdExistente_LaEncuentra()
+    {
+        // Año 2034, exclusivo de este test.
+        var deviceId = Guid.NewGuid();
+        var branchId = Guid.NewGuid();
+        var timestamp = new DateTime(2034, 1, 13, 8, 0, 0, DateTimeKind.Utc);
+        using var context = _fixture.CreateContext();
+        var repository = new EfAttendanceRepository(context);
+        var attendance = Attendance.Create(deviceId, branchId, "1", timestamp, AttendanceVerifyMethod.Fingerprint, 0, "raw");
+        await repository.AddAsync(attendance);
+        await context.SaveChangesAsync();
+
+        using var readContext = _fixture.CreateContext();
+        var readRepository = new EfAttendanceRepository(readContext);
+        var found = await readRepository.GetByIdAsync(attendance.Id);
+        var notFound = await readRepository.GetByIdAsync(Guid.NewGuid());
+
+        Assert.NotNull(found);
+        Assert.Equal(attendance.Id, found!.Id);
+        Assert.Null(notFound);
+    }
+
+    [Fact]
+    public async Task EditByAdmin_LuegoGuardado_PersisteTipoYNota()
+    {
+        // Año 2035, exclusivo de este test — pedido explícito del usuario: "que las
+        // asistencias se puedan editar ... y pueda colocarle si es entrada o salida ...
+        // nota en especial también".
+        var deviceId = Guid.NewGuid();
+        var branchId = Guid.NewGuid();
+        var timestamp = new DateTime(2035, 1, 13, 8, 0, 0, DateTimeKind.Utc);
+        using var context = _fixture.CreateContext();
+        var repository = new EfAttendanceRepository(context);
+        var attendance = Attendance.Create(deviceId, branchId, "1", timestamp, AttendanceVerifyMethod.Fingerprint, 0, "raw");
+        await repository.AddAsync(attendance);
+        await context.SaveChangesAsync();
+
+        using var writeContext = _fixture.CreateContext();
+        var writeRepository = new EfAttendanceRepository(writeContext);
+        var reloadedForEdit = await writeRepository.GetByIdAsync(attendance.Id);
+        reloadedForEdit!.EditByAdmin(1, "  Salió temprano por permiso  ");
+        await writeContext.SaveChangesAsync();
+
+        using var readContext = _fixture.CreateContext();
+        var readRepository = new EfAttendanceRepository(readContext);
+        var reloaded = await readRepository.GetByIdAsync(attendance.Id);
+
+        Assert.Equal(1, reloaded!.PunchType);
+        Assert.Equal("Salió temprano por permiso", reloaded.Notes);
+    }
+
+    [Fact]
+    public async Task RemoveAsync_LuegoGuardado_LaBorraDeVerdad()
+    {
+        // Año 2036, exclusivo de este test — pedido explícito del usuario: "o eliminar
+        // Marcación".
+        var deviceId = Guid.NewGuid();
+        var branchId = Guid.NewGuid();
+        var timestamp = new DateTime(2036, 1, 13, 8, 0, 0, DateTimeKind.Utc);
+        using var context = _fixture.CreateContext();
+        var repository = new EfAttendanceRepository(context);
+        var attendance = Attendance.Create(deviceId, branchId, "1", timestamp, AttendanceVerifyMethod.Fingerprint, 0, "raw");
+        await repository.AddAsync(attendance);
+        await context.SaveChangesAsync();
+
+        using var writeContext = _fixture.CreateContext();
+        var writeRepository = new EfAttendanceRepository(writeContext);
+        var toDelete = await writeRepository.GetByIdAsync(attendance.Id);
+        await writeRepository.RemoveAsync(toDelete!);
+        await writeContext.SaveChangesAsync();
+
+        using var readContext = _fixture.CreateContext();
+        var readRepository = new EfAttendanceRepository(readContext);
+        var reloaded = await readRepository.GetByIdAsync(attendance.Id);
+
+        Assert.Null(reloaded);
+    }
 }
