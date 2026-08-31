@@ -418,10 +418,13 @@ public sealed partial class AttendanceViewModel : ObservableObject
         }
     }
 
-    /// <summary>Borrado físico de UNA marcación — "o eliminar Marcación". No se propaga a
-    /// Supabase (la sincronización solo pushea cambios, nunca borra en la nube — ver
-    /// comentario de IAttendanceRepository.RemoveAsync); AttendanceView avisa esto al
-    /// usuario antes de confirmar.</summary>
+    /// <summary>Borrado físico de UNA marcación — "o eliminar Marcación". SÍ se propaga a
+    /// Supabase (pedido explícito del usuario: "podemos borrar en el sistema y que también
+    /// mande la señal al sitio web") — ver SupabaseSyncBackgroundService.TryDeleteAttendancesRemoteAsync,
+    /// la única excepción deliberada al resto del motor de sincronización (que solo empuja
+    /// cambios, nunca borra). Si Supabase no está configurado o el borrado remoto falla (sin
+    /// internet, etc.), el borrado LOCAL de todos modos ya se aplicó — no se revierte por
+    /// eso, la fila remota simplemente queda huérfana hasta el próximo intento manual.</summary>
     public async Task<AttendanceEditOutcome> DeleteAttendanceAsync(Guid attendanceId)
     {
         try
@@ -435,6 +438,7 @@ public sealed partial class AttendanceViewModel : ObservableObject
 
             await _attendanceRepository.RemoveAsync(attendance);
             await _unitOfWork.SaveChangesAsync();
+            await _syncService.TryDeleteAttendancesRemoteAsync([attendanceId]);
             await LoadAsync();
             return new AttendanceEditOutcome(null);
         }
@@ -471,6 +475,36 @@ public sealed partial class AttendanceViewModel : ObservableObject
         }
 
         return affected;
+    }
+
+    /// <summary>Borrado físico de VARIAS marcaciones seleccionadas (checkbox en el DataGrid)
+    /// de un solo golpe — pedido explícito del usuario: "bien que podamos borrar las
+    /// checadas duplicadas" (usa el mismo check ya usado para editar en masa: se ven las
+    /// filas repetidas en la tabla, se marcan, se borran). Igual que
+    /// <see cref="DeleteAttendanceAsync"/>, SÍ se propaga a Supabase, en un solo DELETE por
+    /// lote en vez de uno por fila.</summary>
+    public async Task<int> BulkDeleteAsync(IReadOnlyList<Guid> attendanceIds)
+    {
+        var deletedIds = new List<Guid>();
+        foreach (var id in attendanceIds)
+        {
+            var attendance = await _attendanceRepository.GetByIdAsync(id);
+            if (attendance is null)
+            {
+                continue; // ya no existe (lista desactualizada) — se sigue con el resto
+            }
+            await _attendanceRepository.RemoveAsync(attendance);
+            deletedIds.Add(id);
+        }
+
+        if (deletedIds.Count > 0)
+        {
+            await _unitOfWork.SaveChangesAsync();
+            await _syncService.TryDeleteAttendancesRemoteAsync(deletedIds);
+            await LoadAsync();
+        }
+
+        return deletedIds.Count;
     }
 
     /// <summary>Pone TODAS las marcaciones existentes (de cualquier empleado, cualquier

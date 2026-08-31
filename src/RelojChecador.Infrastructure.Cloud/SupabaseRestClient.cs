@@ -78,6 +78,26 @@ public sealed class SupabaseRestClient
         return await response.Content.ReadFromJsonAsync<List<T>>(JsonOptions, cancellationToken) ?? [];
     }
 
+    /// <summary>Borra las filas que cumplan el filtro (ej. "id=in.(&lt;uuid1&gt;,&lt;uuid2&gt;)")
+    /// — usado por SupabaseSyncBackgroundService.TryDeleteAttendancesRemoteAsync para
+    /// reflejar en el Dashboard un borrado que el administrador hizo en la app de escritorio
+    /// (pedido explícito del usuario: "podemos borrar en el sistema y que también mande la
+    /// señal al sitio web"). Única excepción deliberada al resto del motor de sincronización
+    /// (solo empuja cambios, nunca borra) — ver el comentario de esa clase.</summary>
+    public async Task DeleteAsync(string table, string filter, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Delete, $"{table}?{filter}");
+        request.Headers.Add("Prefer", "return=minimal");
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            throw new HttpRequestException(
+                $"Supabase rechazó el DELETE a '{table}' ({(int)response.StatusCode} {response.StatusCode}): {body}");
+        }
+    }
+
     /// <summary>Actualiza parcialmente las filas que cumplan el filtro (ej.
     /// "id=eq.&lt;uuid&gt;") con los campos de <paramref name="body"/> — el resto de
     /// columnas no se toca. Usado por <see cref="RemoteSyncRequestCoordinator"/> para

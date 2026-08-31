@@ -17,12 +17,14 @@ public interface IAttendanceRepository
     /// AttendanceViewModel.EditAttendanceAsync/DeleteAttendanceAsync).</summary>
     Task<Attendance?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
 
-    /// <summary>Borrado físico de UNA marcación — pedido explícito del usuario ("o eliminar
-    /// Marcación"), reemplaza la decisión de diseño anterior de esta clase (registro de
-    /// auditoría inmutable, nunca se borra). El borrado nunca se propaga a Supabase (la
-    /// sincronización solo PUSHEA cambios, nunca borra en la nube — mismo comportamiento ya
-    /// documentado para el borrado físico de Employee/Branch): la fila queda huérfana en el
-    /// mirror del Dashboard hasta que alguien la limpie ahí directamente.</summary>
+    /// <summary>Borrado físico LOCAL de UNA marcación — pedido explícito del usuario ("o
+    /// eliminar Marcación"), reemplaza la decisión de diseño anterior de esta clase
+    /// (registro de auditoría inmutable, nunca se borra). Este método solo toca la base
+    /// local — quien llama (AttendanceViewModel.DeleteAttendanceAsync/BulkDeleteAsync) es
+    /// responsable de además propagar el borrado a Supabase por su cuenta (ver
+    /// SupabaseSyncBackgroundService.TryDeleteAttendancesRemoteAsync — pedido explícito del
+    /// usuario: "podemos borrar en el sistema y que también mande la señal al sitio web"),
+    /// ya que el resto del motor de sincronización solo empuja cambios y nunca borra.</summary>
     Task RemoveAsync(Attendance attendance, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<Attendance>> ListByBranchAsync(

@@ -16,6 +16,9 @@ namespace RelojChecador.Infrastructure.Cloud;
 /// <summary>
 /// Empuja periódicamente los cambios locales hacia Supabase — nunca al revés (v1 es
 /// push-only: la app de escritorio es la única fuente de verdad, el Dashboard solo lee).
+/// Única excepción deliberada: <see cref="TryDeleteAttendancesRemoteAsync"/>, para que un
+/// borrado explícito del administrador SÍ se refleje en el Dashboard (pedido explícito del
+/// usuario: "podemos borrar en el sistema y que también mande la señal al sitio web").
 /// Cada ciclo va en su propio try/catch: sin conexión a internet es un caso ESPERADO
 /// (operación offline-first, ver README), no un error que deba tumbar el host ni
 /// interrumpir el uso normal de la app — simplemente se reintenta en el siguiente ciclo.
@@ -111,6 +114,44 @@ public sealed class SupabaseSyncBackgroundService(
         }
 
         return await RunCycleAsync(cancellationToken);
+    }
+
+    /// <summary>Borra directamente en Supabase las filas de asistencia con estos ids — pedido
+    /// explícito del usuario: "podemos borrar en el sistema y que también mande la señal al
+    /// sitio web". Única excepción DELIBERADA al resto de este motor (push-only, nunca
+    /// borra — ver comentario de clase): un borrado explícito del administrador SÍ debe
+    /// reflejarse de inmediato en el Dashboard. El borrado LOCAL (ver
+    /// AttendanceViewModel.DeleteAttendanceAsync/BulkDeleteAsync) ya ocurrió antes de llamar
+    /// esto y es lo que de verdad importa — si esto falla (sin Supabase configurado, sin
+    /// internet, etc.) no se lanza: la fila queda huérfana en el Dashboard hasta el próximo
+    /// intento manual, igual que cualquier otro fallo de red de este motor.</summary>
+    /// <returns>true si el borrado remoto se confirmó; false si no se intentó (no
+    /// configurado, lista vacía) o si falló.</returns>
+    public async Task<bool> TryDeleteAttendancesRemoteAsync(
+        IReadOnlyList<Guid> attendanceIds, CancellationToken cancellationToken = default)
+    {
+        if (!options.IsConfigured || attendanceIds.Count == 0)
+        {
+            return false;
+        }
+
+        try
+        {
+            using var scope = scopeFactory.CreateScope();
+            var restClient = scope.ServiceProvider.GetRequiredService<SupabaseRestClient>();
+
+            // PostgREST: "id=in.(id1,id2,...)" borra varias filas en una sola petición.
+            var idsList = string.Join(",", attendanceIds);
+            await restClient.DeleteAsync("attendances", $"id=in.({idsList})", cancellationToken);
+            return true;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex,
+                "No se pudo borrar en Supabase {Count} marcación(es) — quedan huérfanas ahí hasta el próximo intento manual.",
+                attendanceIds.Count);
+            return false;
+        }
     }
 
     /// <returns>true si el ciclo completo (todas las tablas) subió sin errores; false si

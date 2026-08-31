@@ -36,6 +36,9 @@ appsettings.Local.json
 .DS_Store
 
 ## Netlify CLI (estado local del deploy del Dashboard — no es secreto, pero es
-## generado por la herramienta en cada máquina, no código fuente)
+## generado por la herramienta en cada máquina, no código fuente). El deploy normalmente
+## corre desde dashboard/ (ver dashboard/README.md), pero si se corre desde la raíz del
+## repo por error, la carpeta de estado aparece aquí en vez de adentro — se ignoran ambas.
 dashboard/.netlify/
+/.netlify/
 empleados_catalogo_importacion.csv

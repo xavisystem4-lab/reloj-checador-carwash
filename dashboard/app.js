@@ -1196,13 +1196,33 @@ const BREAK_IN = 3;
 const OVERTIME_IN = 4;
 const OVERTIME_OUT = 5;
 
+/// "Ahora" con el mismo criterio que timestamp_utc en toda la base: NO es UTC real, es la
+/// hora de pared del negocio sin convertir (ver formatAttendanceDateTime más abajo) — así
+/// que para comparar contra eso, "ahora" tiene que armarse con los componentes de la hora
+/// LOCAL DEL NAVEGADOR (no Date.now()/toISOString(), que sí son UTC real y se desfasarían
+/// por el huso horario de quien esté viendo el Dashboard). Asume que quien lo ve está en el
+/// mismo huso horario que el negocio — mismo supuesto que ya usa el resto de la app.
+function nowAsFakeUtcIso() {
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}` +
+    `T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}.000Z`;
+}
+
 /// Empareja cronológicamente cada marcación "abre" (openType) con la siguiente "cierra"
 /// (closeType) dentro de un mismo día y suma la diferencia en milisegundos — mismo
 /// criterio que WorkedHoursCalculator.PairAndSum del repo principal (RelojChecador.
-/// Application.Payroll). Un desbalance (dos aperturas seguidas, un cierre sin apertura,
-/// una apertura que nunca cierra) simplemente no se cuenta — este reporte no muestra
-/// advertencias por fila, a diferencia del cálculo de nómina de la app de escritorio.
-function pairAndSumMs(sortedDayRows, openType, closeType) {
+/// Application.Payroll). Un desbalance (dos aperturas seguidas, un cierre sin apertura)
+/// simplemente no se cuenta — este reporte no muestra advertencias por fila, a diferencia
+/// del cálculo de nómina de la app de escritorio.
+///
+/// <paramref name="openUntilIso"/>: pedido explícito del usuario — "las horas trabajadas
+/// cuéntalas en tiempo real desde que checaron hasta ahorita". Si al terminar de recorrer
+/// las marcaciones queda una apertura SIN su cierre (el empleado sigue trabajando ahora
+/// mismo) y se pasó este valor, se cuenta el tiempo hasta ahí en vez de dejarlo en 0 —
+/// quien llama solo lo pasa para el DÍA DE HOY (ver computeEmployeeHours), nunca para un
+/// día pasado con una salida realmente olvidada.
+function pairAndSumMs(sortedDayRows, openType, closeType, openUntilIso = null) {
   let totalMs = 0;
   let openAtIso = null;
   for (const row of sortedDayRows) {
@@ -1215,6 +1235,10 @@ function pairAndSumMs(sortedDayRows, openType, closeType) {
       }
     }
   }
+  if (openAtIso && openUntilIso) {
+    const elapsedMs = new Date(openUntilIso) - new Date(openAtIso);
+    if (elapsedMs > 0) totalMs += elapsedMs;
+  }
   return totalMs;
 }
 
@@ -1222,8 +1246,12 @@ function pairAndSumMs(sortedDayRows, openType, closeType) {
 /// prefijo "YYYY-MM-DD" del timestamp, sin conversión de huso horario — mismo criterio que
 /// el resto del Dashboard) y emparejando Entrada/Salida SOLO dentro de cada día, para no
 /// mezclar una entrada de un día con una salida de otro. Descanso (2/3) resta de las horas
-/// normales, sin bajar de 0.
+/// normales, sin bajar de 0. Un turno de HOY que sigue abierto (sin Salida todavía) cuenta
+/// en tiempo real hasta este momento — ver pairAndSumMs.
 function computeEmployeeHours(employeeRows) {
+  const nowIso = nowAsFakeUtcIso();
+  const today = nowIso.slice(0, 10);
+
   const byDay = new Map();
   for (const row of employeeRows) {
     const day = row.timestamp_utc.slice(0, 10);
@@ -1233,12 +1261,13 @@ function computeEmployeeHours(employeeRows) {
 
   let regularMs = 0;
   let overtimeMs = 0;
-  for (const dayRows of byDay.values()) {
+  for (const [day, dayRows] of byDay) {
     const sorted = [...dayRows].sort((a, b) => a.timestamp_utc.localeCompare(b.timestamp_utc));
-    const dayRegularMs = pairAndSumMs(sorted, PUNCH_IN, PUNCH_OUT);
+    const openUntilIso = day === today ? nowIso : null;
+    const dayRegularMs = pairAndSumMs(sorted, PUNCH_IN, PUNCH_OUT, openUntilIso);
     const dayBreakMs = pairAndSumMs(sorted, BREAK_OUT, BREAK_IN);
     regularMs += Math.max(0, dayRegularMs - dayBreakMs);
-    overtimeMs += pairAndSumMs(sorted, OVERTIME_IN, OVERTIME_OUT);
+    overtimeMs += pairAndSumMs(sorted, OVERTIME_IN, OVERTIME_OUT, openUntilIso);
   }
   return { regularMs, overtimeMs };
 }
