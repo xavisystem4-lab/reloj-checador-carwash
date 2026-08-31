@@ -27,8 +27,17 @@
         </StackPanel>
 
         <StackPanel Grid.Row="1" Margin="0,0,0,10">
-            <TextBlock Text="Empleado *" FontWeight="SemiBold" Margin="0,0,0,2" />
-            <ComboBox x:Name="EmployeeComboBox" Padding="4" DisplayMemberPath="FullName" />
+            <!-- Buscador con autocompletado — pedido explícito del usuario: "que podamos
+                 buscar tanto nombre, por apellido, por cualquier letra que vayamos
+                 colocando, se vaya autorellenando". IsEditable habilita escribir libremente;
+                 IsTextSearchEnabled="False" apaga la búsqueda nativa de WPF (solo por
+                 prefijo del primer campo) porque OnEmployeeSearchTextChanged ya filtra por
+                 substring en cualquier parte del nombre. -->
+            <TextBlock Text="Empleado * (escribe para buscar)" FontWeight="SemiBold" Margin="0,0,0,2" />
+            <ComboBox x:Name="EmployeeComboBox" Padding="4" DisplayMemberPath="FullName"
+                      IsEditable="True" IsTextSearchEnabled="False" StaysOpenOnEdit="True"
+                      TextBoxBase.TextChanged="OnEmployeeSearchTextChanged"
+                      SelectionChanged="OnEmployeeSelectionChanged" />
         </StackPanel>
 
         <Grid Grid.Row="2" Margin="0,0,0,10">
@@ -47,8 +56,11 @@
                 <DatePicker x:Name="DatePickerControl" Padding="4" Language="es-MX" />
             </StackPanel>
             <StackPanel Grid.Column="2">
-                <TextBlock Text="Hora (HH:mm) *" FontWeight="SemiBold" Margin="0,0,0,2" />
-                <TextBox x:Name="TimeTextBox" Padding="4" />
+                <!-- Acepta cualquier formato razonable (24h o 12h con AM/PM) — pedido
+                     explícito del usuario: "en hora, utilizar, ya sea, cualquier tipo de
+                     formato" (ver FlexibleTimeParser). -->
+                <TextBlock Text="Hora *" FontWeight="SemiBold" Margin="0,0,0,2" />
+                <TextBox x:Name="TimeTextBox" Padding="4" ToolTip="Cualquier formato: 08:00, 8:00 AM, 20:00…" />
             </StackPanel>
         </Grid>
 

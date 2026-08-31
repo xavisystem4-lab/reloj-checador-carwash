@@ -1017,7 +1017,7 @@ function renderTable(rows) {
   tableBody.innerHTML = '';
   if (filtered.length === 0) {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td colspan="6" style="text-align:center; color:var(--muted); padding:32px;">Sin marcaciones para estos filtros.</td>`;
+    tr.innerHTML = `<td colspan="7" style="text-align:center; color:var(--muted); padding:32px;">Sin marcaciones para estos filtros.</td>`;
     tableBody.appendChild(tr);
     return;
   }
@@ -1028,7 +1028,7 @@ function renderTable(rows) {
 
     const employeeCell = row.employeeName
       ? escapeHtml(row.employeeName)
-      : `<span class="pill pill-unlinked">PIN ${escapeHtml(row.device_user_pin)} · sin vincular</span>`;
+      : `<span class="pill pill-unlinked">sin vincular</span>`;
 
     const punchLabel = row.punch_type === 0
       ? '<span class="pill pill-in">Entrada</span>'
@@ -1036,13 +1036,16 @@ function renderTable(rows) {
         ? '<span class="pill pill-out">Salida</span>'
         : '—';
 
+    // Orden pedido explícito del usuario: PIN, Empleado, Tipo, Fecha y hora, Método,
+    // Sucursal, Dispositivo — mismo orden en index.html (encabezado <thead>).
     tr.innerHTML = `
-      <td>${formatAttendanceDateTime(row.timestamp_utc)}</td>
+      <td>${escapeHtml(row.device_user_pin)}</td>
       <td>${employeeCell}</td>
+      <td>${punchLabel}</td>
+      <td>${formatAttendanceDateTime(row.timestamp_utc)}</td>
+      <td>${escapeHtml(mapVerifyMethod(row.verify_method))}</td>
       <td>${escapeHtml(row.branchName)}</td>
       <td>${escapeHtml(row.deviceName)}</td>
-      <td>${escapeHtml(mapVerifyMethod(row.verify_method))}</td>
-      <td>${punchLabel}</td>
     `;
     fragment.appendChild(tr);
   }

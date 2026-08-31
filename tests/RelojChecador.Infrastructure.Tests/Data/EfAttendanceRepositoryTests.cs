@@ -269,6 +269,63 @@ public class EfAttendanceRepositoryTests : IClassFixture<SqliteInMemoryFixture>
     }
 
     [Fact]
+    public async Task EditByAdmin_ConNuevaFechaYHora_LaPersisteYConservaElTipo()
+    {
+        // Año 2037, exclusivo de este test — pedido explícito del usuario: "también podamos
+        // editar la hora ... el empleado llegó temprano, pero checó hasta ahorita ...
+        // necesitamos colocar que a la hora en que llegó".
+        var deviceId = Guid.NewGuid();
+        var branchId = Guid.NewGuid();
+        var timestampOriginal = new DateTime(2037, 1, 13, 10, 30, 0, DateTimeKind.Utc);
+        var timestampCorregida = new DateTime(2037, 1, 13, 8, 0, 0, DateTimeKind.Utc);
+        using var context = _fixture.CreateContext();
+        var repository = new EfAttendanceRepository(context);
+        var attendance = Attendance.Create(deviceId, branchId, "1", timestampOriginal, AttendanceVerifyMethod.Fingerprint, 0, "raw");
+        await repository.AddAsync(attendance);
+        await context.SaveChangesAsync();
+
+        using var writeContext = _fixture.CreateContext();
+        var writeRepository = new EfAttendanceRepository(writeContext);
+        var reloadedForEdit = await writeRepository.GetByIdAsync(attendance.Id);
+        reloadedForEdit!.EditByAdmin(0, null, timestampCorregida);
+        await writeContext.SaveChangesAsync();
+
+        using var readContext = _fixture.CreateContext();
+        var readRepository = new EfAttendanceRepository(readContext);
+        var reloaded = await readRepository.GetByIdAsync(attendance.Id);
+
+        Assert.Equal(timestampCorregida, reloaded!.TimestampUtc);
+        Assert.Equal(0, reloaded.PunchType);
+    }
+
+    [Fact]
+    public async Task EditByAdmin_SinNuevaFechaYHora_ConservaLaOriginal()
+    {
+        // Año 2038, exclusivo de este test — timestampUtc null (parámetro omitido) no debe
+        // tocar la fecha/hora ya guardada, solo tipo/nota.
+        var deviceId = Guid.NewGuid();
+        var branchId = Guid.NewGuid();
+        var timestampOriginal = new DateTime(2038, 1, 13, 10, 30, 0, DateTimeKind.Utc);
+        using var context = _fixture.CreateContext();
+        var repository = new EfAttendanceRepository(context);
+        var attendance = Attendance.Create(deviceId, branchId, "1", timestampOriginal, AttendanceVerifyMethod.Fingerprint, 0, "raw");
+        await repository.AddAsync(attendance);
+        await context.SaveChangesAsync();
+
+        using var writeContext = _fixture.CreateContext();
+        var writeRepository = new EfAttendanceRepository(writeContext);
+        var reloadedForEdit = await writeRepository.GetByIdAsync(attendance.Id);
+        reloadedForEdit!.EditByAdmin(1, "Nota sin tocar la hora");
+        await writeContext.SaveChangesAsync();
+
+        using var readContext = _fixture.CreateContext();
+        var readRepository = new EfAttendanceRepository(readContext);
+        var reloaded = await readRepository.GetByIdAsync(attendance.Id);
+
+        Assert.Equal(timestampOriginal, reloaded!.TimestampUtc);
+    }
+
+    [Fact]
     public async Task RemoveAsync_LuegoGuardado_LaBorraDeVerdad()
     {
         // Año 2036, exclusivo de este test — pedido explícito del usuario: "o eliminar

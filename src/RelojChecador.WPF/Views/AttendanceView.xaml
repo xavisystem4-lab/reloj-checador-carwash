@@ -88,16 +88,22 @@
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
-                <DataGridTextColumn Header="Fecha y hora" Binding="{Binding Attendance.TimestampUtc, StringFormat='dd/MM/yyyy HH:mm:ss'}" Width="160" />
+                <!-- Orden pedido explícito del usuario: "después de la columna de
+                     selección, el PIN empleado ... tipo fecha y hora, Método, sucursal y
+                     dispositivo y el departamento" — mismo orden que ya se aplicó en el
+                     Dashboard web (dashboard/index.html), con Departamento agregado al
+                     final (ese campo no existe en la web). -->
+                <DataGridTextColumn Header="PIN" Binding="{Binding Attendance.DeviceUserPin}" Width="70" />
                 <DataGridTextColumn Header="Empleado" Binding="{Binding EmployeeDisplay}" Width="*" />
+                <DataGridTextColumn Header="Tipo" Binding="{Binding Attendance.PunchType, Converter={StaticResource PunchTypeToTextConverter}}" Width="150" />
+                <DataGridTextColumn Header="Fecha y hora" Binding="{Binding Attendance.TimestampUtc, StringFormat='dd/MM/yyyy HH:mm:ss'}" Width="160" />
+                <DataGridTextColumn Header="Método" Binding="{Binding Attendance.VerifyMethod, Converter={StaticResource VerifyMethodToTextConverter}}" Width="100" />
                 <DataGridTextColumn Header="Sucursal" Binding="{Binding BranchName}" Width="140" />
+                <DataGridTextColumn Header="Dispositivo" Binding="{Binding DeviceName}" Width="140" />
                 <!-- Conserva la ubicación original de alguien fusionado a otra sucursal
                      (ver EmployeesViewModel.ApplyCatalogReplaceAsync) — pedido explícito del
                      usuario: "que en los reportes se acomoden por sucursal". -->
                 <DataGridTextColumn Header="Departamento" Binding="{Binding Department}" Width="120" />
-                <DataGridTextColumn Header="Dispositivo" Binding="{Binding DeviceName}" Width="140" />
-                <DataGridTextColumn Header="Método" Binding="{Binding Attendance.VerifyMethod, Converter={StaticResource VerifyMethodToTextConverter}}" Width="100" />
-                <DataGridTextColumn Header="Tipo" Binding="{Binding Attendance.PunchType, Converter={StaticResource PunchTypeToTextConverter}}" Width="150" />
                 <!-- "Nota en especial" — pedido explícito del usuario, capturada desde
                      "✏️ Editar" (ver EditAttendanceDialog). -->
                 <DataGridTextColumn Header="Nota" Binding="{Binding Attendance.Notes}" Width="160" />
