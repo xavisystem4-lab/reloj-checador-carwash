@@ -26,7 +26,11 @@
             <TextBlock Text="{Binding WeekRangeText}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,8,0" MinWidth="180" />
             <Button Content="Semana siguiente ›" Command="{Binding NextWeekCommand}" Margin="0,0,16,0" />
             <Button Content="Actualizar" Style="{StaticResource PrimaryButton}" Command="{Binding RefreshCommand}" Margin="0,0,8,0" />
-            <Button Content="⬇ Exportar CSV" Click="OnExportCsvClick" />
+            <Button Content="⬇ Exportar CSV" Click="OnExportCsvClick" Margin="0,0,8,0" />
+            <!-- Pedido explícito del usuario: previsualización tamaño Carta con el
+                 logotipo del negocio, con Imprimir/Exportar Excel/Exportar PDF — mismo
+                 diseño que ya quedó en el Dashboard web (ver PayrollReportPreviewDialog). -->
+            <Button Content="📊 Vista previa e imprimir" Click="OnPreviewReportClick" />
         </StackPanel>
 
         <!-- Filtros — mismo criterio que Empleados: en memoria sobre lo ya calculado para
