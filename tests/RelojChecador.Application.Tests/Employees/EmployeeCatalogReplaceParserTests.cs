@@ -271,18 +271,136 @@ public class EmployeeCatalogReplaceParserTests
     }
 
     [Fact]
-    public void Parse_ConEncabezadoDistinto_DevuelveErrorYNingunaFila()
+    public void Parse_ConEncabezadoQueSoloTraeLasColumnasObligatorias_LoAceptaConElRestoEnNull()
+    {
+        // Las columnas se resuelven por NOMBRE, no por posición fija — un encabezado
+        // reducido a solo lo obligatorio (Number, FullName, Area) es válido, el resto de
+        // los campos simplemente caen en su default ("no capturado").
+        var lines = new[]
+        {
+            "Number,FullName,Area,Position,WeeklySalary,OvertimeHourlyRate,Notes",
+            "EMP-001,Adrian Uribe,CAR-WASH,,3800,,",
+        };
+
+        var result = EmployeeCatalogReplaceParser.Parse(lines);
+
+        Assert.Empty(result.Errors);
+        var row = Assert.Single(result.Rows);
+        Assert.Equal(3800m, row.WeeklySalary);
+        Assert.Null(row.Pin);
+        Assert.Null(row.Department);
+        Assert.Null(row.ScheduledStartTime);
+        Assert.Null(row.ScheduledEndTime);
+    }
+
+    [Fact]
+    public void Parse_ConColumnaObligatoriaFaltante_ReportaError()
     {
         var lines = new[]
         {
-            "Number,FullName,Area,Position,WeeklySalary,OvertimeHourlyRate,Notes", // encabezado del formato viejo (sin HireDate/Status/Pin/Department)
-            "EMP-001,Adrian Uribe,CAR-WASH,,3800,,",
+            "Number,FullName,Position,WeeklySalary,OvertimeHourlyRate,Notes", // sin Area
+            "EMP-001,Adrian Uribe,,3800,,",
         };
 
         var result = EmployeeCatalogReplaceParser.Parse(lines);
 
         Assert.Empty(result.Rows);
         Assert.Single(result.Errors);
+        Assert.Contains("obligatorias", result.Errors[0]);
+    }
+
+    [Fact]
+    public void Parse_ConColumnaDesconocida_ReportaError()
+    {
+        // Un formato genuinamente distinto (p. ej. "Nombre" en vez de "FullName") se
+        // rechaza con un error claro, en vez de importarse en silencio con Number/FullName/
+        // Area vacíos.
+        var lines = new[]
+        {
+            "Number,Nombre,Area",
+            "EMP-001,Adrian Uribe,CAR-WASH",
+        };
+
+        var result = EmployeeCatalogReplaceParser.Parse(lines);
+
+        Assert.Empty(result.Rows);
+        Assert.Single(result.Errors);
+        Assert.Contains("no se reconocen", result.Errors[0]);
+    }
+
+    [Fact]
+    public void Parse_ConColumnaVaciaSobranteAlFinal_LaIgnora()
+    {
+        // Caso real: al guardar un CSV desde Excel a veces queda una coma sobrante al
+        // final de cada línea (columna sin nombre, siempre vacía) — no debe contarse como
+        // columna "desconocida" ni romper el conteo de columnas por fila.
+        var lines = new[]
+        {
+            Header + ",",
+            "EMP-001,Adrian Uribe Garcia,CAR-WASH,Gerencia,2023-12-07,Activo,3800,135.71,Nota,7,Plaza Sabo,",
+        };
+
+        var result = EmployeeCatalogReplaceParser.Parse(lines);
+
+        Assert.Empty(result.Errors);
+        var row = Assert.Single(result.Rows);
+        Assert.Equal("EMP-001", row.Number);
+        Assert.Equal("Plaza Sabo", row.Department);
+    }
+
+    [Theory]
+    [InlineData("8:00 AM", "4:00 PM")]
+    [InlineData("08:00", "16:00")]
+    public void Parse_ConHorarioValido_LoAsignaALaFila(string horaEntrada, string horaSalida)
+    {
+        var lines = new[]
+        {
+            "Number,FullName,Area,Hora Entrada,Hora Salida",
+            $"EMP-001,Adrian Uribe,CAR-WASH,{horaEntrada},{horaSalida}",
+        };
+
+        var result = EmployeeCatalogReplaceParser.Parse(lines);
+
+        Assert.Empty(result.Errors);
+        var row = Assert.Single(result.Rows);
+        Assert.Equal(new TimeOnly(8, 0), row.ScheduledStartTime);
+        Assert.Equal(new TimeOnly(16, 0), row.ScheduledEndTime);
+    }
+
+    [Fact]
+    public void Parse_ConSoloHoraEntradaSinHoraSalida_ReportaError()
+    {
+        var lines = new[]
+        {
+            "Number,FullName,Area,Hora Entrada,Hora Salida",
+            "EMP-001,Adrian Uribe,CAR-WASH,8:00 AM,",
+        };
+
+        var result = EmployeeCatalogReplaceParser.Parse(lines);
+
+        Assert.Empty(result.Rows);
+        Assert.Single(result.Errors);
+        Assert.Contains("captura ambas horas", result.Errors[0]);
+    }
+
+    [Fact]
+    public void Parse_ConHorarioYDepartmentEnElMismoArchivo_LosAceptaLosDos()
+    {
+        // Pedido explícito del usuario: el catálogo "clásico" (Department) y el nuevo
+        // (Hora Entrada/Hora Salida) no son mutuamente excluyentes.
+        var lines = new[]
+        {
+            "Number,FullName,Area,Department,Hora Entrada,Hora Salida",
+            "EMP-001,Adrian Uribe,CAR-WASH,Plaza Sabo,8:00 AM,4:00 PM",
+        };
+
+        var result = EmployeeCatalogReplaceParser.Parse(lines);
+
+        Assert.Empty(result.Errors);
+        var row = Assert.Single(result.Rows);
+        Assert.Equal("Plaza Sabo", row.Department);
+        Assert.Equal(new TimeOnly(8, 0), row.ScheduledStartTime);
+        Assert.Equal(new TimeOnly(16, 0), row.ScheduledEndTime);
     }
 
     [Fact]

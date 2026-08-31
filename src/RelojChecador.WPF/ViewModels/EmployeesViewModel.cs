@@ -1155,6 +1155,10 @@ public sealed partial class EmployeesViewModel : ObservableObject
                     {
                         employee.UpdateNotes(row.Notes);
                     }
+                    if (row.ScheduledStartTime is not null && row.ScheduledEndTime is not null)
+                    {
+                        employee.UpdateSchedule(row.ScheduledStartTime, row.ScheduledEndTime);
+                    }
                     await _employeeRepository.AddAsync(employee);
                     created++;
                 }
@@ -1189,6 +1193,13 @@ public sealed partial class EmployeesViewModel : ObservableObject
                     if (!string.IsNullOrWhiteSpace(row.Notes))
                     {
                         employee.UpdateNotes(row.Notes);
+                    }
+                    // Igual que Department: un archivo que no trae horario para esta fila
+                    // NUNCA borra uno ya capturado a mano en Empleados — "null nunca
+                    // sobreescribe un dato real".
+                    if (row.ScheduledStartTime is not null && row.ScheduledEndTime is not null)
+                    {
+                        employee.UpdateSchedule(row.ScheduledStartTime, row.ScheduledEndTime);
                     }
                     updated++;
                 }
