@@ -343,8 +343,10 @@
              número, PIN, empleado, en cuanto vaya escribiendo, se vaya autorrellenando" —
              filtra las filas de la hoja EN VIVO (sin botón de buscar), mismo criterio que
              el buscador principal del Dashboard. Lo que esté filtrado en pantalla es
-             también lo que se imprime/exporta. -->
-        <input id="preview-search-input" type="text" class="preview-search-input" placeholder="Buscar número, PIN o empleado…" />
+             también lo que se imprime/exporta. La columna PIN se quitó de la tabla y del
+             buscador (pedido explícito: "deja nada más el puro Número" — el PIN mostraba
+             varios valores separados por coma por empleado y confundía más de lo que ayudaba). -->
+        <input id="preview-search-input" type="text" class="preview-search-input" placeholder="Buscar número o empleado…" />
         <button id="report-preview-close" class="btn btn-ghost" type="button">✕ Cerrar</button>
       </div>
       <div class="report-preview-scroll">
@@ -361,7 +363,6 @@
             <thead>
               <tr>
                 <th>Número</th>
-                <th>PIN</th>
                 <th>Empleado</th>
                 <th>Departamento</th>
                 <th>Horas normales</th>
