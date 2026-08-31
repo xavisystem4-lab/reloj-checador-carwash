@@ -93,10 +93,12 @@
                 <!-- "Nota en especial" — pedido explícito del usuario, capturada desde
                      "✏️ Editar" (ver EditAttendanceDialog). -->
                 <DataGridTextColumn Header="Nota" Binding="{Binding Attendance.Notes}" Width="160" />
-                <DataGridTemplateColumn Header="" Width="70">
+                <DataGridTemplateColumn Header="Acciones" Width="110">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
-                            <Button Content="✏️ Editar" Padding="4,2" FontSize="12" Click="OnEditAttendanceClick" />
+                            <Button Content="✏️ Editar" Style="{StaticResource PrimaryButton}"
+                                    Padding="10,4" FontSize="12" Margin="4,2"
+                                    HorizontalAlignment="Center" Click="OnEditAttendanceClick" />
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
