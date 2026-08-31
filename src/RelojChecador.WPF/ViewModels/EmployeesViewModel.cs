@@ -41,6 +41,13 @@ public sealed record EmployeeRow(Employee Employee, string BranchName, string Li
     /// número que no se pueda parsear (formato viejo tipo "EMP-001") cae al final
     /// (int.MaxValue) en vez de romper el orden de los que sí son numéricos.</summary>
     public int NumberSortKey => int.TryParse(Employee.Number.Value, out var n) ? n : int.MaxValue;
+
+    /// <summary>"08:00 - 16:00", o "Sin capturar" — pedido explícito del usuario: "que en
+    /// Empleados me aparezcan sus horarios". Employee.UpdateSchedule nunca deja uno solo
+    /// de los dos campos capturado, así que basta revisar ScheduledStartTime.</summary>
+    public string ScheduleSummary => Employee.ScheduledStartTime is { } start && Employee.ScheduledEndTime is { } end
+        ? $"{start:HH\\:mm} - {end:HH\\:mm}"
+        : "Sin capturar";
 }
 
 /// <summary>Un vínculo de un empleado a un dispositivo, con el nombre del dispositivo ya
@@ -356,7 +363,8 @@ public sealed partial class EmployeesViewModel : ObservableObject
     /// <returns>Un mensaje de error comprensible si algo salió mal, o null si se guardó correctamente.</returns>
     public async Task<string?> CreateEmployeeAsync(
         string number, string fullName, Guid branchId, DateOnly hireDate, decimal? weeklySalary, string? department, string? position,
-        decimal? overtimeHourlyRate = null, Guid? deviceId = null, string? deviceUserPin = null, string? notes = null)
+        decimal? overtimeHourlyRate = null, Guid? deviceId = null, string? deviceUserPin = null, string? notes = null,
+        TimeOnly? scheduledStartTime = null, TimeOnly? scheduledEndTime = null)
     {
         try
         {
@@ -365,6 +373,10 @@ public sealed partial class EmployeesViewModel : ObservableObject
             if (!string.IsNullOrWhiteSpace(notes))
             {
                 employee.UpdateNotes(notes);
+            }
+            if (scheduledStartTime is not null || scheduledEndTime is not null)
+            {
+                employee.UpdateSchedule(scheduledStartTime, scheduledEndTime);
             }
             await _employeeRepository.AddAsync(employee);
 
@@ -416,7 +428,8 @@ public sealed partial class EmployeesViewModel : ObservableObject
     public async Task<string?> UpdateEmployeeAsync(
         Guid employeeId, string number, string fullName, Guid branchId, string? department, string? position,
         string? phone, string? email, EmploymentStatus status, decimal? weeklySalary, decimal? overtimeHourlyRate = null,
-        Guid? deviceId = null, string? deviceUserPin = null, string? notes = null)
+        Guid? deviceId = null, string? deviceUserPin = null, string? notes = null,
+        TimeOnly? scheduledStartTime = null, TimeOnly? scheduledEndTime = null)
     {
         try
         {
@@ -438,6 +451,7 @@ public sealed partial class EmployeesViewModel : ObservableObject
             employee.UpdateContact(phone, email);
             employee.UpdateCompensation(weeklySalary, overtimeHourlyRate);
             employee.UpdateNotes(notes);
+            employee.UpdateSchedule(scheduledStartTime, scheduledEndTime);
             if (employee.BranchId != branchId)
             {
                 employee.TransferToBranch(branchId);

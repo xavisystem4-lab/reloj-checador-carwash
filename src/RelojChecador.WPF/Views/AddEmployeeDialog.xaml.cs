@@ -19,6 +19,7 @@ namespace RelojChecador.WPF.Views;
 public partial class AddEmployeeDialog : Window
 {
     private const string HireDateFormat = "dd/MM/yyyy";
+    private const string ScheduleTimeFormat = "HH:mm";
 
     public string Number => NumberTextBox.Text.Trim();
     public string FullName => FullNameTextBox.Text.Trim();
@@ -29,6 +30,8 @@ public partial class AddEmployeeDialog : Window
     public decimal? WeeklySalary { get; private set; }
     public decimal? OvertimeHourlyRate { get; private set; }
     public string? Notes => string.IsNullOrWhiteSpace(NotesTextBox.Text) ? null : NotesTextBox.Text.Trim();
+    public TimeOnly? ScheduledStartTime { get; private set; }
+    public TimeOnly? ScheduledEndTime { get; private set; }
 
     /// <summary>Null si el checkbox "Vincular a un reloj checador ahora" no está marcado —
     /// vincular al dar de alta es opcional.</summary>
@@ -112,9 +115,41 @@ public partial class AddEmployeeDialog : Window
             return;
         }
 
+        // Ambos vacíos = sin capturar (válido); uno solo capturado no es útil para
+        // reportar y no lo acepta el dominio (ver Employee.UpdateSchedule).
+        TimeOnly? scheduledStartTime = null;
+        if (!string.IsNullOrWhiteSpace(ScheduledStartTimeTextBox.Text))
+        {
+            if (!TimeOnly.TryParseExact(ScheduledStartTimeTextBox.Text.Trim(), ScheduleTimeFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedStart))
+            {
+                ShowError("La hora de entrada debe tener el formato HH:mm (ej.: 08:00).");
+                return;
+            }
+            scheduledStartTime = parsedStart;
+        }
+
+        TimeOnly? scheduledEndTime = null;
+        if (!string.IsNullOrWhiteSpace(ScheduledEndTimeTextBox.Text))
+        {
+            if (!TimeOnly.TryParseExact(ScheduledEndTimeTextBox.Text.Trim(), ScheduleTimeFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedEnd))
+            {
+                ShowError("La hora de salida debe tener el formato HH:mm (ej.: 16:00).");
+                return;
+            }
+            scheduledEndTime = parsedEnd;
+        }
+
+        if ((scheduledStartTime is null) != (scheduledEndTime is null))
+        {
+            ShowError("Captura ambas horas del horario (entrada y salida), o déjalas las dos vacías.");
+            return;
+        }
+
         HireDate = hireDate;
         WeeklySalary = weeklySalary;
         OvertimeHourlyRate = overtimeHourlyRate;
+        ScheduledStartTime = scheduledStartTime;
+        ScheduledEndTime = scheduledEndTime;
         DialogResult = true;
     }
 

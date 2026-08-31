@@ -42,6 +42,10 @@ public partial class EditEmployeeDialog : Window
     public decimal? WeeklySalary { get; private set; }
     public decimal? OvertimeHourlyRate { get; private set; }
     public string? Notes => string.IsNullOrWhiteSpace(NotesTextBox.Text) ? null : NotesTextBox.Text.Trim();
+    public TimeOnly? ScheduledStartTime { get; private set; }
+    public TimeOnly? ScheduledEndTime { get; private set; }
+
+    private const string ScheduleTimeFormat = "HH:mm";
 
     /// <summary>Null si la sección de vínculo no aplica (ya tenía uno) o el checkbox no
     /// está marcado.</summary>
@@ -67,6 +71,8 @@ public partial class EditEmployeeDialog : Window
         WeeklySalaryTextBox.Text = employee.WeeklySalary?.ToString("0.##", CultureInfo.InvariantCulture) ?? "";
         OvertimeHourlyRateTextBox.Text = employee.OvertimeHourlyRate?.ToString("0.##", CultureInfo.InvariantCulture) ?? "";
         NotesTextBox.Text = employee.Notes ?? "";
+        ScheduledStartTimeTextBox.Text = employee.ScheduledStartTime?.ToString(ScheduleTimeFormat, CultureInfo.InvariantCulture) ?? "";
+        ScheduledEndTimeTextBox.Text = employee.ScheduledEndTime?.ToString(ScheduleTimeFormat, CultureInfo.InvariantCulture) ?? "";
 
         BranchComboBox.ItemsSource = branches;
         BranchComboBox.SelectedItem = branches.FirstOrDefault(b => b.Id == employee.BranchId);
@@ -136,8 +142,40 @@ public partial class EditEmployeeDialog : Window
             return;
         }
 
+        // Ambos vacíos = sin capturar (válido); uno solo capturado no es útil para
+        // reportar y no lo acepta el dominio (ver Employee.UpdateSchedule).
+        TimeOnly? scheduledStartTime = null;
+        if (!string.IsNullOrWhiteSpace(ScheduledStartTimeTextBox.Text))
+        {
+            if (!TimeOnly.TryParseExact(ScheduledStartTimeTextBox.Text.Trim(), ScheduleTimeFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedStart))
+            {
+                ShowError("La hora de entrada debe tener el formato HH:mm (ej.: 08:00).");
+                return;
+            }
+            scheduledStartTime = parsedStart;
+        }
+
+        TimeOnly? scheduledEndTime = null;
+        if (!string.IsNullOrWhiteSpace(ScheduledEndTimeTextBox.Text))
+        {
+            if (!TimeOnly.TryParseExact(ScheduledEndTimeTextBox.Text.Trim(), ScheduleTimeFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedEnd))
+            {
+                ShowError("La hora de salida debe tener el formato HH:mm (ej.: 16:00).");
+                return;
+            }
+            scheduledEndTime = parsedEnd;
+        }
+
+        if ((scheduledStartTime is null) != (scheduledEndTime is null))
+        {
+            ShowError("Captura ambas horas del horario (entrada y salida), o déjalas las dos vacías.");
+            return;
+        }
+
         WeeklySalary = weeklySalary;
         OvertimeHourlyRate = overtimeHourlyRate;
+        ScheduledStartTime = scheduledStartTime;
+        ScheduledEndTime = scheduledEndTime;
         DialogResult = true;
     }
 

@@ -54,4 +54,30 @@ public sealed class EfAttendanceRepository(RelojChecadorDbContext dbContext) : I
             .OrderByDescending(a => a.TimestampUtc)
             .Take(maxCount)
             .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<Attendance>> ListByEmployeeInRangeAsync(
+        Guid employeeId, DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken = default) =>
+        await dbContext.Attendances
+            .Where(a => a.EmployeeId == employeeId && a.TimestampUtc >= fromUtc && a.TimestampUtc < toUtc)
+            .OrderBy(a => a.TimestampUtc)
+            .ToListAsync(cancellationToken);
+
+    public async Task<int> SetAllPunchTypesAsync(int punchType, CancellationToken cancellationToken = default)
+    {
+        // ExecuteUpdateAsync es una sola sentencia SQL (rápido incluso con miles de filas),
+        // pero se salta por completo a Attendance.Touch() — hay que replicar a mano el
+        // efecto que de verdad importa aquí (UpdatedAtUtc) o el motor de sincronización
+        // nunca se entera de este cambio (ver ListChangedSinceAsync, que filtra por
+        // UpdatedAtUtc) y el Dashboard web se queda mostrando el PunchType viejo para
+        // siempre. ConcurrencyToken se deja tal cual a propósito: Guid.NewGuid() por fila no
+        // es traducible a SQL en una sola sentencia (a diferencia de un valor constante como
+        // UpdatedAtUtc), y no regenerarlo aquí no tiene ningún efecto práctico — nadie más
+        // debería estar editando estas filas al mismo tiempo que corre esta corrección.
+        var now = DateTime.UtcNow;
+        return await dbContext.Attendances.ExecuteUpdateAsync(
+            setters => setters
+                .SetProperty(a => a.PunchType, punchType)
+                .SetProperty(a => a.UpdatedAtUtc, now),
+            cancellationToken);
+    }
 }

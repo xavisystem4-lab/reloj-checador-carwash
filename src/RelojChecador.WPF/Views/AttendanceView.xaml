@@ -54,7 +54,13 @@
                      AttendanceVerifyMethod.Manual y se sube al Dashboard/nube igual que
                      cualquier otra — nunca se escribe en la memoria del dispositivo (no
                      es técnicamente posible). -->
-                <Button Content="+ Marcar asistencia manual" Click="OnCreateManualAttendanceClick" />
+                <Button Content="+ Marcar asistencia manual" Click="OnCreateManualAttendanceClick" Margin="0,0,8,0" />
+                <!-- Corrección de datos de una sola vez, no un filtro — pedido explícito
+                     del usuario: "ahorita todas las checadas marcalas como entradas
+                     normales incluso las que ya checaron", antes de que la clasificación
+                     automática por 7h50 empiece a aplicar a las marcaciones nuevas (ver
+                     AttendanceViewModel.NormalizePunchTypesAsync). -->
+                <Button Content="🔧 Normalizar tipos de marcación" Click="OnNormalizePunchTypesClick" />
             </StackPanel>
         </WrapPanel>
 

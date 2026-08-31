@@ -122,7 +122,8 @@ public partial class EmployeesView : UserControl
 
         var error = await viewModel.CreateEmployeeAsync(
             dialog.Number, dialog.FullName, dialog.SelectedBranch.Id, dialog.HireDate, dialog.WeeklySalary, dialog.Department, dialog.Position,
-            dialog.OvertimeHourlyRate, dialog.SelectedDevice?.Id, dialog.DeviceUserPin, dialog.Notes);
+            dialog.OvertimeHourlyRate, dialog.SelectedDevice?.Id, dialog.DeviceUserPin, dialog.Notes,
+            dialog.ScheduledStartTime, dialog.ScheduledEndTime);
 
         if (error is not null)
         {
@@ -310,7 +311,8 @@ public partial class EmployeesView : UserControl
         var error = await viewModel.UpdateEmployeeAsync(
             row.Employee.Id, dialog.Number, dialog.FullName, dialog.SelectedBranch.Id, dialog.Department, dialog.Position,
             dialog.Phone, dialog.Email, dialog.SelectedStatus, dialog.WeeklySalary, dialog.OvertimeHourlyRate,
-            dialog.SelectedDevice?.Id, dialog.DeviceUserPin, dialog.Notes);
+            dialog.SelectedDevice?.Id, dialog.DeviceUserPin, dialog.Notes,
+            dialog.ScheduledStartTime, dialog.ScheduledEndTime);
 
         if (error is not null)
         {
