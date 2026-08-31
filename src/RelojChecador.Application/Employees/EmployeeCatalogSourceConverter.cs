@@ -55,9 +55,15 @@ public static class EmployeeCatalogSourceConverter
     /// hay: un Excel viejo guardado por accidente no debería dejar de reconocerse.</summary>
     private static readonly string[] RegistroEmpleadosFirstColumnAliases = ["ID Empleado", "PIN"];
 
-    /// <summary>True si el encabezado ya es el que espera <see cref="EmployeeCatalogReplaceParser"/>
-    /// tal cual — en ese caso no hace falta convertir nada.</summary>
-    public static bool IsCanonicalHeader(IReadOnlyList<string> header) => HeaderMatches(header, CanonicalHeader);
+    /// <summary>True si el encabezado ya trae lo mínimo que <see cref="EmployeeCatalogReplaceParser"/>
+    /// necesita tal cual (por nombre, no por posición exacta — ver
+    /// <see cref="EmployeeCatalogReplaceParser.HasUsableHeader"/>) — en ese caso no hace
+    /// falta convertir nada. Antes comparaba contra <see cref="CanonicalHeader"/> posición
+    /// por posición, lo que rechazaba en falso cualquier variante válida del catálogo (p.
+    /// ej. uno con "Hora Entrada"/"Hora Salida" en vez de Department, o con las columnas en
+    /// otro orden) con el mismo error genérico de "formato no reconocido" — caso real que
+    /// motivó este cambio.</summary>
+    public static bool IsCanonicalHeader(IReadOnlyList<string> header) => EmployeeCatalogReplaceParser.HasUsableHeader(header);
 
     /// <summary>True si el encabezado es cualquiera de los formatos que esta clase sabe leer
     /// (el canónico, o alguno de los alternos como "Registro Empleados") — usado por quien

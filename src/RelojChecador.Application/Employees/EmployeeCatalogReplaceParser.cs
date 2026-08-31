@@ -118,6 +118,20 @@ public static class EmployeeCatalogReplaceParser
             ColWeeklySalary, ColOvertimeHourlyRate, ColNotes, ColPin, ColDepartment) + "\r\n" +
         "EMP-001,Nombre Ejemplo,Drive In Car Wash,Puesto ejemplo,2024-01-15,Activo,3500,125,Borra esta fila de ejemplo antes de importar,1,\r\n";
 
+    /// <summary>True si <paramref name="header"/> ya trae lo mínimo que <see cref="Parse"/>
+    /// necesita (Number/FullName/Area) y ninguna columna que no se reconozca — usado por
+    /// EmployeeCatalogSourceConverter.IsCanonicalHeader para decidir si un archivo se le
+    /// puede pasar tal cual a <see cref="Parse"/> o si primero hay que convertirlo (viene de
+    /// otro formato de origen, p. ej. el Excel maestro). Comparte el mismo criterio "por
+    /// nombre, no por posición" que <see cref="Parse"/> — así un archivo que ya pasa esta
+    /// prueba nunca se rechaza después con un error de encabezado real.</summary>
+    public static bool HasUsableHeader(IReadOnlyList<string> header)
+    {
+        var columnIndex = BuildColumnIndex(header);
+        return RequiredColumns.All(columnIndex.ContainsKey)
+            && columnIndex.Keys.All(name => KnownColumns.Contains(name, StringComparer.OrdinalIgnoreCase));
+    }
+
     public static EmployeeCatalogParseResult Parse(IReadOnlyList<string> lines)
     {
         var rows = new List<EmployeeCatalogRow>();
@@ -266,10 +280,10 @@ public static class EmployeeCatalogReplaceParser
     /// archivo real que motivó esto) se ignora en vez de contar como columna "desconocida" —
     /// simplemente no aparece en el índice. Si el encabezado repitiera un nombre por error,
     /// gana la primera aparición.</summary>
-    private static Dictionary<string, int> BuildColumnIndex(string[] headerFields)
+    private static Dictionary<string, int> BuildColumnIndex(IReadOnlyList<string> headerFields)
     {
         var index = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        for (var i = 0; i < headerFields.Length; i++)
+        for (var i = 0; i < headerFields.Count; i++)
         {
             var name = headerFields[i].Trim();
             if (name.Length == 0)

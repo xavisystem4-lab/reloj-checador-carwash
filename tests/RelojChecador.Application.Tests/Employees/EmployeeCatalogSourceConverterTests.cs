@@ -26,6 +26,20 @@ public class EmployeeCatalogSourceConverterTests
     }
 
     [Fact]
+    public void IsCanonicalHeader_ConHoraEntradaYSalidaEnVezDeDepartment_DevuelveTrue()
+    {
+        // Caso real reportado por el usuario: un catálogo con "Hora Entrada"/"Hora Salida"
+        // en vez de "Department" se rechazaba con "El archivo no coincide con ningún
+        // formato reconocido" porque esta comparación era posicional y exacta contra el
+        // encabezado clásico de 11 columnas — ver EmployeeCatalogReplaceParser.HasUsableHeader.
+        string[] header =
+            ["Number", "FullName", "Area", "Position", "HireDate", "Status", "WeeklySalary",
+                "OvertimeHourlyRate", "Notes", "Pin", "Hora Entrada", "Hora Salida"];
+
+        Assert.True(EmployeeCatalogSourceConverter.IsCanonicalHeader(header));
+    }
+
+    [Fact]
     public void TryConvert_ConEncabezadoRegistroEmpleados_ConvierteFilaCompleta()
     {
         var rows = new IReadOnlyList<string?>[]
