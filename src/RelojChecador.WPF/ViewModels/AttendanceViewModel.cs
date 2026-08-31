@@ -27,10 +27,26 @@ public sealed record BranchFilterOption(Branch? Branch, string Label)
 
 /// <summary>Une una <see cref="Attendance"/> con sucursal/dispositivo/empleado ya
 /// resueltos — mismos tres cruces que EmployeesViewModel.EmployeeRow ya hace para
-/// Branch/Device, más la resolución de empleado (ver comentario de clase del ViewModel).</summary>
-public sealed record AttendanceRow(Attendance Attendance, string BranchName, string DeviceName, string? EmployeeName, string? Department)
+/// Branch/Device, más la resolución de empleado (ver comentario de clase del ViewModel).
+/// Clase (no record) por <see cref="IsSelected"/> — checkbox de selección para "Editar
+/// seleccionadas" (ver comentario de clase del ViewModel), pedido explícito del usuario:
+/// "editarlo masivamente con un check, escoger a los empleados". Se recrea en cada
+/// <c>LoadAsync</c> (la selección se pierde al "Actualizar", igual que cualquier estado de
+/// pantalla no persistido), pero SOBREVIVE a un filtro de texto (ApplySearchFilter reusa las
+/// mismas instancias de <c>_allRows</c>, no las reconstruye).</summary>
+public sealed partial class AttendanceRow(Attendance attendance, string branchName, string deviceName, string? employeeName, string? department)
+    : ObservableObject
 {
+    public Attendance Attendance { get; } = attendance;
+    public string BranchName { get; } = branchName;
+    public string DeviceName { get; } = deviceName;
+    public string? EmployeeName { get; } = employeeName;
+    public string? Department { get; } = department;
+
     public string EmployeeDisplay => EmployeeName ?? $"PIN {Attendance.DeviceUserPin} · sin vincular";
+
+    [ObservableProperty]
+    private bool _isSelected;
 }
 
 /// <summary>
@@ -339,6 +355,104 @@ public sealed partial class AttendanceViewModel : ObservableObject
             Log.Error(ex, "Error inesperado al crear una asistencia manual (EmployeeId={EmployeeId})", employeeId);
             return new ManualAttendanceOutcome("Ocurrió un error inesperado al guardar. Revisa el registro de errores.");
         }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Edición y borrado de marcaciones — pedido explícito del usuario: "que las asistencias
+    // se puedan editar, las pueda editar el administrador y pueda colocarle si es entrada o
+    // salida ... nota en especial también. o eliminar Marcación". Reemplaza la decisión de
+    // diseño anterior de Attendance (antes inmutable, solo nuevas filas) — ver
+    // Attendance.EditByAdmin.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public sealed record AttendanceEditOutcome(string? Error)
+    {
+        public bool Success => Error is null;
+    }
+
+    /// <summary>Edita PunchType y Notes de UNA marcación ya existente.</summary>
+    public async Task<AttendanceEditOutcome> EditAttendanceAsync(Guid attendanceId, int? punchType, string? notes)
+    {
+        try
+        {
+            var attendance = await _attendanceRepository.GetByIdAsync(attendanceId);
+            if (attendance is null)
+            {
+                return new AttendanceEditOutcome(
+                    "No se encontró la marcación — puede que la lista esté desactualizada. Presiona \"Actualizar\".");
+            }
+
+            attendance.EditByAdmin(punchType, notes);
+            await _unitOfWork.SaveChangesAsync();
+
+            // Mismo criterio que cualquier otro cambio de asistencia (ver
+            // CreateManualAttendanceAsync): no espera al ciclo automático de Supabase, lo
+            // sube de inmediato para que el Dashboard refleje la corrección sin demora.
+            await _syncService.TriggerSyncNowAsync();
+
+            await LoadAsync();
+            return new AttendanceEditOutcome(null);
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Error inesperado al editar una marcación (AttendanceId={AttendanceId})", attendanceId);
+            return new AttendanceEditOutcome("Ocurrió un error inesperado al guardar. Revisa el registro de errores.");
+        }
+    }
+
+    /// <summary>Borrado físico de UNA marcación — "o eliminar Marcación". No se propaga a
+    /// Supabase (la sincronización solo pushea cambios, nunca borra en la nube — ver
+    /// comentario de IAttendanceRepository.RemoveAsync); AttendanceView avisa esto al
+    /// usuario antes de confirmar.</summary>
+    public async Task<AttendanceEditOutcome> DeleteAttendanceAsync(Guid attendanceId)
+    {
+        try
+        {
+            var attendance = await _attendanceRepository.GetByIdAsync(attendanceId);
+            if (attendance is null)
+            {
+                return new AttendanceEditOutcome(
+                    "No se encontró la marcación — puede que la lista esté desactualizada. Presiona \"Actualizar\".");
+            }
+
+            await _attendanceRepository.RemoveAsync(attendance);
+            await _unitOfWork.SaveChangesAsync();
+            await LoadAsync();
+            return new AttendanceEditOutcome(null);
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Error inesperado al borrar una marcación (AttendanceId={AttendanceId})", attendanceId);
+            return new AttendanceEditOutcome("Ocurrió un error inesperado al borrar. Revisa el registro de errores.");
+        }
+    }
+
+    /// <summary>Aplica el mismo PunchType a varias marcaciones seleccionadas (checkbox en el
+    /// DataGrid) de un solo golpe — pedido explícito del usuario: "editarlo masivamente con
+    /// un check, escoger a los empleados y ponerle si es entrado o salida". Devuelve cuántas
+    /// filas se tocaron.</summary>
+    public async Task<int> BulkSetPunchTypeAsync(IReadOnlyList<Guid> attendanceIds, int punchType)
+    {
+        var affected = 0;
+        foreach (var id in attendanceIds)
+        {
+            var attendance = await _attendanceRepository.GetByIdAsync(id);
+            if (attendance is null)
+            {
+                continue; // ya no existe (lista desactualizada) — se sigue con el resto
+            }
+            attendance.EditByAdmin(punchType, attendance.Notes);
+            affected++;
+        }
+
+        if (affected > 0)
+        {
+            await _unitOfWork.SaveChangesAsync();
+            await _syncService.TriggerSyncNowAsync();
+            await LoadAsync();
+        }
+
+        return affected;
     }
 
     /// <summary>Pone TODAS las marcaciones existentes (de cualquier empleado, cualquier

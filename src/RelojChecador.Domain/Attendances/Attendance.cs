@@ -8,11 +8,15 @@ namespace RelojChecador.Domain.Attendances;
 /// IAttendanceDeviceAdapter.AttendancePunchReceived), o capturada a mano desde la pantalla
 /// de Asistencia cuando a alguien se le olvidó checar (ver
 /// AttendanceViewModel.CreateManualAttendanceAsync — <see cref="AttendanceVerifyMethod.Manual"/>
-/// la distingue de una marcación biométrica real). Nunca se EDITA ni se BORRA desde la UI
-/// en ninguno de los dos casos: es un registro de auditoría de negocio (nómina,
-/// incidencias), no un dato de trabajo — la única vía de escritura es <see cref="Create"/>,
-/// una corrección posterior siempre es una fila NUEVA, nunca un cambio sobre una ya
-/// existente.
+/// la distingue de una marcación biométrica real).
+///
+/// SÍ se puede editar y borrar desde la UI (pedido explícito del usuario: "que las
+/// asistencias se puedan editar ... y pueda colocarle si es entrada o salida ... o eliminar
+/// Marcación") — esto reemplaza una decisión de diseño anterior de esta clase (antes
+/// inmutable, cualquier corrección tenía que ser una fila nueva). <see cref="EditByAdmin"/>
+/// es la única vía de edición; el borrado físico lo hace el repositorio
+/// (IAttendanceRepository.RemoveAsync) directamente, sin método de dominio propio, porque no
+/// hay ningún invariante que proteger al desaparecer la fila entera.
 ///
 /// <see cref="EmployeeId"/> es nullable a propósito: puede llegar una marcación de un PIN
 /// de dispositivo que todavía no está vinculado a ningún Employee
@@ -40,6 +44,11 @@ public sealed class Attendance : AuditableEntity
     public DateTime TimestampUtc { get; private set; }
     public AttendanceVerifyMethod VerifyMethod { get; private set; }
     public int? PunchType { get; private set; }
+
+    /// <summary>Nota del administrador sobre esta marcación en particular — pedido explícito
+    /// del usuario junto con la edición de PunchType ("nota en especial también"). Null =
+    /// sin nota, nunca cadena vacía (ver <see cref="EditByAdmin"/>).</summary>
+    public string? Notes { get; private set; }
 
     /// <summary>Representación original tal cual la entregó el dispositivo — se conserva
     /// siempre, incluso si el registro se reprocesa o se concilia con un Employee más
@@ -97,6 +106,18 @@ public sealed class Attendance : AuditableEntity
     {
         EmployeeId = employeeId;
         BranchId = branchId;
+        Touch();
+    }
+
+    /// <summary>Corrección manual del administrador — pedido explícito del usuario: "que las
+    /// asistencias se puedan editar ... y pueda colocarle si es entrada o salida ... nota en
+    /// especial también". <paramref name="punchType"/> null es válido (deja el tipo sin
+    /// clasificar, igual que una marcación cruda todavía no procesada); <paramref name="notes"/>
+    /// vacío o solo espacios se guarda como null, nunca como cadena vacía.</summary>
+    public void EditByAdmin(int? punchType, string? notes)
+    {
+        PunchType = punchType;
+        Notes = string.IsNullOrWhiteSpace(notes) ? null : notes.Trim();
         Touch();
     }
 }

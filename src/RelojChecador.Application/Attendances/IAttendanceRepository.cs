@@ -12,6 +12,19 @@ public interface IAttendanceRepository
 
     Task AddAsync(Attendance attendance, CancellationToken cancellationToken = default);
 
+    /// <summary>Usado para editar o borrar UNA marcación puntual — pedido explícito del
+    /// usuario: "que las asistencias se puedan editar ... o eliminar Marcación" (ver
+    /// AttendanceViewModel.EditAttendanceAsync/DeleteAttendanceAsync).</summary>
+    Task<Attendance?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
+
+    /// <summary>Borrado físico de UNA marcación — pedido explícito del usuario ("o eliminar
+    /// Marcación"), reemplaza la decisión de diseño anterior de esta clase (registro de
+    /// auditoría inmutable, nunca se borra). El borrado nunca se propaga a Supabase (la
+    /// sincronización solo PUSHEA cambios, nunca borra en la nube — mismo comportamiento ya
+    /// documentado para el borrado físico de Employee/Branch): la fila queda huérfana en el
+    /// mirror del Dashboard hasta que alguien la limpie ahí directamente.</summary>
+    Task RemoveAsync(Attendance attendance, CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<Attendance>> ListByBranchAsync(
         Guid branchId, DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken = default);
 

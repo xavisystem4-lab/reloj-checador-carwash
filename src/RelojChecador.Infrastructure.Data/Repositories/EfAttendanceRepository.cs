@@ -15,6 +15,15 @@ public sealed class EfAttendanceRepository(RelojChecadorDbContext dbContext) : I
     public async Task AddAsync(Attendance attendance, CancellationToken cancellationToken = default) =>
         await dbContext.Attendances.AddAsync(attendance, cancellationToken);
 
+    public async Task<Attendance?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
+        await dbContext.Attendances.FirstOrDefaultAsync(a => a.Id == id, cancellationToken);
+
+    public Task RemoveAsync(Attendance attendance, CancellationToken cancellationToken = default)
+    {
+        dbContext.Attendances.Remove(attendance);
+        return Task.CompletedTask;
+    }
+
     public async Task<IReadOnlyList<Attendance>> ListByBranchAsync(
         Guid branchId, DateTime fromUtc, DateTime toUtc, CancellationToken cancellationToken = default) =>
         await dbContext.Attendances

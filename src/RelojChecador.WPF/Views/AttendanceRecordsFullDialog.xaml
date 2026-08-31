@@ -24,11 +24,11 @@
         <DataGrid Grid.Row="1" x:Name="RecordsGrid" AutoGenerateColumns="False" IsReadOnly="True"
                   CanUserAddRows="False" HeadersVisibility="Column" GridLinesVisibility="Horizontal">
             <DataGrid.Columns>
-                <DataGridTextColumn Header="Empleado" Binding="{Binding EmployeeDisplay}" Width="200" />
                 <DataGridTextColumn Header="PIN empleado" Binding="{Binding Record.DeviceUserPin}" Width="110" />
+                <DataGridTextColumn Header="Empleado" Binding="{Binding EmployeeDisplay}" Width="200" />
+                <DataGridTextColumn Header="Tipo" Binding="{Binding PreviewPunchTypeDisplay}" Width="170" />
                 <DataGridTextColumn Header="Fecha y hora" Binding="{Binding Record.TimestampUtc, StringFormat='dd/MM/yyyy HH:mm:ss'}" Width="170" />
-                <DataGridTextColumn Header="Método" Binding="{Binding Record.VerifyMethod}" Width="120" />
-                <DataGridTextColumn Header="Tipo" Binding="{Binding Record.PunchType, Converter={StaticResource PunchTypeToTextConverter}}" Width="*" />
+                <DataGridTextColumn Header="Método" Binding="{Binding Record.VerifyMethod}" Width="*" />
             </DataGrid.Columns>
         </DataGrid>
 
