@@ -88,9 +88,8 @@ public partial class EditAttendanceDialog : Window
         var confirmed = MessageBox.Show(
             this,
             $"¿Borrar PERMANENTEMENTE esta marcación ({EmployeeTextBlock.Text})?\n\n" +
-            "Esto NO se puede deshacer. Además, el borrado no se refleja en el Dashboard/nube " +
-            "(la sincronización solo sube cambios, nunca borra ahí) — si ya se había subido, " +
-            "hay que borrarla aparte desde Supabase.",
+            "Esto NO se puede deshacer. También se borra en el Dashboard/nube si Supabase " +
+            "está conectado.",
             "Confirmar borrado permanente",
             MessageBoxButton.YesNo,
             MessageBoxImage.Warning);

@@ -65,7 +65,13 @@
                      escoger a los empleados y ponerle si es entrado o salida" — aplica a
                      todas las filas con el check de la columna "Sel." marcado (ver
                      BulkEditAttendanceDialog). -->
-                <Button Content="✏️ Editar seleccionadas" Click="OnBulkEditClick" />
+                <Button Content="✏️ Editar seleccionadas" Click="OnBulkEditClick" Margin="0,0,8,0" />
+                <!-- Pedido explícito del usuario: "bien que podamos borrar las checadas
+                     duplicadas" — mismo check que "Editar seleccionadas", para poder marcar
+                     las filas repetidas que se ven a simple vista en la tabla y borrarlas
+                     de un solo golpe (también se refleja en el Dashboard, ver
+                     AttendanceViewModel.BulkDeleteAsync). -->
+                <Button Content="🗑 Eliminar seleccionadas" Foreground="{DynamicResource BrushDanger}" Click="OnBulkDeleteClick" />
             </StackPanel>
         </WrapPanel>
 

@@ -332,6 +332,10 @@
     <div class="modal-card modal-card-wide">
       <div class="modal-header">
         <h2>Reporte de asistencia</h2>
+        <!-- Pedido explícito del usuario: "el botón de exportar en el sitio web súbelo
+             hasta arriba" — junto al título, no al final de la tabla. Al darle clic abre
+             una previsualización (ver report-preview-modal, más abajo). -->
+        <button id="report-export-button" class="btn btn-primary" type="button">⬇ Exportar</button>
         <button id="report-modal-close" class="modal-close" type="button" aria-label="Cerrar">✕</button>
       </div>
       <p class="report-modal-range" id="report-range-text"></p>
@@ -349,11 +353,6 @@
           </thead>
           <tbody id="report-tbody"></tbody>
         </table>
-      </div>
-      <div class="report-modal-actions">
-        <!-- Pedido explícito del usuario: "el botón de exportar al darle clic me abre una
-             previsualización" (ver report-preview-modal, más abajo). -->
-        <button id="report-export-button" class="btn btn-primary" type="button">⬇ Exportar</button>
       </div>
     </div>
   </div>

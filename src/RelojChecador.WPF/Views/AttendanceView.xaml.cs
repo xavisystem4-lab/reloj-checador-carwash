@@ -192,4 +192,45 @@ public partial class AttendanceView : UserControl
             $"Se actualizaron {affected} marcación(es).",
             "Edición masiva completa", MessageBoxButton.OK, MessageBoxImage.Information);
     }
+
+    /// <summary>"🗑 Eliminar seleccionadas" — pedido explícito del usuario: "bien que
+    /// podamos borrar las checadas duplicadas". Mismo check que "Editar seleccionadas";
+    /// borra también en Supabase (ver AttendanceViewModel.BulkDeleteAsync).</summary>
+    private async void OnBulkDeleteClick(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not AttendanceViewModel viewModel)
+        {
+            return;
+        }
+
+        var selected = viewModel.Attendances.Where(r => r.IsSelected).ToList();
+        if (selected.Count == 0)
+        {
+            MessageBox.Show(
+                Window.GetWindow(this),
+                "Marca el check de al menos una marcación antes de usar \"Eliminar seleccionadas\".",
+                "Nada seleccionado", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var confirmed = MessageBox.Show(
+            Window.GetWindow(this),
+            $"¿Borrar PERMANENTEMENTE {selected.Count} marcación(es) seleccionada(s)?\n\n" +
+            "Esto NO se puede deshacer. También se borran en el Dashboard/nube si Supabase " +
+            "está conectado.",
+            "Confirmar borrado permanente",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+        if (confirmed != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        var ids = selected.Select(r => r.Attendance.Id).ToList();
+        var deleted = await viewModel.BulkDeleteAsync(ids);
+        MessageBox.Show(
+            Window.GetWindow(this),
+            $"Se borraron {deleted} marcación(es).",
+            "Borrado masivo completo", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
 }
