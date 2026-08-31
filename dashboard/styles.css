@@ -619,6 +619,7 @@ tbody tr:hover { background: var(--brand-soft); }
    al lado — a pedido explícito del usuario: "el campo de buscar no se nota... que haga
    contraste con el tema oscuro". */
 .preview-search-input {
+  flex: 0 0 auto;
   padding: 9px 12px;
   border-radius: 9px;
   border: 1.5px solid var(--brand);
@@ -628,7 +629,11 @@ tbody tr:hover { background: var(--brand-soft); }
   font-family: inherit;
   width: 200px;
 }
-.preview-search-input::placeholder { color: var(--dim); opacity: 1; }
+/* Pedido explícito del usuario: "buscar que las letras que dicen buscar número o emp sean
+   de color blanco" — var(--text) en vez de var(--dim): en modo oscuro es casi blanco (que
+   es justo lo pedido), y en modo claro sigue siendo un texto oscuro legible en vez de
+   volverse invisible con un blanco fijo sobre fondo blanco. */
+.preview-search-input::placeholder { color: var(--text); opacity: 0.62; }
 .preview-search-input:focus {
   outline: none; box-shadow: 0 0 0 4px var(--brand-soft);
 }
@@ -636,6 +641,7 @@ tbody tr:hover { background: var(--brand-soft); }
 /* Filtro de rango de fechas dentro de la previsualización — mismo criterio de contraste
    que .preview-search-input de arriba. */
 .preview-date-input {
+  flex: 0 0 auto;
   padding: 8px 10px;
   border-radius: 9px;
   border: 1.5px solid var(--brand);
@@ -648,6 +654,9 @@ tbody tr:hover { background: var(--brand-soft); }
   outline: none; box-shadow: 0 0 0 4px var(--brand-soft);
 }
 .preview-date-sep { color: var(--dim); font-size: 13px; }
+/* El <select> de departamento reutiliza .preview-date-input (mismo look que Desde/Hasta),
+   esto solo agrega lo específico de un <select>. */
+select.preview-date-input { max-width: 168px; cursor: pointer; }
 .report-preview-empty { padding: 24px 0; text-align: center; color: #96A0AC; font-size: 13px; }
 
 .report-preview-shell {
@@ -663,12 +672,16 @@ tbody tr:hover { background: var(--brand-soft); }
 }
 .report-preview-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 8px 10px;
   padding: 14px 18px;
   background: var(--card);
   border-bottom: 1px solid var(--card-border);
 }
+/* Con Imprimir/Exportar + Desde/Hasta + buscador + departamento ya no caben cómodos en
+   una sola fila en pantallas angostas — pedido explícito del usuario: "que no se vean
+   feos" — se deja envolver (flex-wrap arriba) en vez de apretarlos o hacerlos scrollear. */
 .report-preview-toolbar .btn-ghost { margin-left: auto; }
 .report-preview-scroll { overflow: auto; padding: 24px; display: flex; justify-content: center; background: #5B6472; }
 

@@ -336,9 +336,12 @@
   <div id="report-preview-modal" class="modal-overlay" hidden>
     <div class="report-preview-shell">
       <div class="report-preview-toolbar no-print">
+        <!-- Botones abreviados a "Exp." — pedido explícito del usuario: la barra se veía
+             apretada/fea con los filtros de fecha y buscador agregados; "si es necesario
+             abreviar, exportar a solamente tres letras Exp. Excel y Exp. PDF hazlo". -->
         <button id="preview-print-button" class="btn btn-outline" type="button">🖨️ Imprimir</button>
-        <button id="preview-excel-button" class="btn btn-outline" type="button">📊 Exportar Excel</button>
-        <button id="preview-pdf-button" class="btn btn-outline" type="button">📄 Exportar PDF</button>
+        <button id="preview-excel-button" class="btn btn-outline" type="button">📊 Exp. Excel</button>
+        <button id="preview-pdf-button" class="btn btn-outline" type="button">📄 Exp. PDF</button>
         <!-- Filtro por período — pedido explícito del usuario: "agrégale un filtro para
              poder buscar por fecha ... que se pueda escribir libre, la fecha y también el
              calendario, del ícono" — mismo input type="date" nativo que Desde/Hasta del
@@ -358,6 +361,15 @@
              buscador (pedido explícito: "deja nada más el puro Número" — el PIN mostraba
              varios valores separados por coma por empleado y confundía más de lo que ayudaba). -->
         <input id="preview-search-input" type="text" class="preview-search-input" placeholder="Buscar número o empleado…" />
+        <!-- Otro filtro, pedido explícito del usuario: "otro filtro que sea buscar por
+             departamento" — select en vez de otro campo de texto (los departamentos son un
+             catálogo cerrado: car wash, arábica café, otros, plaza sabo, etc. — ver
+             buildAttendanceReportRows), más compacto que un buscador libre y evita que la
+             barra se vea más apretada todavía. Opciones pobladas en JS (ver
+             populatePreviewDepartmentOptions) a partir de lo que trae el reporte actual. -->
+        <select id="preview-department-select" class="preview-date-input" aria-label="Filtrar por departamento">
+          <option value="">Todos los departamentos</option>
+        </select>
         <button id="report-preview-close" class="btn btn-ghost" type="button">✕ Cerrar</button>
       </div>
       <div class="report-preview-scroll">
@@ -366,7 +378,10 @@
             <img src="assets/logo.png" alt="Drive In Car Wash" class="report-preview-logo" />
             <div>
               <div class="report-preview-business">Drive In Car Wash</div>
-              <div class="report-preview-title">Reporte de asistencia</div>
+              <!-- "Asistencia" con mayúscula — pedido explícito del usuario: "en el
+                   documento, en el título reporte de asistencia, que asistencia tenga la
+                   a mayúscula, la primera letra". -->
+              <div class="report-preview-title">Reporte de Asistencia</div>
               <div class="report-preview-subtitle" id="preview-range-text"></div>
             </div>
           </div>
