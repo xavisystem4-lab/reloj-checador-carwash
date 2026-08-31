@@ -148,6 +148,7 @@ const previewDepartmentSelect = document.getElementById('preview-department-sele
 
 let lastReportRows = []; // última tabla de horas ya calculada (SIN filtrar) — la búsqueda parte de aquí
 let currentPreviewRows = []; // lo que está renderizado AHORA en la hoja (ya filtrado) — Excel/PDF/Imprimir exportan esto, no lastReportRows
+let reportPreviewZoomBeforePrint = ''; // ver beforeprint/afterprint en init() — restaura el zoom móvil tras imprimir
 
 let autoRefreshTimer = null;
 let lastLoadedRows = []; // guarda la última carga ya enriquecida, para exportar sin repetir el fetch
@@ -199,6 +200,21 @@ async function init() {
   previewDepartmentSelect.addEventListener('change', applyPreviewFilters);
   previewFromInput.addEventListener('change', onPreviewDateRangeChange);
   previewToInput.addEventListener('change', onPreviewDateRangeChange);
+  // Recalcula el zoom de la hoja al girar el teléfono/tablet o cambiar de tamaño de
+  // ventana — fitReportPreviewToViewport ya se sale sola si el modal está cerrado.
+  window.addEventListener('resize', debounce(fitReportPreviewToViewport, 150));
+  window.addEventListener('orientationchange', () => setTimeout(fitReportPreviewToViewport, 200));
+  // El zoom es solo para la VISTA en pantalla — imprimir (Ctrl+P, el botón Imprimir, o el
+  // propio menú del navegador) debe salir siempre a tamaño real, sin importar qué tan
+  // achicada se estuviera viendo la hoja en un teléfono. beforeprint/afterprint cubren
+  // cualquier forma de imprimir, no solo el botón.
+  window.addEventListener('beforeprint', () => {
+    reportPreviewZoomBeforePrint = reportPreviewPage.style.zoom;
+    reportPreviewPage.style.zoom = '';
+  });
+  window.addEventListener('afterprint', () => {
+    reportPreviewPage.style.zoom = reportPreviewZoomBeforePrint ?? '';
+  });
 
   showSignupButton.addEventListener('click', showSignupFormView);
   showLoginButton.addEventListener('click', showLoginFormView);
@@ -576,12 +592,14 @@ function renderUsersTable(users) {
           <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>Admin</option>
         </select>`;
 
+    // data-label en cada <td> — mismo criterio de tarjetas en móvil que la tabla de
+    // asistencia (ver styles.css, sección "Móvil y tablet").
     tr.innerHTML = `
-      <td>${nameCell}</td>
-      <td>${escapeHtml(user.email ?? '')}</td>
-      <td>${roleCell}</td>
-      <td>${lastSignIn}</td>
-      <td style="text-align:right; white-space:nowrap;">
+      <td data-label="Nombre">${nameCell}</td>
+      <td data-label="Correo">${escapeHtml(user.email ?? '')}</td>
+      <td data-label="Rol">${roleCell}</td>
+      <td data-label="Último acceso">${lastSignIn}</td>
+      <td data-label="Acciones" style="text-align:right; white-space:nowrap;">
         <button class="btn-icon" data-action="edit" data-id="${user.id}" data-name="${escapeHtml(user.full_name ?? '')}" title="Editar nombre">✏️</button>
         <button class="btn-icon" data-action="password" data-id="${user.id}" data-email="${escapeHtml(user.email ?? '')}" title="Cambiar contraseña">🔑</button>
         ${isSelf ? '' : `<button class="btn-icon danger" data-action="delete" data-id="${user.id}" data-email="${escapeHtml(user.email ?? '')}" title="Eliminar acceso">🗑️</button>`}
@@ -1101,15 +1119,18 @@ function renderTable(rows) {
         : '—';
 
     // Orden pedido explícito del usuario: PIN, Empleado, Tipo, Fecha y hora, Método,
-    // Sucursal, Dispositivo — mismo orden en index.html (encabezado <thead>).
+    // Sucursal, Dispositivo — mismo orden en index.html (encabezado <thead>). data-label
+    // en cada <td> — optimización móvil: en pantallas angostas la tabla se convierte en
+    // una lista de tarjetas (ver styles.css, sección "Móvil y tablet") y cada valor
+    // necesita su propia etiqueta ahí, porque el <thead> se oculta.
     tr.innerHTML = `
-      <td>${escapeHtml(row.device_user_pin)}</td>
-      <td>${employeeCell}</td>
-      <td>${punchLabel}</td>
-      <td>${formatAttendanceDateTime(row.timestamp_utc)}</td>
-      <td>${escapeHtml(mapVerifyMethod(row.verify_method))}</td>
-      <td>${escapeHtml(row.branchName)}</td>
-      <td>${escapeHtml(row.deviceName)}</td>
+      <td data-label="PIN">${escapeHtml(row.device_user_pin)}</td>
+      <td data-label="Empleado">${employeeCell}</td>
+      <td data-label="Tipo">${punchLabel}</td>
+      <td data-label="Fecha y hora">${formatAttendanceDateTime(row.timestamp_utc)}</td>
+      <td data-label="Método">${escapeHtml(mapVerifyMethod(row.verify_method))}</td>
+      <td data-label="Sucursal">${escapeHtml(row.branchName)}</td>
+      <td data-label="Dispositivo">${escapeHtml(row.deviceName)}</td>
     `;
     fragment.appendChild(tr);
   }
@@ -1413,7 +1434,29 @@ function openAttendanceReport() {
   applyPreviewFilters();
 
   reportPreviewModal.hidden = false;
+  fitReportPreviewToViewport();
   ensureExportLibrariesLoaded(); // en segundo plano — Excel/PDF no bloquean la vista previa
+}
+
+/// Optimización móvil/tablet — pedido explícito del usuario: "evitar scroll horizontal
+/// innecesario". La hoja del reporte SIEMPRE mide 8.5in (816px) de ancho real (necesario
+/// para que se imprima/exporte a Carta tal cual — ver .report-preview-page), pero en una
+/// pantalla angosta eso obligaba a hacer scroll horizontal para ver el resto de la tabla.
+/// Aquí se calcula cuánto "zoom" (no transform:scale — zoom SÍ recalcula el alto ocupado,
+/// así no queda un hueco en blanco enorme debajo) hace falta para que la hoja quepa
+/// completa en el ancho disponible, sin recortar nada. Nunca agranda por encima de 100%
+/// (min con 1) — en pantallas anchas la hoja se ve a su tamaño real, igual que siempre.
+const REPORT_PAGE_WIDTH_PX = 8.5 * 96; // 1in = 96px en CSS, mismo criterio que width:8.5in
+
+function fitReportPreviewToViewport() {
+  if (reportPreviewModal.hidden) return;
+  const container = reportPreviewPage.parentElement;
+  if (!container) return;
+  const style = getComputedStyle(container);
+  const paddingX = parseFloat(style.paddingLeft || '0') + parseFloat(style.paddingRight || '0');
+  const available = container.clientWidth - paddingX;
+  const scale = Math.min(1, available / REPORT_PAGE_WIDTH_PX);
+  reportPreviewPage.style.zoom = scale > 0 ? scale : 1;
 }
 
 /// Cambiar Desde/Hasta DENTRO de la previsualización — pedido explícito del usuario:
@@ -1580,6 +1623,11 @@ async function onExportReportPdfClick() {
   const originalLabel = previewPdfButton.textContent;
   previewPdfButton.disabled = true;
   previewPdfButton.textContent = 'Preparando…';
+  // Igual que con imprimir: el zoom es solo para verse completa en pantallas angostas
+  // (ver fitReportPreviewToViewport) — html2canvas debe capturar la hoja a tamaño real,
+  // si no el PDF saldría con todo achicado en vez de a tamaño Carta real.
+  const zoomBeforeExport = reportPreviewPage.style.zoom;
+  reportPreviewPage.style.zoom = '';
   try {
     await ensureExportLibrariesLoaded();
 
@@ -1614,6 +1662,7 @@ async function onExportReportPdfClick() {
   } catch (error) {
     alert('No se pudo exportar a PDF: ' + error.message);
   } finally {
+    reportPreviewPage.style.zoom = zoomBeforeExport;
     previewPdfButton.disabled = false;
     previewPdfButton.textContent = originalLabel;
   }
