@@ -216,6 +216,19 @@ async function init() {
   reportPreviewModal.addEventListener('click', (event) => {
     if (event.target === reportPreviewModal) closeReportPreview();
   });
+  // Pedido explícito del usuario: "al presionar la tecla ESC lo que quiero es que se
+  // salga" — cierra el modal que esté abierto en ese momento (el de más arriba, si por
+  // alguna razón hubiera más de uno). No cierra nada si el foco está en un <select>
+  // desplegado (ese caso el propio navegador ya usa Escape para cerrar el desplegable,
+  // no para nuestro modal) ni si hay un diálogo nativo (alert/confirm) esperando.
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    if (!reportPreviewModal.hidden) {
+      closeReportPreview();
+    } else if (!usersModal.hidden) {
+      closeUsersModal();
+    }
+  });
   previewPrintButton.addEventListener('click', () => window.print());
   previewExcelButton.addEventListener('click', onExportReportExcelClick);
   previewPdfButton.addEventListener('click', onExportReportPdfClick);
