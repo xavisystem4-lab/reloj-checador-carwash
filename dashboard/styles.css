@@ -708,7 +708,14 @@ select.preview-date-input { max-width: 190px; cursor: pointer; }
    una sola fila en pantallas angostas — pedido explícito del usuario: "que no se vean
    feos" — se deja envolver (flex-wrap arriba) en vez de apretarlos o hacerlos scrollear. */
 .report-preview-toolbar .btn-ghost { margin-left: auto; }
-.report-preview-scroll { overflow: auto; padding: 24px; display: flex; justify-content: center; background: #5B6472; }
+/* align-items: flex-start — pedido explícito del usuario: "no puedo scrollear hacia
+   abajo" (bug real: el align-items:stretch por defecto de un contenedor flex estiraba
+   report-preview-page-frame al alto visible del contenedor, y su overflow:hidden
+   recortaba todo lo que sobraba de la hoja en vez de dejarlo scrollear — con reportes de
+   muchos empleados, scrollHeight terminaba siendo IGUAL a clientHeight, sin nada que
+   scrollear). flex-start dimensiona el marco a su alto real de contenido, como debía ser
+   desde el principio. */
+.report-preview-scroll { overflow: auto; padding: 24px; display: flex; justify-content: center; align-items: flex-start; background: #5B6472; }
 
 /* Marco que fitReportPreviewToViewport() (app.js) redimensiona a mano al ancho/alto YA
    escalados cuando la hoja no cabe completa en pantallas angostas — ver el comentario
