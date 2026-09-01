@@ -313,6 +313,18 @@ body {
 }
 .link-button:hover { text-decoration: underline; }
 
+/* Crédito de desarrollo — pedido explícito del usuario: "en la parte de abajo, centrado,
+   un poco grande... vamos a colocar Desarrollado por Softgala", mismo texto que ya lleva
+   la app de escritorio en su barra inferior. "Un poco grande" en relación al link-button
+   de arriba (12.5px) — más visible sin competir con el botón principal. */
+.login-credit {
+  margin-top: 18px;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
 /* ---------- Dashboard ---------- */
 .dashboard-screen { min-height: 100vh; min-height: 100dvh; }
 
@@ -321,7 +333,14 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 14px 24px;
+  /* padding-right (60px, no 24px como el resto) — pedido explícito del usuario: "el ícono
+     del día o de noche interrumpe al botón de cerrar sesión". .theme-toggle es
+     position:fixed en la esquina (top:14 right:14, 38px de ancho, ver más abajo), SIEMPRE
+     encima de cualquier pantalla — sin este espacio reservado, el botón "Cerrar sesión"
+     (el último de topbar-actions, pegado al borde derecho) queda parcialmente tapado por
+     el círculo del pestillo de tema. Pasaba en escritorio Y en móvil (ahí ya se corregía
+     dentro de @media, pero en escritorio no había ningún resguardo). */
+  padding: 14px 60px 14px 24px;
   border-bottom: 1px solid var(--card-border);
   background: var(--card);
   position: sticky;
@@ -797,12 +816,6 @@ select.preview-date-input { max-width: 190px; cursor: pointer; }
      se "escape" del viewport. */
   html, body { overflow-x: hidden; max-width: 100%; }
 
-  /* El pestillo de tema es position:fixed en la esquina (top:14 right:14,
-     38px) sobre CUALQUIER pantalla — en anchos donde el contenido del
-     header llega hasta el borde, se empalmaban (bug real visto en
-     captura: el badge "Conectado" quedaba tapado por el botón). */
-  .topbar { padding-right: 60px; }
-
   /* Área táctil cómoda (mínimo recomendado ~44px) en todo lo que se toca
      con el dedo — antes el tamaño salía puramente del padding/texto, que
      en varios controles quedaba por debajo de eso. */
@@ -822,7 +835,9 @@ select.preview-date-input { max-width: 190px; cursor: pointer; }
     flex-direction: column;
     align-items: stretch;
     gap: 10px;
-    padding: 14px 60px 14px 16px; /* mismo despeje del pestillo de tema que arriba */
+    padding: 14px 60px 14px 16px; /* el padding-right:60px que despeja el pestillo de
+       tema ya viene de la regla base .topbar — este solo cambia left/top/bottom para
+       apilar el encabezado en móvil */
   }
   .topbar-logo { height: 28px; }
   .connection-badge { align-self: flex-start; }
