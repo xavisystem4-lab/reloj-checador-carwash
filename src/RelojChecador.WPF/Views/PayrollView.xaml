@@ -16,7 +16,7 @@
 
         <TextBlock Grid.Row="0" Text="Reportes" FontSize="26" FontWeight="Bold" Margin="0,0,0,4" />
         <TextBlock Grid.Row="1"
-                   Text="Horas trabajadas e insumo de nómina por semana. ISR/IMSS/otro se capturan manualmente por empleado (botón &quot;Editar deducciones&quot;) — el sistema nunca los calcula."
+                   Text="Horas trabajadas e insumo de nómina por semana. El primer día sin checada de la semana se toma como descanso; cualquier otro día sin checada se marca como falta — el sueldo semanal sale completo de cualquier forma, es el administrador quien ajusta a mano horas extra, faltas o cualquier otro cambio (botón &quot;Editar deducciones&quot;)."
                    FontSize="13" Foreground="{DynamicResource BrushTextSecondary}" Margin="0,0,0,12" />
 
         <!-- Semana lunes a domingo (ver WeekBoundary) — navegación en vez de un rango de
@@ -60,6 +60,12 @@
                      (ver EmployeesViewModel.ApplyCatalogReplaceAsync) — pedido explícito del
                      usuario: "que en los reportes se acomoden por sucursal". -->
                 <DataGridTextColumn Header="Departamento" Binding="{Binding Department}" Width="110" />
+                <!-- Descanso = primer día sin marcación de la semana (lun→dom); Falta =
+                     cualquier día sin marcación posterior a ese — ver comentario de clase
+                     de WorkedHoursCalculator. Solo informativo: el sueldo de la derecha ya
+                     sale completo, el administrador ajusta a mano lo que corresponda. -->
+                <DataGridTextColumn Header="Checadas de la semana" Binding="{Binding DailyBreakdownText}" Width="260" />
+                <DataGridTextColumn Header="Faltas" Binding="{Binding AbsenceCount}" Width="60" />
                 <DataGridTextColumn Header="Horas normales" Binding="{Binding RegularTimeText}" Width="100" />
                 <DataGridTextColumn Header="Horas extra" Binding="{Binding OvertimeTimeText}" Width="90" />
                 <DataGridTextColumn Header="Sueldo semanal" Binding="{Binding WeeklySalaryText}" Width="110" />

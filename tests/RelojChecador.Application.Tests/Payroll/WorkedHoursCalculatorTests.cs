@@ -268,4 +268,64 @@ public class WorkedHoursCalculatorTests
         Assert.Equal(200m, summary.OvertimePay); // 2h * 100
         Assert.Equal(200m, summary.TotalPay); // sin sueldo base, solo horas extra
     }
+
+    // ---- CalculateWeek: descanso / falta (DailyBreakdown) ----
+
+    [Fact]
+    public void CalculateWeek_SemanaCompletaSinMarcaciones_PrimerDiaEsDescansoYElRestoFaltas()
+    {
+        var employee = CreateSampleEmployee();
+        var weekStart = new DateOnly(2026, 8, 10); // lunes
+        // "Hoy" muy posterior a la semana completa, para que los 7 días ya se puedan
+        // clasificar (ninguno queda Pending).
+        var asOfDate = weekStart.AddDays(30);
+
+        var summary = WorkedHoursCalculator.CalculateWeek(employee, weekStart, [], asOfDate);
+
+        Assert.Equal(7, summary.DailyBreakdown.Count);
+        Assert.Equal(DayAttendanceStatus.RestDay, summary.DailyBreakdown[0].Status); // lunes
+        Assert.All(summary.DailyBreakdown.Skip(1), d => Assert.Equal(DayAttendanceStatus.Absence, d.Status));
+        Assert.Equal(new DateOnly(2026, 8, 10), summary.RestDay);
+        Assert.Equal(6, summary.AbsenceCount);
+        // La clasificación de descanso/falta es informativa: nunca se mete en Warnings
+        // (esa columna es solo para inconsistencias de datos, ver clase WorkedHoursCalculator).
+        Assert.Empty(summary.Warnings);
+    }
+
+    [Fact]
+    public void CalculateWeek_DiaConMarcacionIncompletaCuentaComoTrabajado_NoComoDescansoNiFalta()
+    {
+        var employee = CreateSampleEmployee();
+        var weekStart = new DateOnly(2026, 8, 10); // lunes
+        var attendances = new[]
+        {
+            // Entrada sin salida — el cálculo de horas da 0h y una advertencia, pero el
+            // empleado sí se presentó ese día.
+            CreateAttendance(new DateTime(2026, 8, 10, 8, 0, 0, DateTimeKind.Utc), punchType: 0),
+        };
+
+        var summary = WorkedHoursCalculator.CalculateWeek(employee, weekStart, attendances, weekStart.AddDays(30));
+
+        var monday = summary.DailyBreakdown.Single(d => d.Date == weekStart);
+        Assert.Equal(DayAttendanceStatus.Worked, monday.Status);
+        // El martes, sin ninguna marcación, sigue siendo el primer día "vacío" → descanso.
+        var tuesday = summary.DailyBreakdown.Single(d => d.Date == weekStart.AddDays(1));
+        Assert.Equal(DayAttendanceStatus.RestDay, tuesday.Status);
+    }
+
+    [Fact]
+    public void CalculateWeek_SemanaEnCurso_DiasFuturosQuedanPendientesNoFalta()
+    {
+        var employee = CreateSampleEmployee();
+        var weekStart = new DateOnly(2026, 8, 10); // lunes
+        var asOfDate = new DateOnly(2026, 8, 12); // miércoles: lunes y martes ya pasaron
+
+        var summary = WorkedHoursCalculator.CalculateWeek(employee, weekStart, [], asOfDate);
+
+        Assert.Equal(DayAttendanceStatus.RestDay, summary.DailyBreakdown[0].Status); // lunes
+        Assert.Equal(DayAttendanceStatus.Absence, summary.DailyBreakdown[1].Status); // martes
+        // Miércoles (hoy) en adelante: todavía puede llegar una marcación más tarde.
+        Assert.All(summary.DailyBreakdown.Skip(2), d => Assert.Equal(DayAttendanceStatus.Pending, d.Status));
+        Assert.Equal(1, summary.AbsenceCount);
+    }
 }

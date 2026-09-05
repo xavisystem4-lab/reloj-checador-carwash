@@ -48,6 +48,41 @@ public sealed record PayrollRow(
     /// clara; esto deja explícito que falta el dato, sin inventarlo como cero.</summary>
     public string WeeklySalaryText => Summary.WeeklySalary is { } salary ? salary.ToString("C") : "Pendiente";
 
+    /// <summary>Una línea por día (lunes→domingo) con sus horas o su estado — ver regla
+    /// de descanso/falta en el comentario de clase de WorkedHoursCalculator. Puramente
+    /// informativo: el sueldo de arriba ya está completo tal cual, esto es para que el
+    /// administrador vea de un vistazo qué ajustar a mano.</summary>
+    public string DailyBreakdownText => string.Join(" | ", Summary.DailyBreakdown.Select(FormatDay));
+
+    /// <summary>Cuántos días de la semana quedaron como falta (sin marcación, más allá
+    /// del día de descanso permitido) — 0 no se resalta distinto, es solo un conteo para
+    /// que el administrador sepa si hay algo que revisar antes de pagar.</summary>
+    public int AbsenceCount => Summary.AbsenceCount;
+
+    private static string FormatDay(DailyAttendanceEntry day)
+    {
+        var dayName = day.Date.DayOfWeek switch
+        {
+            DayOfWeek.Monday => "Lun",
+            DayOfWeek.Tuesday => "Mar",
+            DayOfWeek.Wednesday => "Mié",
+            DayOfWeek.Thursday => "Jue",
+            DayOfWeek.Friday => "Vie",
+            DayOfWeek.Saturday => "Sáb",
+            _ => "Dom",
+        };
+
+        var statusText = day.Status switch
+        {
+            DayAttendanceStatus.Worked => FormatHoursAndMinutes(day.RegularTime + day.OvertimeTime),
+            DayAttendanceStatus.RestDay => "Descanso",
+            DayAttendanceStatus.Absence => "Falta",
+            _ => "—",
+        };
+
+        return $"{dayName} {statusText}";
+    }
+
     /// <summary>Bruto (Summary.TotalPay) menos las tres deducciones capturadas a mano —
     /// nunca se impide que salga negativo: el usuario capturó los montos, no hay nada que
     /// la app deba "corregir" aquí.</summary>
@@ -213,7 +248,8 @@ public sealed partial class PayrollViewModel : ObservableObject
                 var employeeAttendances = attendancesByEmployeeId.TryGetValue(employee.Id, out var list)
                     ? (IReadOnlyList<Attendance>)list
                     : [];
-                var summary = WorkedHoursCalculator.CalculateWeek(employee, _weekStart, employeeAttendances);
+                var summary = WorkedHoursCalculator.CalculateWeek(
+                    employee, _weekStart, employeeAttendances, DateOnly.FromDateTime(DateTime.Now));
                 var branchName = branchNamesById.TryGetValue(employee.BranchId, out var name) ? name : "(sucursal desconocida)";
                 var deductionValues = deductionsByEmployeeId.TryGetValue(employee.Id, out var dv) ? dv : PayrollDeductionValues.Empty;
                 rows.Add(new PayrollRow(summary, employee.Number.Value, employee.FullName, branchName, employee.Department, deductionValues));
@@ -319,9 +355,9 @@ public sealed partial class PayrollViewModel : ObservableObject
     {
         var header = new[]
         {
-            "Empleado", "Sucursal", "Departamento", "Horas normales", "Horas extra", "Sueldo semanal",
-            "Pago horas extra", "Total a pagar", "ISR", "IMSS", "Otro (monto)", "Otro (concepto)",
-            "Neto a pagar", "Notas de deducciones", "Advertencias",
+            "Empleado", "Sucursal", "Departamento", "Checadas de la semana", "Faltas", "Horas normales",
+            "Horas extra", "Sueldo semanal", "Pago horas extra", "Total a pagar", "ISR", "IMSS", "Otro (monto)",
+            "Otro (concepto)", "Neto a pagar", "Notas de deducciones", "Advertencias",
         };
         var lines = new List<string> { string.Join(",", header.Select(CsvEscape)) };
 
@@ -332,6 +368,8 @@ public sealed partial class PayrollViewModel : ObservableObject
                 row.EmployeeName,
                 row.BranchName,
                 row.Department ?? "",
+                row.DailyBreakdownText,
+                row.AbsenceCount.ToString(),
                 row.RegularTimeText,
                 row.OvertimeTimeText,
                 row.Summary.WeeklySalary?.ToString("0.00") ?? "Pendiente",
