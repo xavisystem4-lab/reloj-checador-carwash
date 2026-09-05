@@ -8,6 +8,7 @@
     <UserControl.Resources>
         <converters:NullToVisibilityConverter x:Key="NullToCollapsedConverter" />
         <converters:PunchTypeToTextConverter x:Key="PunchTypeToTextConverter" />
+        <converters:AttendanceColorToBrushConverter x:Key="AttendanceColorToBrushConverter" />
         <BooleanToVisibilityConverter x:Key="BoolToVisibleConverter" />
         <!-- BasedOn el estilo global de Button (Themes/Styles.xaml) — sin esto, el botón
              quedaría con el chrome nativo de Windows en vez del look plano moderno, porque
@@ -247,6 +248,17 @@
                                      también el nombre" — resuelto por PIN+dispositivo igual
                                      que en Asistencia (ver RawAttendanceRow). "PIN empleado"
                                      se conserva aparte para comparar de un vistazo. -->
+                                <!-- Verde=puntual, amarillo=retardo (tolerancia 10 min) según
+                                     el horario esperado del empleado — ver PunctualityClassifier.
+                                     Gris si no hay con qué comparar (sin vincular, sin horario
+                                     capturado, o horario especial). -->
+                                <DataGridTemplateColumn Header="" Width="8">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <Rectangle Width="6" Fill="{Binding Color, Converter={StaticResource AttendanceColorToBrushConverter}}" />
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
                                 <DataGridTextColumn Header="PIN empleado" Binding="{Binding Record.DeviceUserPin}" Width="100" />
                                 <DataGridTextColumn Header="Empleado" Binding="{Binding EmployeeDisplay}" Width="160" />
                                 <DataGridTextColumn Header="Tipo" Binding="{Binding PreviewPunchTypeDisplay}" Width="170" />

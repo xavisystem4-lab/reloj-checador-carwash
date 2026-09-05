@@ -8,6 +8,7 @@
         ShowInTaskbar="False">
     <Window.Resources>
         <converters:PunchTypeToTextConverter x:Key="PunchTypeToTextConverter" />
+        <converters:AttendanceColorToBrushConverter x:Key="AttendanceColorToBrushConverter" />
     </Window.Resources>
     <Grid Margin="20">
         <Grid.RowDefinitions>
@@ -24,6 +25,13 @@
         <DataGrid Grid.Row="1" x:Name="RecordsGrid" AutoGenerateColumns="False" IsReadOnly="True"
                   CanUserAddRows="False" HeadersVisibility="Column" GridLinesVisibility="Horizontal">
             <DataGrid.Columns>
+                <DataGridTemplateColumn Header="" Width="8">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <Rectangle Width="6" Fill="{Binding Color, Converter={StaticResource AttendanceColorToBrushConverter}}" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
                 <DataGridTextColumn Header="PIN empleado" Binding="{Binding Record.DeviceUserPin}" Width="110" />
                 <DataGridTextColumn Header="Empleado" Binding="{Binding EmployeeDisplay}" Width="200" />
                 <DataGridTextColumn Header="Tipo" Binding="{Binding PreviewPunchTypeDisplay}" Width="170" />

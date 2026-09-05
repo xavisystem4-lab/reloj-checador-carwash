@@ -1,3 +1,4 @@
+using RelojChecador.Application.Attendances;
 using RelojChecador.Domain.Attendances;
 using RelojChecador.Domain.Employees;
 
@@ -97,8 +98,11 @@ public static class WorkedHoursCalculator
                 totalRegular += daySummary.RegularTime;
                 totalOvertime += daySummary.OvertimeTime;
                 warnings.AddRange(daySummary.Warnings.Select(w => $"{date:dd/MM}: {w}"));
+                var firstPunchUtc = dayAttendances.Min(a => a.TimestampUtc);
+                var color = PunctualityClassifier.Classify(
+                    DayAttendanceStatus.Worked, employee.HasSpecialSchedule, employee.ScheduledStartTime, firstPunchUtc);
                 dailyBreakdown.Add(new DailyAttendanceEntry(
-                    date, DayAttendanceStatus.Worked, daySummary.RegularTime, daySummary.OvertimeTime, daySummary.Warnings));
+                    date, DayAttendanceStatus.Worked, daySummary.RegularTime, daySummary.OvertimeTime, daySummary.Warnings, color));
                 continue;
             }
 
@@ -106,13 +110,17 @@ public static class WorkedHoursCalculator
             // recibir una marcación más tarde — no se clasifica como descanso ni falta.
             if (date >= today)
             {
-                dailyBreakdown.Add(new DailyAttendanceEntry(date, DayAttendanceStatus.Pending, TimeSpan.Zero, TimeSpan.Zero, []));
+                var pendingColor = PunctualityClassifier.Classify(
+                    DayAttendanceStatus.Pending, employee.HasSpecialSchedule, employee.ScheduledStartTime, null);
+                dailyBreakdown.Add(new DailyAttendanceEntry(date, DayAttendanceStatus.Pending, TimeSpan.Zero, TimeSpan.Zero, [], pendingColor));
                 continue;
             }
 
             var status = restDayTaken ? DayAttendanceStatus.Absence : DayAttendanceStatus.RestDay;
             restDayTaken = true;
-            dailyBreakdown.Add(new DailyAttendanceEntry(date, status, TimeSpan.Zero, TimeSpan.Zero, []));
+            var statusColor = PunctualityClassifier.Classify(
+                status, employee.HasSpecialSchedule, employee.ScheduledStartTime, null);
+            dailyBreakdown.Add(new DailyAttendanceEntry(date, status, TimeSpan.Zero, TimeSpan.Zero, [], statusColor));
         }
 
         var overtimePay = 0m;

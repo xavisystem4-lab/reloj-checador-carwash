@@ -25,6 +25,7 @@ public sealed record EmployeeCatalogRow(
     string? Department,
     TimeOnly? ScheduledStartTime,
     TimeOnly? ScheduledEndTime,
+    bool? HasSpecialSchedule,
     IReadOnlyList<string> Alerts)
 {
     public bool HasAlerts => Alerts.Count > 0;
@@ -64,6 +65,16 @@ public sealed record EmployeeCatalogParseResult(IReadOnlyList<EmployeeCatalogRow
 /// Department, un archivo que no las trae para una fila que ya existe NUNCA borra un
 /// horario ya capturado (ver EmployeesViewModel.ApplyCatalogReplaceAsync).
 ///
+/// <c>Horario Especial</c> (agregada a pedido explícito del usuario: "excluirlos de
+/// retardo/falta automáticos", ver Employee.HasSpecialSchedule) es OPCIONAL, acepta
+/// "Sí"/"No" — vacío significa "este archivo no lo dice", nunca se interpreta como "No"
+/// (mismo criterio que Department: un catálogo viejo sin esta columna nunca borra en
+/// silencio el horario especial que alguien ya tenía marcado; para un empleado NUEVO, vacío
+/// sí usa "No" por default, ver EmployeesViewModel.ApplyCatalogReplaceAsync). Un empleado
+/// con horario especial nunca sale amarillo/rojo en el semáforo de puntualidad (ver
+/// RelojChecador.Application.Attendances.PunctualityClassifier), aunque su Falta/Descanso
+/// real se sigue calculando igual que cualquiera.
+///
 /// <c>Pin</c> (agregada a pedido explícito del usuario: "quiero que agregue la columna PIN
 /// ... para que el PIN lo detecte el sistema al importarlo") es OPCIONAL y, si viene, debe
 /// ser solo dígitos — el teclado del reloj checador es numérico, igual criterio que
@@ -99,6 +110,7 @@ public static class EmployeeCatalogReplaceParser
     private const string ColDepartment = "Department";
     private const string ColScheduledStartTime = "Hora Entrada";
     private const string ColScheduledEndTime = "Hora Salida";
+    private const string ColHasSpecialSchedule = "Horario Especial";
 
     private static readonly string[] RequiredColumns = [ColNumber, ColFullName, ColArea];
 
@@ -106,6 +118,7 @@ public static class EmployeeCatalogReplaceParser
     [
         ColNumber, ColFullName, ColArea, ColPosition, ColHireDate, ColStatus, ColWeeklySalary,
         ColOvertimeHourlyRate, ColNotes, ColPin, ColDepartment, ColScheduledStartTime, ColScheduledEndTime,
+        ColHasSpecialSchedule,
     ];
 
     /// <summary>Encabezado "clásico" (con Department, sin horario) + una fila de ejemplo —
@@ -260,6 +273,12 @@ public static class EmployeeCatalogReplaceParser
                 continue;
             }
 
+            if (!TryParseOptionalBool(Get(ColHasSpecialSchedule), out var hasSpecialSchedule))
+            {
+                errors.Add($"Línea {lineNumber}: \"Horario Especial\" \"{Get(ColHasSpecialSchedule)}\" debe ser \"Sí\", \"No\" o estar vacío.");
+                continue;
+            }
+
             var alerts = new List<string>();
             if (weeklySalary is null)
             {
@@ -269,7 +288,7 @@ public static class EmployeeCatalogReplaceParser
             rows.Add(new EmployeeCatalogRow(
                 lineNumber, number, fullName, area, position, hireDate, status,
                 weeklySalary, overtimeHourlyRate, notes, pin, department,
-                scheduledStartTime, scheduledEndTime, alerts));
+                scheduledStartTime, scheduledEndTime, hasSpecialSchedule, alerts));
         }
 
         return new EmployeeCatalogParseResult(rows, errors);
@@ -332,6 +351,40 @@ public static class EmployeeCatalogReplaceParser
         }
 
         value = null;
+        return false;
+    }
+
+    /// <summary>Vacío → <c>null</c> ("no lo dice este archivo, no toques lo que ya tenía
+    /// capturado") — mismo criterio "null nunca sobreescribe un dato real" que Department/
+    /// Hora Entrada-Salida: un catálogo viejo sin esta columna nunca debe borrar en
+    /// silencio el horario especial de alguien que ya lo tenía marcado. Acepta "Sí"/"Si"/
+    /// "No" (con o sin acento) además de "true"/"false" por si el archivo se generó desde
+    /// otra herramienta.</summary>
+    private static bool TryParseOptionalBool(string raw, out bool? value)
+    {
+        var trimmed = raw.Trim();
+        if (trimmed.Length == 0)
+        {
+            value = null;
+            return true;
+        }
+
+        if (string.Equals(trimmed, "No", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(trimmed, "false", StringComparison.OrdinalIgnoreCase))
+        {
+            value = false;
+            return true;
+        }
+
+        if (string.Equals(trimmed, "Sí", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(trimmed, "Si", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(trimmed, "true", StringComparison.OrdinalIgnoreCase))
+        {
+            value = true;
+            return true;
+        }
+
+        value = default;
         return false;
     }
 

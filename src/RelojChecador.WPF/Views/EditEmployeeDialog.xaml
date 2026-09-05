@@ -107,14 +107,24 @@
                 <ColumnDefinition Width="10" />
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
-            <StackPanel Grid.Column="0">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <StackPanel Grid.Row="0" Grid.Column="0">
                 <TextBlock Text="Hora de entrada (opcional, HH:mm)" FontWeight="SemiBold" Margin="0,0,0,2" />
                 <TextBox x:Name="ScheduledStartTimeTextBox" Padding="4" ToolTip="Ej.: 08:00. Déjalo vacío junto con la hora de salida si el horario todavía no está definido." />
             </StackPanel>
-            <StackPanel Grid.Column="2">
+            <StackPanel Grid.Row="0" Grid.Column="2">
                 <TextBlock Text="Hora de salida (opcional, HH:mm)" FontWeight="SemiBold" Margin="0,0,0,2" />
                 <TextBox x:Name="ScheduledEndTimeTextBox" Padding="4" ToolTip="Ej.: 16:00." />
             </StackPanel>
+            <!-- Pedido explícito del usuario: "excluirlos de retardo/falta automáticos" —
+                 pensado para roles con horario flexible o nocturno (Velador, Gerente) que
+                 no siguen el patrón estándar de entrada puntual. Ver Employee.HasSpecialSchedule
+                 y RelojChecador.Application.Attendances.PunctualityClassifier. -->
+            <CheckBox Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3" x:Name="HasSpecialScheduleCheckBox"
+                      Content="Horario especial (no aplicar retardo/falta automáticos en Reportes)" Margin="0,8,0,0" />
         </Grid>
 
         <StackPanel Grid.Row="8" Margin="0,0,0,10">

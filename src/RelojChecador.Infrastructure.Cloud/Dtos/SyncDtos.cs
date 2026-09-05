@@ -26,12 +26,14 @@ public sealed record EmployeeDto(
     Guid Id, string Number, string FullName, Guid BranchId, string? Department, string? Position,
     DateOnly HireDate, string Status, string? Phone, string? Email, string? Rfc, string? Curp, string? Nss,
     decimal? WeeklySalary, decimal? OvertimeHourlyRate, string? Notes,
+    TimeOnly? ScheduledStartTime, TimeOnly? ScheduledEndTime, bool HasSpecialSchedule,
     DateTime CreatedAtUtc, DateTime UpdatedAtUtc, Guid ConcurrencyToken)
 {
     public static EmployeeDto FromDomain(Employee employee) => new(
         employee.Id, employee.Number.Value, employee.FullName, employee.BranchId, employee.Department, employee.Position,
         employee.HireDate, employee.Status.ToString(), employee.Phone, employee.Email, employee.Rfc, employee.Curp, employee.Nss,
         employee.WeeklySalary, employee.OvertimeHourlyRate, employee.Notes,
+        employee.ScheduledStartTime, employee.ScheduledEndTime, employee.HasSpecialSchedule,
         employee.CreatedAtUtc, employee.UpdatedAtUtc, employee.ConcurrencyToken);
 }
 

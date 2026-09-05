@@ -411,4 +411,60 @@ public class EmployeeCatalogReplaceParserTests
         Assert.Empty(result.Rows);
         Assert.Single(result.Errors);
     }
+
+    // ---- Horario Especial ----
+
+    [Fact]
+    public void Parse_SinColumnaHorarioEspecial_DevuelveNull()
+    {
+        var lines = new[]
+        {
+            Header,
+            "EMP-001,Adrian Uribe Garcia,CAR-WASH,Gerencia,2023-12-07,Activo,3800,135.71,Nota,7,Plaza Sabo",
+        };
+
+        var result = EmployeeCatalogReplaceParser.Parse(lines);
+
+        var row = Assert.Single(result.Rows);
+        // null = "este archivo no lo dice, no toques lo que ya tenía" — nunca se asume
+        // "No" solo porque la columna no vino (ver EmployeesViewModel.ApplyCatalogReplaceAsync).
+        Assert.Null(row.HasSpecialSchedule);
+    }
+
+    [Theory]
+    [InlineData("Sí", true)]
+    [InlineData("Si", true)]
+    [InlineData("No", false)]
+    [InlineData("", null)]
+    public void Parse_ConColumnaHorarioEspecial_InterpretaElValorCorrectamente(string raw, bool? expected)
+    {
+        var header = Header + ",Horario Especial";
+        var lines = new[]
+        {
+            header,
+            $"EMP-001,Adrian Uribe Garcia,CAR-WASH,Gerencia,2023-12-07,Activo,3800,135.71,Nota,7,Plaza Sabo,{raw}",
+        };
+
+        var result = EmployeeCatalogReplaceParser.Parse(lines);
+
+        Assert.Empty(result.Errors);
+        var row = Assert.Single(result.Rows);
+        Assert.Equal(expected, row.HasSpecialSchedule);
+    }
+
+    [Fact]
+    public void Parse_HorarioEspecialConValorInvalido_DevuelveError()
+    {
+        var header = Header + ",Horario Especial";
+        var lines = new[]
+        {
+            header,
+            "EMP-001,Adrian Uribe Garcia,CAR-WASH,Gerencia,2023-12-07,Activo,3800,135.71,Nota,7,Plaza Sabo,Tal vez",
+        };
+
+        var result = EmployeeCatalogReplaceParser.Parse(lines);
+
+        Assert.Empty(result.Rows);
+        Assert.Single(result.Errors);
+    }
 }

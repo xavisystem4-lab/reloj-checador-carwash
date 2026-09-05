@@ -111,7 +111,7 @@
                 <DataGridTextColumn x:Name="PositionColumn" Header="Puesto" Binding="{Binding Employee.Position}" Width="130" />
                 <!-- "08:00 - 16:00" o "Sin capturar" — pedido explícito del usuario: "que en
                      Empleados me aparezcan sus horarios" (ver EmployeesViewModel.EmployeeRow.ScheduleSummary). -->
-                <DataGridTextColumn x:Name="ScheduleColumn" Header="Horario" Binding="{Binding ScheduleSummary}" Width="120" />
+                <DataGridTextColumn x:Name="ScheduleColumn" Header="Horario" Binding="{Binding ScheduleSummaryWithSpecialFlag}" Width="160" />
                 <DataGridTextColumn x:Name="HireDateColumn" Header="Fecha de alta" Binding="{Binding Employee.HireDate, StringFormat='dd/MM/yyyy'}" Width="110" />
                 <DataGridTextColumn x:Name="StatusColumn" Header="Estatus" Binding="{Binding Employee.Status}" Width="90" />
                 <DataGridTextColumn x:Name="PhoneColumn" Header="Teléfono" Binding="{Binding Employee.Phone}" Width="110" />
