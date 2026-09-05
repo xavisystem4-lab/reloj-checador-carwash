@@ -20,6 +20,17 @@ namespace RelojChecador.Application.Payroll;
 /// una salida sin su entrada, un turno que quedó abierto todo el día). Esos casos se
 /// reportan en <c>Warnings</c> en vez de sumarse a ciegas — es lógica pura sin
 /// dependencias de infraestructura, para poder probarla exhaustivamente con xUnit.
+///
+/// <c>CalculateWeek</c> además clasifica cada uno de los 7 días de la semana en
+/// <see cref="DailyAttendanceEntry.Status"/>: si hubo al menos una marcación ese día es
+/// <c>Worked</c> (aunque el cálculo de horas haya dado advertencias — el empleado sí se
+/// presentó); si NO hubo ninguna marcación, el primer día así (en orden lunes→domingo) es
+/// <c>RestDay</c> (un empleado descansa 1 día por semana) y cualquier día sin marcación
+/// posterior a ese es <c>Absence</c>; los días de la semana en curso que todavía no
+/// ocurren (hoy o futuro) son <c>Pending</c> — nunca se marca una falta antes de tiempo.
+/// Esta clasificación es puramente informativa: el sueldo semanal se sigue pagando
+/// completo (ver <see cref="WeeklyPayrollSummary"/>), es el administrador quien decide
+/// ajustar manualmente por horas extra, faltas o cualquier otro motivo.
 /// </summary>
 public static class WorkedHoursCalculator
 {
@@ -54,8 +65,14 @@ public static class WorkedHoursCalculator
     }
 
     public static WeeklyPayrollSummary CalculateWeek(
-        Employee employee, DateOnly weekStart, IReadOnlyList<Attendance> weekAttendances)
+        Employee employee, DateOnly weekStart, IReadOnlyList<Attendance> weekAttendances, DateOnly? asOfDate = null)
     {
+        // "Hoy", para no marcar como descanso/falta un día de la semana en curso que
+        // todavía no ha ocurrido — parámetro explícito (en vez de leer DateTime.Now aquí
+        // dentro) para que la clasificación siga siendo pura y 100% probable con xUnit
+        // sin depender del reloj del sistema (ver comentario de clase).
+        var today = asOfDate ?? DateOnly.FromDateTime(DateTime.Now);
+
         var warnings = new List<string>();
         var totalRegular = TimeSpan.Zero;
         var totalOvertime = TimeSpan.Zero;
@@ -63,13 +80,39 @@ public static class WorkedHoursCalculator
         // Se agrupa por fecha calendario del propio TimestampUtc — igual criterio que el
         // resto de la app (ver AttendanceViewModel): no hay conversión real de zona
         // horaria, se asume que el negocio opera en una sola.
-        var byDay = weekAttendances.GroupBy(a => DateOnly.FromDateTime(a.TimestampUtc)).OrderBy(g => g.Key);
-        foreach (var dayGroup in byDay)
+        var byDay = weekAttendances
+            .GroupBy(a => DateOnly.FromDateTime(a.TimestampUtc))
+            .ToDictionary(g => g.Key, g => (IReadOnlyList<Attendance>)g.ToList());
+
+        var dailyBreakdown = new List<DailyAttendanceEntry>();
+        var restDayTaken = false;
+
+        for (var offset = 0; offset < 7; offset++)
         {
-            var daySummary = CalculateDay(dayGroup.Key, dayGroup.ToList());
-            totalRegular += daySummary.RegularTime;
-            totalOvertime += daySummary.OvertimeTime;
-            warnings.AddRange(daySummary.Warnings.Select(w => $"{dayGroup.Key:dd/MM}: {w}"));
+            var date = weekStart.AddDays(offset);
+
+            if (byDay.TryGetValue(date, out var dayAttendances))
+            {
+                var daySummary = CalculateDay(date, dayAttendances);
+                totalRegular += daySummary.RegularTime;
+                totalOvertime += daySummary.OvertimeTime;
+                warnings.AddRange(daySummary.Warnings.Select(w => $"{date:dd/MM}: {w}"));
+                dailyBreakdown.Add(new DailyAttendanceEntry(
+                    date, DayAttendanceStatus.Worked, daySummary.RegularTime, daySummary.OvertimeTime, daySummary.Warnings));
+                continue;
+            }
+
+            // Sin ninguna marcación ese día. Un día de hoy en adelante todavía puede
+            // recibir una marcación más tarde — no se clasifica como descanso ni falta.
+            if (date >= today)
+            {
+                dailyBreakdown.Add(new DailyAttendanceEntry(date, DayAttendanceStatus.Pending, TimeSpan.Zero, TimeSpan.Zero, []));
+                continue;
+            }
+
+            var status = restDayTaken ? DayAttendanceStatus.Absence : DayAttendanceStatus.RestDay;
+            restDayTaken = true;
+            dailyBreakdown.Add(new DailyAttendanceEntry(date, status, TimeSpan.Zero, TimeSpan.Zero, []));
         }
 
         var overtimePay = 0m;
@@ -102,7 +145,7 @@ public static class WorkedHoursCalculator
 
         return new WeeklyPayrollSummary(
             employee.Id, weekStart, weekStart.AddDays(6), totalRegular, totalOvertime,
-            employee.WeeklySalary, employee.OvertimeHourlyRate, overtimePay, totalPay, warnings);
+            employee.WeeklySalary, employee.OvertimeHourlyRate, overtimePay, totalPay, warnings, dailyBreakdown);
     }
 
     /// <summary>Empareja cronológicamente cada marcación "abre" (openType) con la
