@@ -64,6 +64,18 @@ public sealed class Employee : AuditableEntity
     /// <summary>Hora de salida esperada — ver <see cref="ScheduledStartTime"/>.</summary>
     public TimeOnly? ScheduledEndTime { get; private set; }
 
+    /// <summary>"Horario especial" — pedido explícito del usuario para roles con horario
+    /// flexible o nocturno (Velador, Gerente) que no siguen el patrón estándar de entrada
+    /// puntual/retardo: cuando es <c>true</c>, este empleado queda excluido de la
+    /// clasificación automática de puntualidad (ver
+    /// RelojChecador.Application.Attendances.PunctualityClassifier) — nunca se pinta de
+    /// amarillo (retardo) ni de rojo (falta) por ese cálculo. Esto NO oculta si trabajó o
+    /// no: <c>DayAttendanceStatus</c> (Worked/RestDay/Absence/Pending) sigue calculándose
+    /// igual para todos, esto solo evita el juicio de puntualidad sobre alguien cuyo
+    /// horario real no es el turno estándar. Default <c>false</c> — un empleado nuevo
+    /// siempre entra bajo la regla general hasta que se marque lo contrario a mano.</summary>
+    public bool HasSpecialSchedule { get; private set; }
+
     private Employee()
     {
         // Constructor privado para EF Core.
@@ -77,7 +89,8 @@ public sealed class Employee : AuditableEntity
         decimal? weeklySalary,
         string? department = null,
         string? position = null,
-        decimal? overtimeHourlyRate = null)
+        decimal? overtimeHourlyRate = null,
+        bool hasSpecialSchedule = false)
     {
         ArgumentNullException.ThrowIfNull(number);
         Guard.AgainstNullOrWhiteSpace(fullName, nameof(fullName));
@@ -105,6 +118,7 @@ public sealed class Employee : AuditableEntity
             Status = EmploymentStatus.Active,
             WeeklySalary = weeklySalary,
             OvertimeHourlyRate = overtimeHourlyRate,
+            HasSpecialSchedule = hasSpecialSchedule,
         };
         employee.InitializeAuditFields();
         return employee;
@@ -190,6 +204,16 @@ public sealed class Employee : AuditableEntity
     {
         ScheduledStartTime = scheduledStartTime;
         ScheduledEndTime = scheduledEndTime;
+        Touch();
+    }
+
+    /// <summary>Marca o quita el "horario especial" — ver <see cref="HasSpecialSchedule"/>.
+    /// Independiente de <see cref="UpdateSchedule"/>: un empleado puede tener horario
+    /// especial con o sin horas capturadas (p. ej. un Gerente cuyo horario real varía
+    /// día a día y nunca se va a capturar como un par fijo de horas).</summary>
+    public void SetSpecialSchedule(bool hasSpecialSchedule)
+    {
+        HasSpecialSchedule = hasSpecialSchedule;
         Touch();
     }
 

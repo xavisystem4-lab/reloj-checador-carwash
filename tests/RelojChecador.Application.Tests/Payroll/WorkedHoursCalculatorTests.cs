@@ -1,3 +1,4 @@
+using RelojChecador.Application.Attendances;
 using RelojChecador.Application.Payroll;
 using RelojChecador.Domain.Attendances;
 using RelojChecador.Domain.Employees;
@@ -13,10 +14,19 @@ public class WorkedHoursCalculatorTests
         Attendance.Create(
             DeviceId, BranchId, "7", timestampUtc, AttendanceVerifyMethod.Fingerprint, punchType, "raw");
 
-    private static Employee CreateSampleEmployee(decimal? weeklySalary = 2500m, decimal? overtimeHourlyRate = null) =>
-        Employee.Create(
+    private static Employee CreateSampleEmployee(
+        decimal? weeklySalary = 2500m, decimal? overtimeHourlyRate = null,
+        TimeOnly? scheduledStartTime = null, bool hasSpecialSchedule = false)
+    {
+        var employee = Employee.Create(
             EmployeeNumber.Create("0114"), "Ana Torres", Guid.NewGuid(), new DateOnly(2024, 3, 1), weeklySalary,
-            overtimeHourlyRate: overtimeHourlyRate);
+            overtimeHourlyRate: overtimeHourlyRate, hasSpecialSchedule: hasSpecialSchedule);
+        if (scheduledStartTime is not null)
+        {
+            employee.UpdateSchedule(scheduledStartTime, scheduledStartTime.Value.AddHours(8));
+        }
+        return employee;
+    }
 
     // ---- WeekBoundary ----
 
@@ -327,5 +337,84 @@ public class WorkedHoursCalculatorTests
         // Miércoles (hoy) en adelante: todavía puede llegar una marcación más tarde.
         Assert.All(summary.DailyBreakdown.Skip(2), d => Assert.Equal(DayAttendanceStatus.Pending, d.Status));
         Assert.Equal(1, summary.AbsenceCount);
+    }
+
+    // ---- CalculateWeek: color de puntualidad (DailyAttendanceEntry.Color) ----
+
+    [Fact]
+    public void CalculateWeek_LlegadaPuntual_DiaSaleVerde()
+    {
+        var employee = CreateSampleEmployee(scheduledStartTime: new TimeOnly(8, 0));
+        var weekStart = new DateOnly(2026, 8, 10); // lunes
+        var attendances = new[]
+        {
+            CreateAttendance(new DateTime(2026, 8, 10, 8, 5, 0, DateTimeKind.Utc), punchType: 0),
+            CreateAttendance(new DateTime(2026, 8, 10, 17, 0, 0, DateTimeKind.Utc), punchType: 1),
+        };
+
+        var summary = WorkedHoursCalculator.CalculateWeek(employee, weekStart, attendances, weekStart.AddDays(30));
+
+        var monday = summary.DailyBreakdown.Single(d => d.Date == weekStart);
+        Assert.Equal(AttendanceColor.Green, monday.Color);
+    }
+
+    [Fact]
+    public void CalculateWeek_LlegadaConRetardo_DiaSaleAmarillo()
+    {
+        var employee = CreateSampleEmployee(scheduledStartTime: new TimeOnly(8, 0));
+        var weekStart = new DateOnly(2026, 8, 10); // lunes
+        var attendances = new[]
+        {
+            CreateAttendance(new DateTime(2026, 8, 10, 8, 30, 0, DateTimeKind.Utc), punchType: 0),
+            CreateAttendance(new DateTime(2026, 8, 10, 17, 0, 0, DateTimeKind.Utc), punchType: 1),
+        };
+
+        var summary = WorkedHoursCalculator.CalculateWeek(employee, weekStart, attendances, weekStart.AddDays(30));
+
+        var monday = summary.DailyBreakdown.Single(d => d.Date == weekStart);
+        Assert.Equal(AttendanceColor.Yellow, monday.Color);
+    }
+
+    [Fact]
+    public void CalculateWeek_Falta_DiaSaleRojo()
+    {
+        var employee = CreateSampleEmployee(scheduledStartTime: new TimeOnly(8, 0));
+        var weekStart = new DateOnly(2026, 8, 10); // lunes
+
+        var summary = WorkedHoursCalculator.CalculateWeek(employee, weekStart, [], weekStart.AddDays(30));
+
+        // Lunes = descanso (neutral), martes en adelante = falta (rojo).
+        var tuesday = summary.DailyBreakdown.Single(d => d.Date == weekStart.AddDays(1));
+        Assert.Equal(AttendanceColor.Red, tuesday.Color);
+    }
+
+    [Fact]
+    public void CalculateWeek_HorarioEspecialLlegaTarde_SigueVerdeNoAmarillo()
+    {
+        var employee = CreateSampleEmployee(scheduledStartTime: new TimeOnly(8, 0), hasSpecialSchedule: true);
+        var weekStart = new DateOnly(2026, 8, 10); // lunes
+        var attendances = new[]
+        {
+            CreateAttendance(new DateTime(2026, 8, 10, 11, 0, 0, DateTimeKind.Utc), punchType: 0),
+            CreateAttendance(new DateTime(2026, 8, 10, 19, 0, 0, DateTimeKind.Utc), punchType: 1),
+        };
+
+        var summary = WorkedHoursCalculator.CalculateWeek(employee, weekStart, attendances, weekStart.AddDays(30));
+
+        var monday = summary.DailyBreakdown.Single(d => d.Date == weekStart);
+        Assert.Equal(AttendanceColor.Green, monday.Color);
+    }
+
+    [Fact]
+    public void CalculateWeek_HorarioEspecialSinChecar_EsNeutralNoRojo()
+    {
+        var employee = CreateSampleEmployee(scheduledStartTime: new TimeOnly(8, 0), hasSpecialSchedule: true);
+        var weekStart = new DateOnly(2026, 8, 10); // lunes
+
+        var summary = WorkedHoursCalculator.CalculateWeek(employee, weekStart, [], weekStart.AddDays(30));
+
+        var tuesday = summary.DailyBreakdown.Single(d => d.Date == weekStart.AddDays(1));
+        Assert.Equal(DayAttendanceStatus.Absence, tuesday.Status); // la falta sigue siendo real...
+        Assert.Equal(AttendanceColor.Neutral, tuesday.Color); // ...solo no se pinta de rojo.
     }
 }

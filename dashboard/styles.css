@@ -16,6 +16,8 @@
   --accent-soft: #FDEAE0;
   --green: #16814F;
   --green-soft: #E1F6EB;
+  --yellow: #A15C00;
+  --yellow-soft: #FDF1DC;
   --red: #C13333;
   --red-soft: #FCE9E9;
   --row-border: #EEF2F7;
@@ -53,6 +55,8 @@
     --accent-soft: #3A2617;
     --green: #38C98C;
     --green-soft: #103524;
+    --yellow: #E8B54D;
+    --yellow-soft: #3A2E10;
     --red: #FF6B6B;
     --red-soft: #3A1717;
     --row-border: #1C2532;
@@ -79,6 +83,8 @@
   --accent-soft: #3A2617;
   --green: #38C98C;
   --green-soft: #103524;
+  --yellow: #E8B54D;
+  --yellow-soft: #3A2E10;
   --red: #FF6B6B;
   --red-soft: #3A1717;
   --row-border: #1C2532;
@@ -460,6 +466,22 @@ body {
 .device-status-dot.offline { background: var(--dim); }
 .device-status-name { font-weight: 700; }
 .device-status-label { color: var(--muted); }
+
+/* Semáforo de puntualidad en el reporte de asistencia — verde=puntual, amarillo=retardo
+   (tolerancia 10 min), rojo=falta, gris=sin juicio (descanso/pendiente/horario especial).
+   Ver PunctualityClassifier del repo principal para la misma regla en la app de escritorio. */
+.attendance-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.attendance-dot--green { background: var(--green); box-shadow: 0 0 0 3px var(--green-soft); }
+.attendance-dot--yellow { background: var(--yellow); box-shadow: 0 0 0 3px var(--yellow-soft); }
+.attendance-dot--red { background: var(--red); box-shadow: 0 0 0 3px var(--red-soft); }
+.attendance-dot--neutral { background: var(--dim); }
 
 .kpi-row {
   display: grid;

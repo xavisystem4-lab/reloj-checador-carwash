@@ -11,6 +11,7 @@ using RelojChecador.Application.Common;
 using RelojChecador.Application.Devices;
 using RelojChecador.Application.EmployeeDeviceMappings;
 using RelojChecador.Application.Employees;
+using RelojChecador.Application.Payroll;
 using RelojChecador.Domain.Attendances;
 using RelojChecador.Domain.Branches;
 using RelojChecador.Domain.Common;
@@ -86,7 +87,12 @@ public sealed partial class DeviceUserRow : ObservableObject
 /// tiene que aparecer también el nombre" en la tabla de "Asistencias descargadas". Nulo si
 /// ese PIN todavía no está vinculado a ningún empleado (mismo caso que
 /// AttendanceRow.EmployeeName en la pantalla de Asistencia).</summary>
-public sealed record RawAttendanceRow(RawAttendanceRecord Record, string? EmployeeName)
+/// <param name="Color">Semáforo de puntualidad (ver PunctualityClassifier) comparando esta
+/// marcación contra el horario esperado del empleado — siempre calculado como si hubiera
+/// "trabajado" (nunca sale rojo/Falta aquí: es una llegada que sí ocurrió, ver comentario
+/// de clase de DayBadge en PayrollViewModel para el mismo semáforo aplicado a un día
+/// completo). Neutral si el PIN no está vinculado o el empleado no tiene horario capturado.</param>
+public sealed record RawAttendanceRow(RawAttendanceRecord Record, string? EmployeeName, AttendanceColor Color = AttendanceColor.Neutral)
 {
     public string EmployeeDisplay => EmployeeName ?? $"PIN {Record.DeviceUserPin} · sin vincular";
 
@@ -391,14 +397,23 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
     private async void OnAttendancePunchReceived(object? sender, RawAttendanceRecord record)
     {
         string? employeeName = null;
+        var color = AttendanceColor.Neutral;
         if (SelectedDevice is { } device)
         {
-            (_, _, employeeName, _) = await ResolveEmployeeAndBranchAsync(device.Id, record.DeviceUserPin);
+            TimeOnly? scheduledStartTime;
+            bool hasSpecialSchedule;
+            (_, _, employeeName, _, scheduledStartTime, hasSpecialSchedule) = await ResolveEmployeeAndBranchAsync(device.Id, record.DeviceUserPin);
+            // Es una llegada real que acaba de pasar — siempre "Worked" para este cálculo
+            // (rojo/Falta no aplica a una marcación que sí llegó, ver comentario de clase de
+            // RawAttendanceRow.Color); sin horario capturado o con horario especial se queda
+            // en Neutral/Verde según PunctualityClassifier.
+            color = PunctualityClassifier.Classify(
+                DayAttendanceStatus.Worked, hasSpecialSchedule, scheduledStartTime, record.TimestampUtc);
         }
 
         System.Windows.Application.Current?.Dispatcher.Invoke(() =>
         {
-            AttendanceRecords.Insert(0, new RawAttendanceRow(record, employeeName));
+            AttendanceRecords.Insert(0, new RawAttendanceRow(record, employeeName, color));
             AppendLog($"🟢 Marcación en vivo — PIN {record.DeviceUserPin} · {record.TimestampUtc:HH:mm:ss} · {record.VerifyMethod}");
 
             // Fire-and-forget deliberado: no se puede "esperar" aquí sin bloquear el hilo de
@@ -436,19 +451,19 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
     /// (tiempo real) — la descarga en lote precomputa esto una sola vez para todo el lote
     /// en vez de repetir esta consulta cientos de veces, ver
     /// BuildEmployeeBranchLookupByPinAsync.</summary>
-    private async Task<(Guid? EmployeeId, Guid? BranchId, string? EmployeeName, TimeOnly? ScheduledEndTime)> ResolveEmployeeAndBranchAsync(Guid deviceId, string deviceUserPin)
+    private async Task<(Guid? EmployeeId, Guid? BranchId, string? EmployeeName, TimeOnly? ScheduledEndTime, TimeOnly? ScheduledStartTime, bool HasSpecialSchedule)> ResolveEmployeeAndBranchAsync(Guid deviceId, string deviceUserPin)
     {
         var mapping = (await _mappingRepository.ListAsync())
             .FirstOrDefault(m => m.DeviceId == deviceId && m.DeviceUserPin == deviceUserPin);
         if (mapping is null)
         {
-            return (null, null, null, null);
+            return (null, null, null, null, null, false);
         }
 
         var employee = await _employeeRepository.GetByIdAsync(mapping.EmployeeId);
         return employee is null
-            ? (null, null, null, null)
-            : (employee.Id, employee.BranchId, employee.FullName, employee.ScheduledEndTime);
+            ? (null, null, null, null, null, false)
+            : (employee.Id, employee.BranchId, employee.FullName, employee.ScheduledEndTime, employee.ScheduledStartTime, employee.HasSpecialSchedule);
     }
 
     /// <summary>Precomputa, para TODOS los PINs vinculados a <paramref name="deviceId"/>, a
@@ -545,7 +560,7 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
             }
             else
             {
-                (employeeId, branchId, _, scheduledEndTime) = await ResolveEmployeeAndBranchAsync(device.Id, record.DeviceUserPin);
+                (employeeId, branchId, _, scheduledEndTime, _, _) = await ResolveEmployeeAndBranchAsync(device.Id, record.DeviceUserPin);
             }
 
             // El PunchType crudo del dispositivo (dwInOutMode) NO se usa — pedido explícito
@@ -1244,7 +1259,11 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
             foreach (var record in result.Value.OrderByDescending(r => r.TimestampUtc))
             {
                 var employeeName = employeeByPin.TryGetValue(record.DeviceUserPin, out var employee) ? employee.FullName : null;
-                AttendanceRecords.Add(new RawAttendanceRow(record, employeeName));
+                var color = employee is null
+                    ? AttendanceColor.Neutral
+                    : PunctualityClassifier.Classify(
+                        DayAttendanceStatus.Worked, employee.HasSpecialSchedule, employee.ScheduledStartTime, record.TimestampUtc);
+                AttendanceRecords.Add(new RawAttendanceRow(record, employeeName, color));
                 if (await PersistAttendanceAsync(record, source: "descarga", employeeByPin))
                 {
                     savedCount++;

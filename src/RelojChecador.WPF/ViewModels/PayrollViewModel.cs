@@ -27,6 +27,11 @@ public sealed record PayrollDeductionValues(decimal IsrAmount, decimal ImssAmoun
         new(deduction.IsrAmount, deduction.ImssAmount, deduction.OtherAmount, deduction.OtherLabel, deduction.Notes);
 }
 
+/// <summary>Una insignia de un día en la grilla de Reportes — "Lun", "9:00"/"Descanso"/
+/// "Falta"/"—" y el semáforo de puntualidad (ver <see cref="AttendanceColor"/> y
+/// PunctualityClassifier) que decide de qué color se pinta.</summary>
+public sealed record DayBadge(string DayLabel, string StatusText, AttendanceColor Color);
+
 /// <summary>Una fila del reporte: el resultado de <see cref="WorkedHoursCalculator.CalculateWeek"/>
 /// para un empleado, con su nombre y sucursal ya resueltos, más las deducciones (ISR/IMSS/
 /// otro) capturadas manualmente para esa semana — ver comentario de clase de
@@ -59,19 +64,13 @@ public sealed record PayrollRow(
     /// que el administrador sepa si hay algo que revisar antes de pagar.</summary>
     public int AbsenceCount => Summary.AbsenceCount;
 
-    private static string FormatDay(DailyAttendanceEntry day)
-    {
-        var dayName = day.Date.DayOfWeek switch
-        {
-            DayOfWeek.Monday => "Lun",
-            DayOfWeek.Tuesday => "Mar",
-            DayOfWeek.Wednesday => "Mié",
-            DayOfWeek.Thursday => "Jue",
-            DayOfWeek.Friday => "Vie",
-            DayOfWeek.Saturday => "Sáb",
-            _ => "Dom",
-        };
+    /// <summary>Una insignia por día (lunes→domingo) para pintar en la grilla — ver
+    /// <see cref="DayBadge"/> y el semáforo de puntualidad en el comentario de clase de
+    /// PunctualityClassifier. Puramente visual, la misma información que DailyBreakdownText.</summary>
+    public IReadOnlyList<DayBadge> DailyBadges => [.. Summary.DailyBreakdown.Select(ToBadge)];
 
+    private static DayBadge ToBadge(DailyAttendanceEntry day)
+    {
         var statusText = day.Status switch
         {
             DayAttendanceStatus.Worked => FormatHoursAndMinutes(day.RegularTime + day.OvertimeTime),
@@ -80,8 +79,32 @@ public sealed record PayrollRow(
             _ => "—",
         };
 
-        return $"{dayName} {statusText}";
+        return new DayBadge(GetDayAbbreviation(day.Date.DayOfWeek), statusText, day.Color);
     }
+
+    private static string FormatDay(DailyAttendanceEntry day)
+    {
+        var statusText = day.Status switch
+        {
+            DayAttendanceStatus.Worked => FormatHoursAndMinutes(day.RegularTime + day.OvertimeTime),
+            DayAttendanceStatus.RestDay => "Descanso",
+            DayAttendanceStatus.Absence => "Falta",
+            _ => "—",
+        };
+
+        return $"{GetDayAbbreviation(day.Date.DayOfWeek)} {statusText}";
+    }
+
+    private static string GetDayAbbreviation(DayOfWeek dayOfWeek) => dayOfWeek switch
+    {
+        DayOfWeek.Monday => "Lun",
+        DayOfWeek.Tuesday => "Mar",
+        DayOfWeek.Wednesday => "Mié",
+        DayOfWeek.Thursday => "Jue",
+        DayOfWeek.Friday => "Vie",
+        DayOfWeek.Saturday => "Sáb",
+        _ => "Dom",
+    };
 
     /// <summary>Bruto (Summary.TotalPay) menos las tres deducciones capturadas a mano —
     /// nunca se impide que salga negativo: el usuario capturó los montos, no hay nada que

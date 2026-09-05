@@ -44,6 +44,7 @@ public partial class EditEmployeeDialog : Window
     public string? Notes => string.IsNullOrWhiteSpace(NotesTextBox.Text) ? null : NotesTextBox.Text.Trim();
     public TimeOnly? ScheduledStartTime { get; private set; }
     public TimeOnly? ScheduledEndTime { get; private set; }
+    public bool HasSpecialSchedule => HasSpecialScheduleCheckBox.IsChecked == true;
 
     private const string ScheduleTimeFormat = "HH:mm";
 
@@ -73,6 +74,7 @@ public partial class EditEmployeeDialog : Window
         NotesTextBox.Text = employee.Notes ?? "";
         ScheduledStartTimeTextBox.Text = employee.ScheduledStartTime?.ToString(ScheduleTimeFormat, CultureInfo.InvariantCulture) ?? "";
         ScheduledEndTimeTextBox.Text = employee.ScheduledEndTime?.ToString(ScheduleTimeFormat, CultureInfo.InvariantCulture) ?? "";
+        HasSpecialScheduleCheckBox.IsChecked = employee.HasSpecialSchedule;
 
         BranchComboBox.ItemsSource = branches;
         BranchComboBox.SelectedItem = branches.FirstOrDefault(b => b.Id == employee.BranchId);

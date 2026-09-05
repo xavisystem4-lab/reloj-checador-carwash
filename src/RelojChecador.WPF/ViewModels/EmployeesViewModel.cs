@@ -48,6 +48,12 @@ public sealed record EmployeeRow(Employee Employee, string BranchName, string Li
     public string ScheduleSummary => Employee.ScheduledStartTime is { } start && Employee.ScheduledEndTime is { } end
         ? $"{start:HH\\:mm} - {end:HH\\:mm}"
         : "Sin capturar";
+
+    /// <summary>"⭐ Horario especial" cuando aplica, para verlo de un vistazo en la grilla
+    /// junto al horario — ver Employee.HasSpecialSchedule.</summary>
+    public string ScheduleSummaryWithSpecialFlag => Employee.HasSpecialSchedule
+        ? $"{ScheduleSummary} ⭐ Especial"
+        : ScheduleSummary;
 }
 
 /// <summary>Un vínculo de un empleado a un dispositivo, con el nombre del dispositivo ya
@@ -364,12 +370,13 @@ public sealed partial class EmployeesViewModel : ObservableObject
     public async Task<string?> CreateEmployeeAsync(
         string number, string fullName, Guid branchId, DateOnly hireDate, decimal? weeklySalary, string? department, string? position,
         decimal? overtimeHourlyRate = null, Guid? deviceId = null, string? deviceUserPin = null, string? notes = null,
-        TimeOnly? scheduledStartTime = null, TimeOnly? scheduledEndTime = null)
+        TimeOnly? scheduledStartTime = null, TimeOnly? scheduledEndTime = null, bool hasSpecialSchedule = false)
     {
         try
         {
             var employee = Employee.Create(
-                EmployeeNumber.Create(number), fullName, branchId, hireDate, weeklySalary, department, position, overtimeHourlyRate);
+                EmployeeNumber.Create(number), fullName, branchId, hireDate, weeklySalary, department, position, overtimeHourlyRate,
+                hasSpecialSchedule: hasSpecialSchedule);
             if (!string.IsNullOrWhiteSpace(notes))
             {
                 employee.UpdateNotes(notes);
@@ -429,7 +436,7 @@ public sealed partial class EmployeesViewModel : ObservableObject
         Guid employeeId, string number, string fullName, Guid branchId, string? department, string? position,
         string? phone, string? email, EmploymentStatus status, decimal? weeklySalary, decimal? overtimeHourlyRate = null,
         Guid? deviceId = null, string? deviceUserPin = null, string? notes = null,
-        TimeOnly? scheduledStartTime = null, TimeOnly? scheduledEndTime = null)
+        TimeOnly? scheduledStartTime = null, TimeOnly? scheduledEndTime = null, bool hasSpecialSchedule = false)
     {
         try
         {
@@ -452,6 +459,7 @@ public sealed partial class EmployeesViewModel : ObservableObject
             employee.UpdateCompensation(weeklySalary, overtimeHourlyRate);
             employee.UpdateNotes(notes);
             employee.UpdateSchedule(scheduledStartTime, scheduledEndTime);
+            employee.SetSpecialSchedule(hasSpecialSchedule);
             if (employee.BranchId != branchId)
             {
                 employee.TransferToBranch(branchId);
@@ -1146,7 +1154,8 @@ public sealed partial class EmployeesViewModel : ObservableObject
                 {
                     employee = Employee.Create(
                         EmployeeNumber.Create(row.Number), row.FullName, branchId,
-                        row.HireDate ?? today, row.WeeklySalary, row.Department, row.Position, row.OvertimeHourlyRate);
+                        row.HireDate ?? today, row.WeeklySalary, row.Department, row.Position, row.OvertimeHourlyRate,
+                        hasSpecialSchedule: row.HasSpecialSchedule ?? false);
                     if (row.Status != EmploymentStatus.Active)
                     {
                         employee.ChangeStatus(row.Status);
@@ -1200,6 +1209,13 @@ public sealed partial class EmployeesViewModel : ObservableObject
                     if (row.ScheduledStartTime is not null && row.ScheduledEndTime is not null)
                     {
                         employee.UpdateSchedule(row.ScheduledStartTime, row.ScheduledEndTime);
+                    }
+                    // Igual que arriba: si el archivo no dice nada de horario especial
+                    // (null), se deja tal cual estaba — nunca se borra un "Sí" ya capturado
+                    // a mano solo por reimportar un catálogo con un formato más viejo.
+                    if (row.HasSpecialSchedule is { } hasSpecialSchedule)
+                    {
+                        employee.SetSpecialSchedule(hasSpecialSchedule);
                     }
                     updated++;
                 }

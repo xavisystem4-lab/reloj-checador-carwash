@@ -39,6 +39,11 @@ public sealed class EmployeeConfiguration : IEntityTypeConfiguration<Employee>
         builder.Property(e => e.WeeklySalary).HasPrecision(10, 2);
         builder.Property(e => e.OvertimeHourlyRate).HasPrecision(10, 2);
 
+        // "Horario especial" (excluye de la clasificación automática de puntualidad, ver
+        // comentario de clase de Employee) — default false: todo empleado nuevo entra bajo
+        // la regla general hasta que se marque lo contrario a mano.
+        builder.Property(e => e.HasSpecialSchedule).HasDefaultValue(false);
+
         builder.HasIndex(e => e.BranchId);
         builder.Property(e => e.ConcurrencyToken).IsConcurrencyToken();
     }

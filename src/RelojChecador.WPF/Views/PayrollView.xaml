@@ -3,7 +3,11 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:converters="clr-namespace:RelojChecador.WPF.Converters"
              mc:Ignorable="d" d:DesignHeight="600" d:DesignWidth="1050">
+    <UserControl.Resources>
+        <converters:AttendanceColorToBrushConverter x:Key="AttendanceColorToBrushConverter" />
+    </UserControl.Resources>
     <Grid Margin="24">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -63,8 +67,37 @@
                 <!-- Descanso = primer día sin marcación de la semana (lun→dom); Falta =
                      cualquier día sin marcación posterior a ese — ver comentario de clase
                      de WorkedHoursCalculator. Solo informativo: el sueldo de la derecha ya
-                     sale completo, el administrador ajusta a mano lo que corresponda. -->
-                <DataGridTextColumn Header="Checadas de la semana" Binding="{Binding DailyBreakdownText}" Width="260" />
+                     sale completo, el administrador ajusta a mano lo que corresponda.
+                     Verde=puntual, amarillo=retardo (tolerancia 10 min), rojo=falta — ver
+                     PunctualityClassifier; gris=sin juicio (descanso/pendiente/horario
+                     especial). -->
+                <DataGridTemplateColumn Header="Checadas de la semana" Width="300">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <ItemsControl ItemsSource="{Binding DailyBadges}" Focusable="False">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Background="{Binding Color, Converter={StaticResource AttendanceColorToBrushConverter}, ConverterParameter=Surface}"
+                                                BorderBrush="{Binding Color, Converter={StaticResource AttendanceColorToBrushConverter}}"
+                                                BorderThickness="1" CornerRadius="4" Padding="5,2" Margin="2">
+                                            <TextBlock FontSize="11"
+                                                       Foreground="{Binding Color, Converter={StaticResource AttendanceColorToBrushConverter}}">
+                                                <Run Text="{Binding DayLabel, Mode=OneWay}" FontWeight="SemiBold" />
+                                                <Run Text=" " />
+                                                <Run Text="{Binding StatusText, Mode=OneWay}" />
+                                            </TextBlock>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
                 <DataGridTextColumn Header="Faltas" Binding="{Binding AbsenceCount}" Width="60" />
                 <DataGridTextColumn Header="Horas normales" Binding="{Binding RegularTimeText}" Width="100" />
                 <DataGridTextColumn Header="Horas extra" Binding="{Binding OvertimeTimeText}" Width="90" />

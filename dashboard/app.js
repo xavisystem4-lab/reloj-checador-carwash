@@ -1077,19 +1077,33 @@ async function enrichAttendances(attendances) {
   // repo principal).
   const employeeNumberById = new Map();
   const employeeDepartmentById = new Map();
+  // Horario esperado + "horario especial" (ver PunctualityClassifier del repo principal,
+  // RelojChecador.Application.Attendances) — pedido explícito del usuario: "verde
+  // asistencia puntual, amarillo retardo (tolerancia 10 mns), rojo falta" también en el
+  // Dashboard web. Recién sincronizado a Supabase (ver migración add_employee_schedule),
+  // antes ni siquiera el horario llegaba aquí.
+  const employeeScheduleById = new Map();
   if (employeeIdsToResolve.size > 0) {
     const { data: employees } = await supabase
-      .from('employees').select('id, full_name, number, department').in('id', [...employeeIdsToResolve]);
+      .from('employees')
+      .select('id, full_name, number, department, scheduled_start_time, scheduled_end_time, has_special_schedule')
+      .in('id', [...employeeIdsToResolve]);
     for (const e of employees ?? []) {
       employeeNameById.set(e.id, e.full_name);
       employeeNumberById.set(e.id, e.number);
       employeeDepartmentById.set(e.id, e.department);
+      employeeScheduleById.set(e.id, {
+        scheduledStartTime: e.scheduled_start_time, // "HH:mm:ss" o null
+        scheduledEndTime: e.scheduled_end_time,
+        hasSpecialSchedule: e.has_special_schedule === true,
+      });
     }
   }
 
   return attendances.map(a => {
     const resolvedEmployeeId = a.employee_id ?? mappingByDeviceAndPin.get(`${a.device_id}|${a.device_user_pin}`) ?? null;
     const employeeName = resolvedEmployeeId ? employeeNameById.get(resolvedEmployeeId) : null;
+    const schedule = resolvedEmployeeId ? employeeScheduleById.get(resolvedEmployeeId) : null;
     return {
       ...a,
       branchName: branchNameById.get(a.branch_id) ?? '—',
@@ -1098,6 +1112,9 @@ async function enrichAttendances(attendances) {
       resolvedEmployeeId: resolvedEmployeeId,
       employeeNumber: resolvedEmployeeId ? (employeeNumberById.get(resolvedEmployeeId) ?? null) : null,
       employeeDepartment: resolvedEmployeeId ? (employeeDepartmentById.get(resolvedEmployeeId) ?? null) : null,
+      employeeScheduledStartTime: schedule?.scheduledStartTime ?? null,
+      employeeScheduledEndTime: schedule?.scheduledEndTime ?? null,
+      employeeHasSpecialSchedule: schedule?.hasSpecialSchedule ?? false,
       isUnlinked: !employeeName,
     };
   });
@@ -1301,6 +1318,47 @@ function nowAsFakeUtcIso() {
     `T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}.000Z`;
 }
 
+/// Pedido explícito del usuario: "si el empleado no checa a su hora de salida, esta se
+/// marca automáticamente para que no sigan corriendo las horas". Un turno de HOY que sigue
+/// abierto ya NO cuenta en vivo para siempre — se congela en cuanto se cumple su horario de
+/// salida esperado (+30 min de margen) o, si no tiene horario capturado, a las 8 horas
+/// desde que entró ("el horario de todos son 8 horas", regla general dada por el usuario).
+/// Puramente un tope de VISUALIZACIÓN en tiempo real — nunca escribe nada en la base, mismo
+/// criterio conservador que el repo principal (WorkedHoursCalculator nunca inventa un
+/// cierre real, solo advierte).
+const DEFAULT_SHIFT_HOURS = 8;
+const SCHEDULE_GRACE_MINUTES = 30;
+
+function isoTimeToMinutes(iso) {
+  const [h, m] = iso.slice(11, 16).split(':').map(Number);
+  return h * 60 + m;
+}
+
+/// <param name="openAtIso">Cuándo entró (quedó abierto sin su salida todavía).</param>
+/// <param name="nowIso">"Ahora", en el mismo formato pseudo-UTC que el resto del archivo.</param>
+/// <param name="scheduledEndTime">"HH:mm:ss" (Employee.ScheduledEndTime) o null.</param>
+function capOpenUntilIso(openAtIso, nowIso, scheduledEndTime) {
+  const day = openAtIso.slice(0, 10);
+  const openMinutes = isoTimeToMinutes(openAtIso);
+  let capMinutes = openMinutes + DEFAULT_SHIFT_HOURS * 60;
+  if (scheduledEndTime) {
+    const [h, m] = scheduledEndTime.split(':').map(Number);
+    const scheduledCapMinutes = h * 60 + m + SCHEDULE_GRACE_MINUTES;
+    // Si el horario programado ya queda antes/igual que la entrada (turno que cruza
+    // medianoche, o dato inconsistente), no sirve como tope — se queda con el de 8 horas.
+    if (scheduledCapMinutes > openMinutes) {
+      capMinutes = scheduledCapMinutes;
+    }
+  }
+  capMinutes = Math.min(capMinutes, 24 * 60 - 1); // nunca "cruza" al día siguiente aquí
+
+  const nowMinutes = day === nowIso.slice(0, 10) ? isoTimeToMinutes(nowIso) : capMinutes;
+  const effectiveMinutes = Math.min(capMinutes, nowMinutes);
+  const hh = String(Math.floor(effectiveMinutes / 60)).padStart(2, '0');
+  const mm = String(effectiveMinutes % 60).padStart(2, '0');
+  return `${day}T${hh}:${mm}:00.000Z`;
+}
+
 /// Empareja cronológicamente cada marcación "abre" (openType) con la siguiente "cierra"
 /// (closeType) dentro de un mismo día y suma la diferencia en milisegundos — mismo
 /// criterio que WorkedHoursCalculator.PairAndSum del repo principal (RelojChecador.
@@ -1308,13 +1366,14 @@ function nowAsFakeUtcIso() {
 /// simplemente no se cuenta — este reporte no muestra advertencias por fila, a diferencia
 /// del cálculo de nómina de la app de escritorio.
 ///
-/// <paramref name="openUntilIso"/>: pedido explícito del usuario — "las horas trabajadas
-/// cuéntalas en tiempo real desde que checaron hasta ahorita". Si al terminar de recorrer
-/// las marcaciones queda una apertura SIN su cierre (el empleado sigue trabajando ahora
-/// mismo) y se pasó este valor, se cuenta el tiempo hasta ahí en vez de dejarlo en 0 —
-/// quien llama solo lo pasa para el DÍA DE HOY (ver computeEmployeeHours), nunca para un
-/// día pasado con una salida realmente olvidada.
-function pairAndSumMs(sortedDayRows, openType, closeType, openUntilIso = null) {
+/// <paramref name="todayCapContext"/>: pedido explícito del usuario — "las horas
+/// trabajadas cuéntalas en tiempo real desde que checaron hasta ahorita [pero] si no
+/// checan su salida, que no sigan corriendo". Si al terminar de recorrer las marcaciones
+/// queda una apertura SIN su cierre (el empleado sigue trabajando ahora mismo) y se pasó
+/// este contexto, se cuenta el tiempo hasta el tope calculado por capOpenUntilIso (nunca
+/// más allá) en vez de dejarlo en 0 — quien llama solo lo pasa para el DÍA DE HOY (ver
+/// computeEmployeeHours), nunca para un día pasado con una salida realmente olvidada.
+function pairAndSumMs(sortedDayRows, openType, closeType, todayCapContext = null) {
   let totalMs = 0;
   let openAtIso = null;
   for (const row of sortedDayRows) {
@@ -1327,8 +1386,13 @@ function pairAndSumMs(sortedDayRows, openType, closeType, openUntilIso = null) {
       }
     }
   }
-  if (openAtIso && openUntilIso) {
-    const elapsedMs = new Date(openUntilIso) - new Date(openAtIso);
+  if (openAtIso && todayCapContext) {
+    // Horario especial (Velador/Gerente con horario flexible o nocturno, pedido explícito
+    // del usuario): sin tope automático — sigue contando en vivo como antes.
+    const cappedUntilIso = todayCapContext.hasSpecialSchedule
+      ? todayCapContext.nowIso
+      : capOpenUntilIso(openAtIso, todayCapContext.nowIso, todayCapContext.scheduledEndTime);
+    const elapsedMs = new Date(cappedUntilIso) - new Date(openAtIso);
     if (elapsedMs > 0) totalMs += elapsedMs;
   }
   return totalMs;
@@ -1339,8 +1403,8 @@ function pairAndSumMs(sortedDayRows, openType, closeType, openUntilIso = null) {
 /// el resto del Dashboard) y emparejando Entrada/Salida SOLO dentro de cada día, para no
 /// mezclar una entrada de un día con una salida de otro. Descanso (2/3) resta de las horas
 /// normales, sin bajar de 0. Un turno de HOY que sigue abierto (sin Salida todavía) cuenta
-/// en tiempo real hasta este momento — ver pairAndSumMs.
-function computeEmployeeHours(employeeRows) {
+/// en tiempo real hasta el tope de capOpenUntilIso — ver pairAndSumMs.
+function computeEmployeeHours(employeeRows, scheduledEndTime = null, hasSpecialSchedule = false) {
   const nowIso = nowAsFakeUtcIso();
   const today = nowIso.slice(0, 10);
 
@@ -1355,13 +1419,88 @@ function computeEmployeeHours(employeeRows) {
   let overtimeMs = 0;
   for (const [day, dayRows] of byDay) {
     const sorted = [...dayRows].sort((a, b) => a.timestamp_utc.localeCompare(b.timestamp_utc));
-    const openUntilIso = day === today ? nowIso : null;
-    const dayRegularMs = pairAndSumMs(sorted, PUNCH_IN, PUNCH_OUT, openUntilIso);
+    const todayCapContext = day === today ? { nowIso, scheduledEndTime, hasSpecialSchedule } : null;
+    const dayRegularMs = pairAndSumMs(sorted, PUNCH_IN, PUNCH_OUT, todayCapContext);
     const dayBreakMs = pairAndSumMs(sorted, BREAK_OUT, BREAK_IN);
     regularMs += Math.max(0, dayRegularMs - dayBreakMs);
-    overtimeMs += pairAndSumMs(sorted, OVERTIME_IN, OVERTIME_OUT, openUntilIso);
+    overtimeMs += pairAndSumMs(sorted, OVERTIME_IN, OVERTIME_OUT, todayCapContext);
   }
   return { regularMs, overtimeMs };
+}
+
+/// Mismo criterio que WeekBoundary.cs del repo principal — la semana es lunes a domingo.
+function getWeekStartIso(dayIso) {
+  const d = new Date(`${dayIso}T00:00:00`);
+  const dow = (d.getDay() + 6) % 7; // 0=lunes ... 6=domingo
+  d.setDate(d.getDate() - dow);
+  return toDateInputValue(d);
+}
+
+function addDaysIso(dayIso, days) {
+  const d = new Date(`${dayIso}T00:00:00`);
+  d.setDate(d.getDate() + days);
+  return toDateInputValue(d);
+}
+
+/// Clasifica cada día del rango [fromIso, toIso] de UN empleado en Trabajado/Descanso/
+/// Falta/Pendiente, semana por semana (lunes a domingo) — mismo algoritmo que
+/// WorkedHoursCalculator.CalculateWeek del repo principal (RelojChecador.Application.
+/// Payroll): el primer día sin ninguna marcación de la semana es descanso, cualquier otro
+/// día sin marcación es falta; los días de hoy en adelante quedan pendientes (nunca se
+/// juzga un día que todavía no pasa). Puramente informativo — nunca cambia las horas
+/// calculadas arriba.
+function classifyEmployeeDays(byDayMap, fromIso, toIso, scheduledStartTime, hasSpecialSchedule) {
+  const todayIso = nowAsFakeUtcIso().slice(0, 10);
+  let absenceCount = 0;
+  let hadLate = false;
+  let hadWorkedOnTime = false;
+  let hadWorked = false;
+
+  let weekStart = getWeekStartIso(fromIso);
+  while (weekStart <= toIso) {
+    let restDayTaken = false;
+    for (let i = 0; i < 7; i++) {
+      const dayIso = addDaysIso(weekStart, i);
+      if (dayIso < fromIso || dayIso > toIso) continue; // fuera del rango elegido en el reporte
+
+      const dayRows = byDayMap.get(dayIso);
+      if (dayRows && dayRows.length > 0) {
+        hadWorked = true;
+        if (hasSpecialSchedule || !scheduledStartTime) {
+          hadWorkedOnTime = true; // sin horario capturado o con horario especial: no se juzga la hora
+        } else {
+          const sorted = [...dayRows].sort((a, b) => a.timestamp_utc.localeCompare(b.timestamp_utc));
+          const arrivalMinutes = isoTimeToMinutes(sorted[0].timestamp_utc);
+          const [h, m] = scheduledStartTime.split(':').map(Number);
+          const limitMinutes = h * 60 + m + 10; // tolerancia de 10 minutos, pedido explícito del usuario
+          if (arrivalMinutes <= limitMinutes) hadWorkedOnTime = true;
+          else hadLate = true;
+        }
+        continue;
+      }
+
+      if (dayIso >= todayIso) continue; // pendiente: todavía puede llegar una marcación hoy
+      if (!restDayTaken) restDayTaken = true;
+      else absenceCount++;
+    }
+    weekStart = addDaysIso(weekStart, 7);
+  }
+
+  return { absenceCount, hadLate, hadWorkedOnTime, hadWorked };
+}
+
+/// Semáforo verde/amarillo/rojo/neutral a partir de classifyEmployeeDays — ver
+/// PunctualityClassifier del repo principal para la misma regla aplicada en la app de
+/// escritorio. Horario especial: nunca amarillo/rojo (pedido explícito: "excluirlos de
+/// retardo/falta automáticos"), solo verde si trabajó o neutral si no hay nada que juzgar.
+function attendanceColorFor(classification, hasSpecialSchedule) {
+  if (hasSpecialSchedule) {
+    return classification.hadWorked ? 'green' : 'neutral';
+  }
+  if (classification.absenceCount > 0) return 'red';
+  if (classification.hadLate) return 'yellow';
+  if (classification.hadWorkedOnTime) return 'green';
+  return 'neutral';
 }
 
 /// Arma una fila por empleado (agrupando por resolvedEmployeeId — o por PIN si nunca se
@@ -1383,6 +1522,9 @@ function buildAttendanceReportRows() {
         // ejemplo, car wash, arábica café, otros, plaza sabo" — así TODOS muestran algún
         // área, no solo quienes tienen Department capturado.
         department: row.employeeDepartment || row.branchName || '—',
+        scheduledStartTime: row.employeeScheduledStartTime ?? null,
+        scheduledEndTime: row.employeeScheduledEndTime ?? null,
+        hasSpecialSchedule: row.employeeHasSpecialSchedule === true,
         rows: [],
       });
     }
@@ -1392,7 +1534,17 @@ function buildAttendanceReportRows() {
 
   const result = [];
   for (const entry of byEmployee.values()) {
-    const { regularMs, overtimeMs } = computeEmployeeHours(entry.rows);
+    const { regularMs, overtimeMs } = computeEmployeeHours(entry.rows, entry.scheduledEndTime, entry.hasSpecialSchedule);
+
+    const byDay = new Map();
+    for (const row of entry.rows) {
+      const day = row.timestamp_utc.slice(0, 10);
+      if (!byDay.has(day)) byDay.set(day, []);
+      byDay.get(day).push(row);
+    }
+    const classification = classifyEmployeeDays(
+      byDay, fromInput.value, toInput.value, entry.scheduledStartTime, entry.hasSpecialSchedule);
+
     result.push({
       number: entry.number,
       name: entry.name,
@@ -1400,6 +1552,8 @@ function buildAttendanceReportRows() {
       regularHours: regularMs / 3_600_000,
       overtimeHours: overtimeMs / 3_600_000,
       totalHours: (regularMs + overtimeMs) / 3_600_000,
+      absenceCount: classification.absenceCount,
+      attendanceColor: attendanceColorFor(classification, entry.hasSpecialSchedule),
     });
   }
 
@@ -1588,9 +1742,11 @@ function renderPreviewTable(rows) {
   const fragment = document.createDocumentFragment();
   let totalRegular = 0;
   let totalOvertime = 0;
+  let totalAbsences = 0;
   for (const row of rows) {
     totalRegular += row.regularHours;
     totalOvertime += row.overtimeHours;
+    totalAbsences += row.absenceCount;
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${escapeHtml(row.number ?? '—')}</td>
@@ -1599,6 +1755,8 @@ function renderPreviewTable(rows) {
       <td>${formatHours(row.regularHours)} h</td>
       <td>${formatHours(row.overtimeHours)} h</td>
       <td>${formatHours(row.totalHours)} h</td>
+      <td>${row.absenceCount}</td>
+      <td>${attendanceColorBadgeHtml(row.attendanceColor)}</td>
     `;
     fragment.appendChild(tr);
   }
@@ -1608,9 +1766,24 @@ function renderPreviewTable(rows) {
     <td>${formatHours(totalRegular)} h</td>
     <td>${formatHours(totalOvertime)} h</td>
     <td>${formatHours(totalRegular + totalOvertime)} h</td>
+    <td>${totalAbsences}</td>
+    <td></td>
   `;
   fragment.appendChild(totalTr);
   previewTbody.appendChild(fragment);
+}
+
+const ATTENDANCE_COLOR_LABELS = { green: 'Puntual', yellow: 'Retardo', red: 'Falta', neutral: '—' };
+
+function attendanceColorLabel(color) {
+  return ATTENDANCE_COLOR_LABELS[color] ?? '—';
+}
+
+/// Verde=puntual, amarillo=retardo, rojo=falta, gris=sin juicio (ver attendanceColorFor) —
+/// mismo punto/etiqueta que .device-status-dot ya usa en esta misma hoja para
+/// online/offline, así el semáforo se ve consistente con el resto del Dashboard.
+function attendanceColorBadgeHtml(color) {
+  return `<span class="attendance-dot attendance-dot--${color}"></span>${attendanceColorLabel(color)}`;
 }
 
 function closeReportPreview() {
@@ -1692,13 +1865,16 @@ async function onExportReportExcelClick() {
       ['Drive In Car Wash — Reporte de Asistencia'],
       [reportRangeLabel()],
       [],
-      ['Número', 'Empleado', 'Departamento', 'Horas normales', 'Horas extra', 'Total horas'],
+      ['Número', 'Empleado', 'Departamento', 'Horas normales', 'Horas extra', 'Total horas', 'Faltas', 'Puntualidad'],
       // currentPreviewRows, NO lastReportRows — exporta exactamente lo que está en pantalla
       // (respeta el buscador si hay uno en curso).
-      ...currentPreviewRows.map(r => [r.number ?? '', r.name, r.department, Number(r.regularHours.toFixed(2)), Number(r.overtimeHours.toFixed(2)), Number(r.totalHours.toFixed(2))]),
+      ...currentPreviewRows.map(r => [
+        r.number ?? '', r.name, r.department, Number(r.regularHours.toFixed(2)), Number(r.overtimeHours.toFixed(2)),
+        Number(r.totalHours.toFixed(2)), r.absenceCount, attendanceColorLabel(r.attendanceColor),
+      ]),
     ];
     const worksheet = XLSX.utils.aoa_to_sheet(sheetRows);
-    worksheet['!cols'] = [{ wch: 10 }, { wch: 32 }, { wch: 18 }, { wch: 16 }, { wch: 14 }, { wch: 14 }];
+    worksheet['!cols'] = [{ wch: 10 }, { wch: 32 }, { wch: 18 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 10 }, { wch: 14 }];
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Asistencia');
 

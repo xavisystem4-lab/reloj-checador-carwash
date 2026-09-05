@@ -32,6 +32,7 @@ public partial class AddEmployeeDialog : Window
     public string? Notes => string.IsNullOrWhiteSpace(NotesTextBox.Text) ? null : NotesTextBox.Text.Trim();
     public TimeOnly? ScheduledStartTime { get; private set; }
     public TimeOnly? ScheduledEndTime { get; private set; }
+    public bool HasSpecialSchedule { get; private set; }
 
     /// <summary>Null si el checkbox "Vincular a un reloj checador ahora" no está marcado —
     /// vincular al dar de alta es opcional.</summary>
@@ -150,6 +151,7 @@ public partial class AddEmployeeDialog : Window
         OvertimeHourlyRate = overtimeHourlyRate;
         ScheduledStartTime = scheduledStartTime;
         ScheduledEndTime = scheduledEndTime;
+        HasSpecialSchedule = HasSpecialScheduleCheckBox.IsChecked == true;
         DialogResult = true;
     }
 
