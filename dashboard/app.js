@@ -1199,6 +1199,12 @@ function mapVerifyMethod(method) {
     // Asistencia) — nunca viene del reloj físico, ver AttendanceVerifyMethod.Manual del
     // repo principal.
     case 'Manual': return 'Manual';
+    // Generada sola por el sistema cuando un empleado marcó Entrada pero nunca volvió a
+    // checar — ver AttendanceAutoCloser en el repo principal ("si el empleado no checa a
+    // su hora de salida esta se marca automáticamente para que no sigan corriendo las
+    // horas"). Distinta de 'Manual': esa es una corrección del administrador, esta la
+    // generó el sistema solo.
+    case 'Automatic': return 'Automático';
     default: return 'Desconocido';
   }
 }

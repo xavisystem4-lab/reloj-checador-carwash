@@ -95,6 +95,15 @@ public partial class App : System.Windows.Application
                     services.AddRelojChecadorCloudSync(supabaseOptions, localSettingsPath);
                     services.AddRelojChecadorUpdates();
 
+                    // Cierra solo los turnos que se quedaron abiertos (Entrada sin Salida)
+                    // ya pasada la hora de salida programada del empleado — pedido
+                    // explícito del usuario: "si el empleado no checa a su hora de salida
+                    // esta se marca automáticamente para que no sigan corriendo las
+                    // horas". Depende de SupabaseSyncBackgroundService (registrado arriba
+                    // por AddRelojChecadorCloudSync) para subir de inmediato cualquier
+                    // Salida que genere — ver AttendanceAutoCloseBackgroundService.
+                    services.AddHostedService<AttendanceAutoCloseBackgroundService>();
+
                     // Singleton, no Scoped: el tema es un estado global de la app (una sola
                     // preferencia, compartida por todas las ventanas), no algo ligado a la
                     // vida de una ventana en particular.
