@@ -26,6 +26,23 @@ public sealed record BranchFilterOption(Branch? Branch, string Label)
     public override string ToString() => Label;
 }
 
+/// <summary>Puntualidad de una marcación de Entrada contra el horario esperado del
+/// empleado (<see cref="Employee.ScheduledStartTime"/>) — pedido explícito del usuario:
+/// "en el reporte de Asistencia... estas se pinten de color VERDE asistencia puntual,
+/// AMARILLO retardo". Solo aplica a marcaciones de Entrada de un empleado CON horario
+/// capturado; cualquier otro caso (Salida, descanso, tiempo extra, o Entrada de un
+/// empleado sin <c>ScheduledStartTime</c>) es <see cref="NotApplicable"/> — nunca se
+/// inventa una clasificación sin el dato real para compararla. NO incluye "Falta" (rojo):
+/// eso requeriría saber qué días debe trabajar cada empleado (días de descanso), un dato
+/// que el sistema todavía no captura — pedido explícito del usuario: dejarlo pendiente
+/// para una fase futura en vez de arriesgar falsos positivos en días de descanso reales.</summary>
+public enum PunctualityStatus
+{
+    NotApplicable,
+    OnTime,
+    Late,
+}
+
 /// <summary>Une una <see cref="Attendance"/> con sucursal/dispositivo/empleado ya
 /// resueltos — mismos tres cruces que EmployeesViewModel.EmployeeRow ya hace para
 /// Branch/Device, más la resolución de empleado (ver comentario de clase del ViewModel).
@@ -35,7 +52,9 @@ public sealed record BranchFilterOption(Branch? Branch, string Label)
 /// <c>LoadAsync</c> (la selección se pierde al "Actualizar", igual que cualquier estado de
 /// pantalla no persistido), pero SOBREVIVE a un filtro de texto (ApplySearchFilter reusa las
 /// mismas instancias de <c>_allRows</c>, no las reconstruye).</summary>
-public sealed partial class AttendanceRow(Attendance attendance, string branchName, string deviceName, string? employeeName, string? department)
+public sealed partial class AttendanceRow(
+    Attendance attendance, string branchName, string deviceName, string? employeeName, string? department,
+    TimeOnly? employeeScheduledStartTime)
     : ObservableObject
 {
     public Attendance Attendance { get; } = attendance;
@@ -45,6 +64,23 @@ public sealed partial class AttendanceRow(Attendance attendance, string branchNa
     public string? Department { get; } = department;
 
     public string EmployeeDisplay => EmployeeName ?? $"PIN {Attendance.DeviceUserPin} · sin vincular";
+
+    /// <summary>TimestampUtc en este proyecto NUNCA es UTC real (ver comentario de clase de
+    /// AttendanceViewModel.LoadAsync) — es la hora de pared del negocio, así que se compara
+    /// directo contra ScheduledStartTime sin ninguna conversión de huso horario.</summary>
+    public PunctualityStatus PunctualityStatus { get; } =
+        attendance.PunchType == ShiftPunchTypeClassifier.EntradaCode && employeeScheduledStartTime is { } scheduled
+            ? (TimeOnly.FromDateTime(attendance.TimestampUtc) <= scheduled ? PunctualityStatus.OnTime : PunctualityStatus.Late)
+            : PunctualityStatus.NotApplicable;
+
+    /// <summary>Texto para el ToolTip de la fila — la única explicación visible del color
+    /// para quien no pueda distinguirlo, o simplemente quiera confirmar la hora exacta.</summary>
+    public string? PunctualityTooltip => PunctualityStatus switch
+    {
+        PunctualityStatus.OnTime => $"Puntual — entró a las {attendance.TimestampUtc:HH:mm}, horario {employeeScheduledStartTime:HH\\:mm}.",
+        PunctualityStatus.Late => $"Retardo — entró a las {attendance.TimestampUtc:HH:mm}, horario {employeeScheduledStartTime:HH\\:mm}.",
+        _ => null,
+    };
 
     [ObservableProperty]
     private bool _isSelected;
@@ -172,6 +208,12 @@ public sealed partial class AttendanceViewModel : ObservableObject
             // ubicación original de quien se fusionó (ver EmployeesViewModel.ApplyCatalogReplaceAsync),
             // así se puede seguir distinguiendo de dónde era cada quien.
             var employeeDepartmentsById = employees.ToDictionary(e => e.Id, e => e.Department);
+            // Para pintar puntualidad (ver PunctualityStatus) — solo empleados CON horario
+            // capturado entran al diccionario; los demás quedan sin clasificar (ver
+            // comentario de clase de PunctualityStatus).
+            var employeeScheduledStartTimeById = employees
+                .Where(e => e.ScheduledStartTime is not null)
+                .ToDictionary(e => e.Id, e => e.ScheduledStartTime!.Value);
             var employeeIdByDeviceAndPin = mappings.ToDictionary(m => (m.DeviceId, m.DeviceUserPin), m => m.EmployeeId);
 
             _allRows = attendances.Select(a =>
@@ -194,7 +236,11 @@ public sealed partial class AttendanceViewModel : ObservableObject
                 var department = resolvedEmployeeId is not null && employeeDepartmentsById.TryGetValue(resolvedEmployeeId.Value, out var dep)
                     ? dep
                     : null;
-                return new AttendanceRow(a, branchName, deviceName, employeeName, department);
+                var scheduledStartTime = resolvedEmployeeId is not null
+                    && employeeScheduledStartTimeById.TryGetValue(resolvedEmployeeId.Value, out var sst)
+                    ? sst
+                    : (TimeOnly?)null;
+                return new AttendanceRow(a, branchName, deviceName, employeeName, department, scheduledStartTime);
             }).ToList();
 
             ApplySearchFilter();

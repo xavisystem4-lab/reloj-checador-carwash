@@ -85,6 +85,29 @@
 
         <DataGrid Grid.Row="3" ItemsSource="{Binding Attendances}" AutoGenerateColumns="False" IsReadOnly="True"
                   CanUserAddRows="False" GridLinesVisibility="Horizontal" HeadersVisibility="Column">
+            <!-- Puntualidad de la marcación de Entrada contra el horario esperado del
+                 empleado (AttendanceRow.PunctualityStatus) — pedido explícito del usuario:
+                 "que se pinten de color VERDE asistencia puntual, AMARILLO retardo
+                 (Tolerancia 10 mns)". Sin ROJO/falta todavía (ver comentario de clase de
+                 PunctualityStatus) — filas sin clasificar (Salida, descanso, o sin horario
+                 capturado) se quedan con el fondo normal del DataGrid. -->
+            <DataGrid.RowStyle>
+                <!-- BasedOn el estilo global de DataGridRow (Themes/Styles.xaml: fondo
+                     transparente + resaltado al pasar el mouse) — sin esto, este RowStyle
+                     local lo reemplazaría por completo solo en esta pantalla, perdiendo el
+                     hover que sí tienen todas las demás tablas de la app. -->
+                <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
+                    <Setter Property="ToolTip" Value="{Binding PunctualityTooltip}" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding PunctualityStatus}" Value="OnTime">
+                            <Setter Property="Background" Value="{DynamicResource BrushSuccessSurface}" />
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding PunctualityStatus}" Value="Late">
+                            <Setter Property="Background" Value="{DynamicResource BrushWarningSurface}" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </DataGrid.RowStyle>
             <DataGrid.Columns>
                 <!-- Checkbox de selección para "Editar seleccionadas" — pedido explícito del
                      usuario: "editarlo masivamente con un check". DataGridTemplateColumn con

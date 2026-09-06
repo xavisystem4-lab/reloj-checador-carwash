@@ -16,6 +16,8 @@
   --accent-soft: #FDEAE0;
   --green: #16814F;
   --green-soft: #E1F6EB;
+  --yellow: #92650A;
+  --yellow-soft: #FCF0D6;
   --red: #C13333;
   --red-soft: #FCE9E9;
   --row-border: #EEF2F7;
@@ -53,6 +55,8 @@
     --accent-soft: #3A2617;
     --green: #38C98C;
     --green-soft: #103524;
+    --yellow: #E8B84B;
+    --yellow-soft: #3A2E10;
     --red: #FF6B6B;
     --red-soft: #3A1717;
     --row-border: #1C2532;
@@ -79,6 +83,8 @@
   --accent-soft: #3A2617;
   --green: #38C98C;
   --green-soft: #103524;
+  --yellow: #E8B84B;
+  --yellow-soft: #3A2E10;
   --red: #FF6B6B;
   --red-soft: #3A1717;
   --row-border: #1C2532;
@@ -529,6 +535,18 @@ tbody td { padding: 11px 16px; border-top: 1px solid var(--row-border); white-sp
 .pill-unlinked { background: var(--red-soft); color: var(--red); }
 .pill-in { background: var(--green-soft); color: var(--green); }
 .pill-out { background: var(--red-soft); color: var(--red); }
+
+/* Puntualidad de una marcación de Entrada contra el horario esperado del empleado —
+   pedido explícito del usuario: "que se pinten de color VERDE asistencia puntual,
+   AMARILLO retardo". Sin ROJO/falta todavía (ver comentario de computePunctuality en
+   app.js) — filas sin clasificar (Salida, o empleado sin horario capturado) se quedan sin
+   ninguna de estas clases, con el fondo normal de la tabla. */
+/* #attendance-table repetido a propósito (no solo la clase): en móvil, "Móvil y tablet"
+   más abajo convierte cada fila en tarjeta con `#attendance-table tbody tr { background:
+   var(--card) }` — un selector con ID, más específico que una clase sola. Sin repetir el
+   ID aquí, esa regla de tarjeta ganaría y el color de puntualidad desaparecería en móvil. */
+tbody tr.row-on-time, #attendance-table tbody tr.row-on-time { background: var(--green-soft); }
+tbody tr.row-late, #attendance-table tbody tr.row-late { background: var(--yellow-soft); }
 
 .table-note { font-size: 11.5px; color: var(--dim); margin-top: 12px; }
 

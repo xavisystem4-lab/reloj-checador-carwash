@@ -26,12 +26,20 @@ public sealed record EmployeeDto(
     Guid Id, string Number, string FullName, Guid BranchId, string? Department, string? Position,
     DateOnly HireDate, string Status, string? Phone, string? Email, string? Rfc, string? Curp, string? Nss,
     decimal? WeeklySalary, decimal? OvertimeHourlyRate, string? Notes,
+    // Horario esperado (entrada/salida) — pedido explícito del usuario: colorear
+    // puntualidad (verde/amarillo) también en el Dashboard web, lo que requiere que el
+    // horario llegue a Supabase (antes solo vivía en la base local de la app de
+    // escritorio, ver 20260831141152_AddEmployeeScheduledTimes). Columnas nuevas
+    // scheduled_start_time/scheduled_end_time en public.employees (nullable, mismo
+    // criterio que Employee.UpdateSchedule: null = "sin capturar todavía").
+    TimeOnly? ScheduledStartTime, TimeOnly? ScheduledEndTime,
     DateTime CreatedAtUtc, DateTime UpdatedAtUtc, Guid ConcurrencyToken)
 {
     public static EmployeeDto FromDomain(Employee employee) => new(
         employee.Id, employee.Number.Value, employee.FullName, employee.BranchId, employee.Department, employee.Position,
         employee.HireDate, employee.Status.ToString(), employee.Phone, employee.Email, employee.Rfc, employee.Curp, employee.Nss,
         employee.WeeklySalary, employee.OvertimeHourlyRate, employee.Notes,
+        employee.ScheduledStartTime, employee.ScheduledEndTime,
         employee.CreatedAtUtc, employee.UpdatedAtUtc, employee.ConcurrencyToken);
 }
 

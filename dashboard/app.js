@@ -1077,19 +1077,27 @@ async function enrichAttendances(attendances) {
   // repo principal).
   const employeeNumberById = new Map();
   const employeeDepartmentById = new Map();
+  // scheduled_start_time — pedido explícito del usuario: colorear puntualidad (verde/
+  // amarillo) en esta misma tabla (ver computePunctuality más abajo). Llega como "HH:MM:SS"
+  // (columna `time` de Postgres vía PostgREST), o null si el empleado no tiene horario
+  // capturado — ver 20260831141152_AddEmployeeScheduledTimes en el repo principal y la
+  // migración add_employee_scheduled_times en Supabase.
+  const employeeScheduledStartTimeById = new Map();
   if (employeeIdsToResolve.size > 0) {
     const { data: employees } = await supabase
-      .from('employees').select('id, full_name, number, department').in('id', [...employeeIdsToResolve]);
+      .from('employees').select('id, full_name, number, department, scheduled_start_time').in('id', [...employeeIdsToResolve]);
     for (const e of employees ?? []) {
       employeeNameById.set(e.id, e.full_name);
       employeeNumberById.set(e.id, e.number);
       employeeDepartmentById.set(e.id, e.department);
+      employeeScheduledStartTimeById.set(e.id, e.scheduled_start_time);
     }
   }
 
   return attendances.map(a => {
     const resolvedEmployeeId = a.employee_id ?? mappingByDeviceAndPin.get(`${a.device_id}|${a.device_user_pin}`) ?? null;
     const employeeName = resolvedEmployeeId ? employeeNameById.get(resolvedEmployeeId) : null;
+    const scheduledStartTime = resolvedEmployeeId ? (employeeScheduledStartTimeById.get(resolvedEmployeeId) ?? null) : null;
     return {
       ...a,
       branchName: branchNameById.get(a.branch_id) ?? '—',
@@ -1099,8 +1107,30 @@ async function enrichAttendances(attendances) {
       employeeNumber: resolvedEmployeeId ? (employeeNumberById.get(resolvedEmployeeId) ?? null) : null,
       employeeDepartment: resolvedEmployeeId ? (employeeDepartmentById.get(resolvedEmployeeId) ?? null) : null,
       isUnlinked: !employeeName,
+      punctuality: computePunctuality(a.punch_type, a.timestamp_utc, scheduledStartTime),
     };
   });
+}
+
+/// Puntualidad de UNA marcación de Entrada contra el horario esperado del empleado —
+/// pedido explícito del usuario: "VERDE asistencia puntual, AMARILLO retardo". Devuelve
+/// 'on-time' | 'late' | null (sin clasificar: no es Entrada, o el empleado no tiene
+/// horario capturado). Sin 'falta' (rojo) todavía — requeriría saber qué días debe
+/// trabajar cada empleado (días de descanso), dato que el sistema no captura hoy; pedido
+/// explícito del usuario: dejarlo pendiente para no arriesgar falsos positivos.
+///
+/// timestamp_utc NUNCA es UTC real en este proyecto (ver formatAttendanceDateTime) — es la
+/// hora de pared del reloj checador, así que basta comparar el substring "HH:MM:SS" contra
+/// scheduled_start_time (mismo formato, columna `time` de Postgres) sin ninguna conversión.
+function computePunctuality(punchType, timestampUtc, scheduledStartTime) {
+  // Literal 0 (Entrada) en vez de la constante PUNCH_IN — declarada más abajo, en la
+  // sección "Reporte de asistencia" — mismo criterio que ya usa renderTable un poco más
+  // abajo en este archivo (row.punch_type === 0) para esta misma tabla.
+  if (punchType !== 0 || !scheduledStartTime) {
+    return null;
+  }
+  const actualTime = timestampUtc.slice(11, 19);
+  return actualTime <= scheduledStartTime ? 'on-time' : 'late';
 }
 
 function renderKpis(rows) {
@@ -1142,6 +1172,18 @@ function renderTable(rows) {
   const fragment = document.createDocumentFragment();
   for (const row of filtered) {
     const tr = document.createElement('tr');
+
+    // Puntualidad (ver computePunctuality en enrichAttendances) — pedido explícito del
+    // usuario: "que se pinten de color VERDE asistencia puntual, AMARILLO retardo". Sin
+    // clase ninguna (fondo normal) si no es Entrada o el empleado no tiene horario
+    // capturado.
+    if (row.punctuality === 'on-time') {
+      tr.classList.add('row-on-time');
+      tr.title = 'Puntual';
+    } else if (row.punctuality === 'late') {
+      tr.classList.add('row-late');
+      tr.title = 'Retardo';
+    }
 
     const employeeCell = row.employeeName
       ? escapeHtml(row.employeeName)
