@@ -14,6 +14,12 @@ on:
   push:
     tags:
       - "v*"
+  # Respaldo manual — agregado tras un caso real donde GitHub no disparó este workflow al
+  # empujar un tag (sin causa visible: el tag llegó bien al repo, el workflow estaba
+  # activo, sin incidentes reportados en githubstatus.com). "Run workflow" en la pestaña
+  # Actions, eligiendo como rama/tag el "vX.Y.Z" ya existente — github.ref_name toma ese
+  # valor igual que en un push de tag normal, así que el resto del workflow no cambia.
+  workflow_dispatch:
 
 permissions:
   contents: write  # necesario para crear el Release y subir el asset
