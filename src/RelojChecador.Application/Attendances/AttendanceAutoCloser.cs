@@ -18,12 +18,18 @@ public sealed record PendingAutoClose(Attendance OpenEntrada, DateTime CutoffUtc
 /// pura, sin dependencias de infraestructura (mismo criterio que WorkedHoursCalculator y
 /// ShiftPunchTypeClassifier), para poder probarla exhaustivamente con xUnit.
 ///
-/// Solo se activa para empleados CON horario de salida capturado
-/// (<see cref="RelojChecador.Domain.Employees.Employee.ScheduledEndTime"/>): nunca inventa
-/// una hora de corte sin ese dato real — sin horario, el turno se queda abierto tal cual,
-/// igual que siempre (ver comentario de clase de WorkedHoursCalculator: "nunca inventa el
-/// cierre de un turno abierto"). Esta clase es la única excepción deliberada a esa regla,
-/// y solo cuando SÍ hay un horario capturado contra el cual comparar.
+/// Se activa para CUALQUIER empleado elegible (ver
+/// AttendanceAutoCloseBackgroundService: activo, sin horario especial), tenga o no
+/// capturado <see cref="RelojChecador.Domain.Employees.Employee.ScheduledEndTime"/>:
+/// - CON horario capturado: se cierra exacto a esa hora (ver
+///   <see cref="DetermineAutoCloseUtc"/>, con soporte de turno nocturno).
+/// - SIN horario capturado: se cierra a las <see cref="DefaultShiftDuration"/> (8 horas)
+///   desde que entró — regla general dada explícitamente por el usuario ("el horario de
+///   todos son 8 horas"), MISMO número que ya usa el tope puramente visual del Dashboard
+///   web (dashboard/app.js, capOpenUntilIso) para no tener dos respuestas distintas al
+///   mismo problema. La diferencia es que aquí SÍ se persiste como marcación real —el tope
+///   del Dashboard web es solo de pantalla, nunca escribe nada— así que una vez que este
+///   servicio corre, ambos coinciden en el mismo resultado.
 ///
 /// Un turno se considera abierto si, dentro de un mismo día calendario, la ÚLTIMA
 /// marcación es una Entrada sin una Salida posterior ese mismo día — mismo criterio de "un
@@ -37,6 +43,11 @@ public static class AttendanceAutoCloser
     private const int EntradaCode = ShiftPunchTypeClassifier.EntradaCode;
     private const int SalidaCode = ShiftPunchTypeClassifier.SalidaCode;
 
+    /// <summary>8 horas — mismo número que dashboard/app.js (capOpenUntilIso,
+    /// DEFAULT_SHIFT_HOURS), regla general dada explícitamente por el usuario para
+    /// empleados sin horario capturado.</summary>
+    public static readonly TimeSpan DefaultShiftDuration = TimeSpan.FromHours(8);
+
     /// <summary>Busca, dentro de TODAS las marcaciones de un solo empleado (cualquier
     /// orden), los turnos que se quedaron abiertos y que ya alcanzaron su hora de corte
     /// según <paramref name="nowUtc"/>. Nunca devuelve más de un turno pendiente por día
@@ -44,11 +55,6 @@ public static class AttendanceAutoCloser
     public static IReadOnlyList<PendingAutoClose> FindShiftsToClose(
         IReadOnlyList<Attendance> employeeAttendances, TimeOnly? scheduledEndTime, DateTime nowUtc)
     {
-        if (scheduledEndTime is not { } end)
-        {
-            return [];
-        }
-
         var result = new List<PendingAutoClose>();
         var byDay = employeeAttendances.GroupBy(a => DateOnly.FromDateTime(a.TimestampUtc));
         foreach (var dayGroup in byDay)
@@ -76,7 +82,7 @@ public static class AttendanceAutoCloser
                 continue;
             }
 
-            if (DetermineAutoCloseUtc(openEntrada.TimestampUtc, end, nowUtc) is { } cutoff)
+            if (DetermineAutoCloseUtc(openEntrada.TimestampUtc, scheduledEndTime, nowUtc) is { } cutoff)
             {
                 result.Add(new PendingAutoClose(openEntrada, cutoff));
             }
@@ -87,15 +93,29 @@ public static class AttendanceAutoCloser
 
     /// <summary>La hora UTC(-de-pared) exacta en la que debe cerrarse un turno que empezó
     /// en <paramref name="openEntradaUtc"/>, o null si <paramref name="nowUtc"/> todavía no
-    /// ha alcanzado ese momento. Turno nocturno (la hora de salida programada "cae antes"
-    /// que la de entrada en el reloj de 24h — p. ej. entrada 22:00, salida 06:00): el corte
-    /// real es al día siguiente, no el mismo día a una hora ya pasada.</summary>
-    public static DateTime? DetermineAutoCloseUtc(DateTime openEntradaUtc, TimeOnly scheduledEndTime, DateTime nowUtc)
+    /// ha alcanzado ese momento.
+    ///
+    /// CON <paramref name="scheduledEndTime"/>: el corte es esa hora del mismo día
+    /// calendario que la Entrada — salvo turno nocturno (la hora de salida programada "cae
+    /// antes" que la de entrada en el reloj de 24h, p. ej. entrada 22:00, salida 06:00),
+    /// donde el corte real es al día siguiente.
+    ///
+    /// SIN <paramref name="scheduledEndTime"/>: el corte es <see cref="DefaultShiftDuration"/>
+    /// después de la Entrada — ver comentario de clase.</summary>
+    public static DateTime? DetermineAutoCloseUtc(DateTime openEntradaUtc, TimeOnly? scheduledEndTime, DateTime nowUtc)
     {
-        var cutoffUtc = DateOnly.FromDateTime(openEntradaUtc).ToDateTime(scheduledEndTime, DateTimeKind.Utc);
-        if (cutoffUtc <= openEntradaUtc)
+        DateTime cutoffUtc;
+        if (scheduledEndTime is { } end)
         {
-            cutoffUtc = cutoffUtc.AddDays(1);
+            cutoffUtc = DateOnly.FromDateTime(openEntradaUtc).ToDateTime(end, DateTimeKind.Utc);
+            if (cutoffUtc <= openEntradaUtc)
+            {
+                cutoffUtc = cutoffUtc.AddDays(1);
+            }
+        }
+        else
+        {
+            cutoffUtc = openEntradaUtc + DefaultShiftDuration;
         }
 
         return nowUtc >= cutoffUtc ? cutoffUtc : null;

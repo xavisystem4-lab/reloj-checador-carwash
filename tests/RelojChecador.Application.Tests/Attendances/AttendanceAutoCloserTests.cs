@@ -15,12 +15,41 @@ public class AttendanceAutoCloserTests
 
     private static readonly Guid DeviceId = Guid.NewGuid();
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Sin horario capturado — regla general dada explícitamente por el usuario: "el
+    // horario de todos son 8 horas" (mismo número que el tope visual del Dashboard web,
+    // ver comentario de clase de AttendanceAutoCloser).
+    // ─────────────────────────────────────────────────────────────────────────
+
     [Fact]
-    public void FindShiftsToClose_SinHorarioCapturado_NuncaCierraNada()
+    public void FindShiftsToClose_SinHorarioCapturado_AntesDe8Horas_TodaviaNoSeCierra()
     {
         var entrada = Punch(At(31, 8, 0), ShiftPunchTypeClassifier.EntradaCode);
 
-        var result = AttendanceAutoCloser.FindShiftsToClose([entrada], scheduledEndTime: null, nowUtc: At(31, 23, 0));
+        var result = AttendanceAutoCloser.FindShiftsToClose([entrada], scheduledEndTime: null, nowUtc: At(31, 15, 59));
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void FindShiftsToClose_SinHorarioCapturado_SeCierraExactoA8HorasDeLaEntrada()
+    {
+        var entrada = Punch(At(31, 8, 0), ShiftPunchTypeClassifier.EntradaCode);
+
+        var result = AttendanceAutoCloser.FindShiftsToClose([entrada], scheduledEndTime: null, nowUtc: At(31, 16, 0));
+
+        var pending = Assert.Single(result);
+        Assert.Equal(At(31, 16, 0), pending.CutoffUtc);
+    }
+
+    [Fact]
+    public void FindShiftsToClose_ConHorarioCapturado_UsaElHorarioNoLas8Horas()
+    {
+        // Horario 20:00 (12 horas después de entrar) — a las 16:00 (8h) todavía NO debe
+        // cerrarse: cuando hay horario capturado, manda el horario, nunca las 8h genéricas.
+        var entrada = Punch(At(31, 8, 0), ShiftPunchTypeClassifier.EntradaCode);
+
+        var result = AttendanceAutoCloser.FindShiftsToClose([entrada], new TimeOnly(20, 0), At(31, 16, 0));
 
         Assert.Empty(result);
     }

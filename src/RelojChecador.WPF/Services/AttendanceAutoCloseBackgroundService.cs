@@ -11,12 +11,14 @@ using RelojChecador.Infrastructure.Cloud;
 namespace RelojChecador.WPF.Services;
 
 /// <summary>
-/// Cada pocos minutos, revisa a los empleados CON horario de salida capturado
-/// (<see cref="Employee.ScheduledEndTime"/>) y cierra solo los turnos que se quedaron
-/// abiertos (Entrada sin Salida) ya pasada esa hora — pedido explícito del usuario: "si el
-/// empleado no checa a su hora de salida esta se marca automáticamente para que no sigan
-/// corriendo las horas". La detección en sí es lógica pura (ver
-/// <see cref="AttendanceAutoCloser"/>); esta clase solo orquesta la persistencia, mismo
+/// Cada pocos minutos, cierra solo los turnos que se quedaron abiertos (Entrada sin
+/// Salida) ya pasada su hora de corte — pedido explícito del usuario: "si el empleado no
+/// checa a su hora de salida esta se marca automáticamente para que no sigan corriendo las
+/// horas". Aplica a TODO empleado activo sin horario especial: con
+/// <see cref="Employee.ScheduledEndTime"/> capturado se cierra exacto a esa hora; sin él,
+/// a las 8 horas desde que entró (regla general dada explícitamente por el usuario — ver
+/// comentario de clase de <see cref="AttendanceAutoCloser"/>). La detección en sí es
+/// lógica pura (ver esa misma clase); esta clase solo orquesta la persistencia, mismo
 /// patrón Singleton+BackgroundService que <see cref="SupabaseSyncBackgroundService"/>
 /// (scope propio por ciclo, un fallo puntual no tumba el host).
 ///
@@ -27,10 +29,6 @@ namespace RelojChecador.WPF.Services;
 /// nómina de escritorio (WorkedHoursCalculator) como el reporte del Dashboard web dejen de
 /// seguir sumando horas después del corte — ninguno de los dos necesita saber que este
 /// corte fue automático, ambos ya saben parar de contar en cuanto existe una Salida real.
-///
-/// Sin horario capturado (ScheduledEndTime null), un empleado nunca entra a esta revisión
-/// — el turno se queda abierto tal cual, igual que antes de que existiera este servicio
-/// (ver comentario de clase de AttendanceAutoCloser).
 /// </summary>
 public sealed class AttendanceAutoCloseBackgroundService(
     IServiceScopeFactory scopeFactory,
@@ -86,10 +84,11 @@ public sealed class AttendanceAutoCloseBackgroundService(
         // Employee: "un Gerente cuyo horario real varía día a día y nunca se va a
         // capturar como un par fijo de horas") — mismo criterio que ya usa
         // PunctualityClassifier para no juzgar puntualidad sobre alguien cuyo horario
-        // real no es el turno estándar: tampoco tiene sentido cerrarle el turno solo
-        // contra un ScheduledEndTime que no refleja su horario de verdad.
+        // real no es el turno estándar: tampoco tiene sentido cerrarle el turno solo. Ya
+        // NO se exige ScheduledEndTime — un empleado sin horario capturado también entra,
+        // con la regla general de 8 horas (ver AttendanceAutoCloser.DetermineAutoCloseUtc).
         var candidates = employees
-            .Where(e => e.Status == EmploymentStatus.Active && e.ScheduledEndTime is not null && !e.HasSpecialSchedule)
+            .Where(e => e.Status == EmploymentStatus.Active && !e.HasSpecialSchedule)
             .ToList();
         if (candidates.Count == 0)
         {
@@ -123,9 +122,12 @@ public sealed class AttendanceAutoCloseBackgroundService(
                     continue;
                 }
 
+                var motivo = employee.ScheduledEndTime is { } scheduledEnd
+                    ? $"horario {scheduledEnd:HH\\:mm}"
+                    : $"sin horario capturado, regla general de {AttendanceAutoCloser.DefaultShiftDuration.TotalHours:0} horas";
                 var rawPayload =
                     $"AUTOCLOSE|{employee.FullName}|cerrado automáticamente a las {toClose.CutoffUtc:yyyy-MM-dd HH:mm:ss} " +
-                    $"(horario {employee.ScheduledEndTime:HH\\:mm}, entrada sin cerrar desde {entrada.TimestampUtc:yyyy-MM-dd HH:mm:ss})";
+                    $"({motivo}, entrada sin cerrar desde {entrada.TimestampUtc:yyyy-MM-dd HH:mm:ss})";
 
                 // Mismo Device/Pin/BranchId que la Entrada que cierra — así la nueva Salida
                 // empareja con ella (ver WorkedHoursCalculator.PairAndSum), no con un
