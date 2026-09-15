@@ -9,6 +9,7 @@ using RelojChecador.Application.Common;
 using RelojChecador.Application.Devices;
 using RelojChecador.Application.EmployeeDeviceMappings;
 using RelojChecador.Application.Employees;
+using RelojChecador.Application.Payroll;
 using RelojChecador.Domain.Attendances;
 using RelojChecador.Domain.Branches;
 using RelojChecador.Domain.Common;
@@ -35,7 +36,16 @@ public sealed record BranchFilterOption(Branch? Branch, string Label)
 /// <c>LoadAsync</c> (la selección se pierde al "Actualizar", igual que cualquier estado de
 /// pantalla no persistido), pero SOBREVIVE a un filtro de texto (ApplySearchFilter reusa las
 /// mismas instancias de <c>_allRows</c>, no las reconstruye).</summary>
-public sealed partial class AttendanceRow(Attendance attendance, string branchName, string deviceName, string? employeeName, string? department)
+/// <param name="Color">Semáforo de puntualidad (ver PunctualityClassifier) de ESTA
+/// marcación contra el horario esperado del empleado — mismo criterio que
+/// DevicesViewModel.RawAttendanceRow.Color (una llegada que sí ocurrió nunca sale roja/
+/// Falta aquí; el rojo por falta solo tiene sentido en el desglose semanal día-por-día de
+/// Reportes, donde SÍ hay una fila para un día sin ninguna marcación — en esta pantalla, un
+/// día sin marcaciones simplemente no genera ninguna fila que colorear). Neutral si el PIN
+/// no está vinculado, sin horario capturado, o horario especial.</param>
+public sealed partial class AttendanceRow(
+    Attendance attendance, string branchName, string deviceName, string? employeeName, string? department,
+    AttendanceColor color = AttendanceColor.Neutral)
     : ObservableObject
 {
     public Attendance Attendance { get; } = attendance;
@@ -43,6 +53,7 @@ public sealed partial class AttendanceRow(Attendance attendance, string branchNa
     public string DeviceName { get; } = deviceName;
     public string? EmployeeName { get; } = employeeName;
     public string? Department { get; } = department;
+    public AttendanceColor Color { get; } = color;
 
     public string EmployeeDisplay => EmployeeName ?? $"PIN {Attendance.DeviceUserPin} · sin vincular";
 
@@ -172,6 +183,10 @@ public sealed partial class AttendanceViewModel : ObservableObject
             // ubicación original de quien se fusionó (ver EmployeesViewModel.ApplyCatalogReplaceAsync),
             // así se puede seguir distinguiendo de dónde era cada quien.
             var employeeDepartmentsById = employees.ToDictionary(e => e.Id, e => e.Department);
+            // Para el semáforo de puntualidad (ver PunctualityClassifier) de cada fila —
+            // mismos dos datos que ya usa DevicesViewModel.OnAttendancePunchReceived para el
+            // mismo cálculo en vivo.
+            var employeesById = employees.ToDictionary(e => e.Id, e => e);
             var employeeIdByDeviceAndPin = mappings.ToDictionary(m => (m.DeviceId, m.DeviceUserPin), m => m.EmployeeId);
 
             _allRows = attendances.Select(a =>
@@ -194,7 +209,15 @@ public sealed partial class AttendanceViewModel : ObservableObject
                 var department = resolvedEmployeeId is not null && employeeDepartmentsById.TryGetValue(resolvedEmployeeId.Value, out var dep)
                     ? dep
                     : null;
-                return new AttendanceRow(a, branchName, deviceName, employeeName, department);
+                // Es una llegada real que sí ocurrió — siempre "Worked" para este cálculo,
+                // igual que DevicesViewModel.RawAttendanceRow.Color (ver su comentario):
+                // rojo/Falta no aplica a una marcación existente, solo al desglose semanal
+                // de Reportes.
+                var color = resolvedEmployeeId is not null && employeesById.TryGetValue(resolvedEmployeeId.Value, out var resolvedEmployee)
+                    ? PunctualityClassifier.Classify(
+                        DayAttendanceStatus.Worked, resolvedEmployee.HasSpecialSchedule, resolvedEmployee.ScheduledStartTime, a.TimestampUtc)
+                    : AttendanceColor.Neutral;
+                return new AttendanceRow(a, branchName, deviceName, employeeName, department, color);
             }).ToList();
 
             ApplySearchFilter();

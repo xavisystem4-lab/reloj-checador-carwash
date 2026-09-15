@@ -8,6 +8,7 @@
     <UserControl.Resources>
         <converters:VerifyMethodToTextConverter x:Key="VerifyMethodToTextConverter" />
         <converters:PunchTypeToTextConverter x:Key="PunchTypeToTextConverter" />
+        <converters:AttendanceColorToBrushConverter x:Key="AttendanceColorToBrushConverter" />
     </UserControl.Resources>
 
     <Grid Margin="24">
@@ -86,6 +87,19 @@
         <DataGrid Grid.Row="3" ItemsSource="{Binding Attendances}" AutoGenerateColumns="False" IsReadOnly="True"
                   CanUserAddRows="False" GridLinesVisibility="Horizontal" HeadersVisibility="Column">
             <DataGrid.Columns>
+                <!-- Verde=puntual, amarillo=retardo (tolerancia 10 min) según el horario
+                     esperado del empleado — ver PunctualityClassifier. Gris si no hay con
+                     qué comparar (sin vincular, sin horario capturado, o horario especial);
+                     nunca rojo aquí (una marcación que sí ocurrió no es una falta — ver
+                     comentario de AttendanceRow.Color). Mismo patrón visual que la lista en
+                     vivo de Dispositivos. -->
+                <DataGridTemplateColumn Header="" Width="8">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <Rectangle Width="6" Fill="{Binding Color, Converter={StaticResource AttendanceColorToBrushConverter}}" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
                 <!-- Checkbox de selección para "Editar seleccionadas" — pedido explícito del
                      usuario: "editarlo masivamente con un check". DataGridTemplateColumn con
                      un CheckBox explícito, NO DataGridCheckBoxColumn — este último tiene un
