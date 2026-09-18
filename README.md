@@ -525,6 +525,28 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   (Entrada/Salida) por día. Se eliminaron `computeEmployeeHours`/`pairAndSumMs`/
   `capOpenUntilIso` (solo servían a las horas acumuladas). El resto de Reportes de escritorio
   (horas/nómina) no cambia.
+- **v1.64.0 — CAUSA RAÍZ real del reporte en rojo: catálogo reemplazado.** Verificado en los
+  datos de Supabase (18/09/2026): "Reemplazar catálogo" creó 54 empleados nuevos (`EMP-001…`,
+  nombres cortos: "Adali") y dio de baja a los ~59 anteriores (número = PIN, nombres
+  completos: "Adali Monserrat Tabanico Ramos", PIN 38), que siguieron siendo dueños de su PIN
+  (`EmployeeDeviceMapping`) y de 723 de las 730 marcaciones desde el 7/sep; los 54 vigentes
+  tenían 0 vínculos y 0 marcaciones, y el reporte solo lista vigentes. Además el número nuevo
+  NO coincide con el PIN (Andrés Herrera = `EMP-007`, PIN 6), así que **el número ya no se usa
+  como criterio principal** (v1.63.0 lo hacía; solo queda como respaldo con número solo-dígitos)
+  ni se deduce el PIN del sufijo `EMP-NNN`. `DeviceUserEmployeeMatcher` se reescribió: cada PIN
+  tiene todos los nombres con que se le reconoce (el del reloj y el del empleado dado de baja que
+  hoy lo tiene) y se le asigna el empleado vigente cuyas palabras aparecen TODAS, en orden, en
+  alguno de esos nombres ("Antony Beltran" ↔ "Antony Salvador Beltran Garcia"), en pasadas que
+  resuelven encadenados (más específico gana: "Isaac Rojo" antes que "Isaac"; "Pablo" espera a que
+  "Jose Pablo Rojo" tome el PIN 30) y nunca adivinan ante empate. `AutoLinkDeviceUsersAsync`
+  ahora REASIGNA la fila del vínculo (`EmployeeDeviceMapping.ReassignEmployee`, mismo `Id`: la
+  nube no recibe DELETE y su índice único (dispositivo, PIN) rechazaría una fila nueva) y pasa las
+  marcaciones sin dueño o de un dueño dado de baja al vigente (`ListByDeviceAndPinAsync` +
+  `Attendance.ReconcileEmployee`, que las marca para resubir). Corre en cada Actualizar de
+  Reportes aunque el reloj NO esté conectado (basta con los vínculos ya guardados); conectado,
+  además lee los usuarios del reloj. La importación desde la nube también pasa las marcaciones
+  al dueño vigente del PIN. Prueba de regresión con el catálogo real completo (42 PINs
+  resueltos, 8 empleados sin PIN que no se inventan).
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Navegación completa de la UI (Fase 3 del diseño visual — Sucursales, Empleados,

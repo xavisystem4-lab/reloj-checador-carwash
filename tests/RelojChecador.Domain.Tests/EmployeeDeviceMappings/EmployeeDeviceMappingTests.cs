@@ -44,6 +44,32 @@ public class EmployeeDeviceMappingTests
     }
 
     [Fact]
+    public void ReassignEmployee_TraspasaElVinculoConservandoIdDispositivoYPin()
+    {
+        var deviceId = Guid.NewGuid();
+        var mapping = EmployeeDeviceMapping.Create(Guid.NewGuid(), deviceId, "38");
+        var originalId = mapping.Id;
+        var newEmployeeId = Guid.NewGuid();
+
+        mapping.ReassignEmployee(newEmployeeId);
+
+        // Mismo Id: la nube recibe un upsert por Id (nunca un DELETE), así que la fila se
+        // actualiza en vez de chocar con el índice único (dispositivo, PIN).
+        Assert.Equal(originalId, mapping.Id);
+        Assert.Equal(newEmployeeId, mapping.EmployeeId);
+        Assert.Equal(deviceId, mapping.DeviceId);
+        Assert.Equal("38", mapping.DeviceUserPin);
+    }
+
+    [Fact]
+    public void ReassignEmployee_ConGuidVacio_LanzaDomainException()
+    {
+        var mapping = EmployeeDeviceMapping.Create(Guid.NewGuid(), Guid.NewGuid(), "38");
+
+        Assert.Throws<DomainException>(() => mapping.ReassignEmployee(Guid.Empty));
+    }
+
+    [Fact]
     public void UpdatePin_ConPinVacio_LanzaDomainException()
     {
         var mapping = EmployeeDeviceMapping.Create(Guid.NewGuid(), Guid.NewGuid(), "1");
