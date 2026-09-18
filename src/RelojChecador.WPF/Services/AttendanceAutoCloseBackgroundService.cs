@@ -98,46 +98,66 @@ public sealed class AttendanceAutoCloseBackgroundService(
         var closedCount = 0;
         foreach (var employee in candidates)
         {
-            // ListByEmployeeAsync solo trae marcaciones con EmployeeId YA resuelto
-            // directo — a propósito NO se hace también la resolución por
-            // EmployeeDeviceMapping que sí usa Payroll/AttendanceViewModel
-            // (GroupByResolvedEmployee): desde v1.31.0 la app resuelve el EmployeeId al
-            // guardar cada marcación nueva (ver comentario de clase de
-            // AttendanceViewModel), así que cualquier turno recién abierto ya llega
-            // vinculado. Una marcación vieja sin vincular nunca entra a este auto-cierre —
-            // se queda igual que hoy, sin marcar salida sola.
-            var attendances = await attendanceRepository.ListByEmployeeAsync(employee.Id, cancellationToken);
-            var pending = AttendanceAutoCloser.FindShiftsToClose(attendances, employee.ScheduledEndTime, nowUtc);
-
-            foreach (var toClose in pending)
+            try
             {
-                var entrada = toClose.OpenEntrada;
+                // ListByEmployeeAsync solo trae marcaciones con EmployeeId YA resuelto
+                // directo — a propósito NO se hace también la resolución por
+                // EmployeeDeviceMapping que sí usa Payroll/AttendanceViewModel
+                // (GroupByResolvedEmployee): desde v1.31.0 la app resuelve el EmployeeId al
+                // guardar cada marcación nueva (ver comentario de clase de
+                // AttendanceViewModel), así que cualquier turno recién abierto ya llega
+                // vinculado. Una marcación vieja sin vincular nunca entra a este auto-cierre —
+                // se queda igual que hoy, sin marcar salida sola.
+                var attendances = await attendanceRepository.ListByEmployeeAsync(employee.Id, cancellationToken);
+                var pending = AttendanceAutoCloser.FindShiftsToClose(attendances, employee.ScheduledEndTime, nowUtc);
 
-                // Colisión extremadamente rara (ya existe una marcación real justo en ese
-                // segundo, mismo Device/Pin) — se deja para el siguiente ciclo en vez de
-                // arriesgar el índice único (DeviceId, DeviceUserPin, TimestampUtc).
-                if (await attendanceRepository.ExistsAsync(
-                        entrada.DeviceId, entrada.DeviceUserPin, toClose.CutoffUtc, cancellationToken))
+                foreach (var toClose in pending)
                 {
-                    continue;
+                    var entrada = toClose.OpenEntrada;
+
+                    // Colisión extremadamente rara (ya existe una marcación real justo en ese
+                    // segundo, mismo Device/Pin) — se deja para el siguiente ciclo en vez de
+                    // arriesgar el índice único (DeviceId, DeviceUserPin, TimestampUtc).
+                    if (await attendanceRepository.ExistsAsync(
+                            entrada.DeviceId, entrada.DeviceUserPin, toClose.CutoffUtc, cancellationToken))
+                    {
+                        continue;
+                    }
+
+                    var motivo = employee.ScheduledEndTime is { } scheduledEnd
+                        ? $"horario {scheduledEnd:HH\\:mm}"
+                        : $"sin horario capturado, regla general de {AttendanceAutoCloser.DefaultShiftDuration.TotalHours:0} horas";
+                    var rawPayload =
+                        $"AUTOCLOSE|{employee.FullName}|cerrado automáticamente a las {toClose.CutoffUtc:yyyy-MM-dd HH:mm:ss} " +
+                        $"({motivo}, entrada sin cerrar desde {entrada.TimestampUtc:yyyy-MM-dd HH:mm:ss})";
+
+                    // Mismo Device/Pin/BranchId que la Entrada que cierra — así la nueva Salida
+                    // empareja con ella (ver WorkedHoursCalculator.PairAndSum), no con un
+                    // dispositivo arbitrario.
+                    var salida = Attendance.Create(
+                        entrada.DeviceId, entrada.BranchId, entrada.DeviceUserPin, toClose.CutoffUtc,
+                        AttendanceVerifyMethod.Automatic, ShiftPunchTypeClassifier.SalidaCode, rawPayload, employee.Id);
+
+                    await attendanceRepository.AddAsync(salida, cancellationToken);
+                    closedCount++;
                 }
-
-                var motivo = employee.ScheduledEndTime is { } scheduledEnd
-                    ? $"horario {scheduledEnd:HH\\:mm}"
-                    : $"sin horario capturado, regla general de {AttendanceAutoCloser.DefaultShiftDuration.TotalHours:0} horas";
-                var rawPayload =
-                    $"AUTOCLOSE|{employee.FullName}|cerrado automáticamente a las {toClose.CutoffUtc:yyyy-MM-dd HH:mm:ss} " +
-                    $"({motivo}, entrada sin cerrar desde {entrada.TimestampUtc:yyyy-MM-dd HH:mm:ss})";
-
-                // Mismo Device/Pin/BranchId que la Entrada que cierra — así la nueva Salida
-                // empareja con ella (ver WorkedHoursCalculator.PairAndSum), no con un
-                // dispositivo arbitrario.
-                var salida = Attendance.Create(
-                    entrada.DeviceId, entrada.BranchId, entrada.DeviceUserPin, toClose.CutoffUtc,
-                    AttendanceVerifyMethod.Automatic, ShiftPunchTypeClassifier.SalidaCode, rawPayload, employee.Id);
-
-                await attendanceRepository.AddAsync(salida, cancellationToken);
-                closedCount++;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // AISLADO por empleado — mismo criterio que
+                // SupabaseSyncBackgroundService.PushFullTableAsync ("cada tabla se sube de
+                // forma aislada"): antes, un dato problemático en UN empleado (p. ej. una
+                // marcación con datos inconsistentes) tumbaba la excepción hasta el catch
+                // general de ExecuteAsync ANTES de llegar al SaveChangesAsync de más abajo —
+                // perdiendo el cierre de TODOS los demás empleados ya procesados en ese
+                // ciclo, y repitiéndose cada 5 minutos para siempre porque nada en los datos
+                // cambia solo. Caso real detectado el 2026-09-18: cero cierres automáticos
+                // desde el 2026-09-11 pese a que las marcaciones normales del reloj seguían
+                // llegando sin problema — 18 empleados con turnos abiertos hasta 12 días.
+                logger.LogWarning(ex,
+                    "Auto-cierre: falló al procesar al empleado {EmployeeId} ({EmployeeName}) — se omite y se " +
+                    "sigue con los demás; se reintenta este empleado en el siguiente ciclo.",
+                    employee.Id, employee.FullName);
             }
         }
 
