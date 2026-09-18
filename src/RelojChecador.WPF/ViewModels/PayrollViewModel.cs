@@ -109,6 +109,10 @@ public sealed record PayrollRow(
         _ => "Dom",
     };
 
+    /// <summary>ISR + IMSS + Otro capturados a mano — una sola columna en la grilla (el desglose
+    /// está en "Deducciones", el diálogo de edición y el CSV) para que la tabla quepa completa.</summary>
+    public decimal DeductionsTotal => Deductions.IsrAmount + Deductions.ImssAmount + Deductions.OtherAmount;
+
     /// <summary>Bruto (Summary.TotalPay) menos las tres deducciones capturadas a mano —
     /// nunca se impide que salga negativo: el usuario capturó los montos, no hay nada que
     /// la app deba "corregir" aquí.</summary>

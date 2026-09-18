@@ -545,9 +545,32 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   `Attendance.ReconcileEmployee`, que las marca para resubir). Corre en cada Actualizar de
   Reportes aunque el reloj NO esté conectado (basta con los vínculos ya guardados); conectado,
   además lee los usuarios del reloj. La importación desde la nube también pasa las marcaciones
-  al dueño vigente del PIN. Prueba de regresión con el catálogo real completo (42 PINs
-  resueltos, 8 empleados sin PIN que no se inventan).
+  al dueño vigente del PIN. Prueba de regresión con el catálogo real completo (43 PINs
+  resueltos, 8 empleados sin PIN que no se inventan, 3 que ya checan con su PIN real).
 - **v1.64.1 — Reportes (escritorio): la tabla ya no corta encabezados ni textos.** Las columnas tenían anchos fijos menores que su encabezado ("Departamen", "Falta:", "Horas norn", "Neto a pa") y el texto descriptivo y la barra de estado (más larga desde que resume reloj/nube/PINs) no se ajustaban. Ahora las columnas usan Width="Auto" (con mínimo), Advertencias se ajusta en varias líneas y los dos textos hacen salto de línea.
+- **v1.65.0 — PINs "de relleno" y tabla de Reportes que ya sale completa.** (1) Segunda causa
+  real del reporte en rojo (verificada en Supabase tras v1.64.x): "Enviar empleados al reloj" dio a
+  los 54 vigentes PINs NUEVOS (60–110) sin ninguna checada, mientras las 1262 marcaciones seguían en
+  los PINs viejos (1–59), a nombre de empleados dados de baja; como todos los vigentes "ya tenían"
+  PIN, el emparejador no tenía a quién asignar ("54 ya estaban, 57 sin coincidencia").
+  `PinSlot.HasPunches` (`IAttendanceRepository.ListPinsWithAttendancesAsync`) distingue un PIN de
+  relleno (dueño vigente y cero checadas): su dueño vuelve a estar disponible, se empareja por
+  nombre con el PIN viejo y se le quita el de relleno (`PinMatchKind.Released`). Como todos los
+  vínculos suben en UN solo lote y Supabase tiene índices únicos (dispositivo, empleado) y
+  (dispositivo, PIN), el vínculo de relleno se borra PRIMERO en la nube
+  (`SupabaseSyncBackgroundService.TryDeleteMappingsRemoteAsync`, tercera excepción a "solo empuja";
+  si la nube está configurada y no responde se omite ese empleado hasta el siguiente Actualizar) y
+  luego se traspasa la fila del PIN viejo (`ReassignEmployee`). El usuario "de relleno" queda
+  huérfano en el reloj: borrarlo desde "Usuarios del reloj". (2) Tabla de Reportes: el tema global
+  fija `RowHeight=36` y relleno de 12 px (cortaba la 2ª línea de las insignias de días y los
+  encabezados), y el DataGrid ENCOGÍA las columnas de ancho fijo para meterlas en la ventana (la de
+  Checadas quedaba en ~140 de 440 px, solo se veían 3 días). Ahora: altura automática, relleno
+  chico, encabezados en dos líneas, cada columna con `MinWidth = Width` (si no cabe, barra
+  horizontal en vez de cortar), los 7 días en una fila, Sucursal y Departamento en una columna de
+  dos líneas e ISR/IMSS/Otro en una sola columna "Deducciones" (el desglose sigue en el diálogo y
+  el CSV). Verificado con capturas de la app real sobre una base de ejemplo aislada (variable de
+  entorno `RELOJCHECADOR_DATA_DIR`, ver `App.xaml.cs`). Dato a corregir en el catálogo: el
+  departamento de 41 empleados es literalmente "CARWASHCARWASH".
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Navegación completa de la UI (Fase 3 del diseño visual — Sucursales, Empleados,

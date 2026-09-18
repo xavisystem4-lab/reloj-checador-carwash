@@ -60,6 +60,12 @@ public interface IAttendanceRepository
     /// queda "sin vincular" otra vez, igual que antes de que existiera el vínculo.</summary>
     Task<IReadOnlyList<Attendance>> ListByEmployeeAsync(Guid employeeId, CancellationToken cancellationToken = default);
 
+    /// <summary>Los PINs de un dispositivo que tienen AL MENOS una marcación guardada — la
+    /// vinculación automática lo usa para distinguir un PIN "de relleno" (asignado hoy por
+    /// "Enviar empleados al reloj", sin ninguna checada) del PIN real con el que el empleado
+    /// ya checa.</summary>
+    Task<IReadOnlySet<string>> ListPinsWithAttendancesAsync(Guid deviceId, CancellationToken cancellationToken = default);
+
     /// <summary>TODAS las marcaciones de un dispositivo+PIN, sin importar a qué empleado están
     /// atribuidas hoy ni de qué fecha sean — usado por la vinculación automática de PINs para
     /// pasar al empleado vigente las marcaciones que quedaron a nombre de un empleado dado de
