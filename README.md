@@ -571,6 +571,16 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   el CSV). Verificado con capturas de la app real sobre una base de ejemplo aislada (variable de
   entorno `RELOJCHECADOR_DATA_DIR`, ver `App.xaml.cs`). Dato a corregir en el catálogo: el
   departamento de 41 empleados es literalmente "CARWASHCARWASH".
+- **v1.66.0 — "Actualizar" trae las marcaciones del reloj físico en el momento (Reportes y
+  Asistencia).** Antes Reportes solo usaba el reloj si ya estaba conectado (si no, "reloj no
+  conectado") y Asistencia solo recargaba la base local. Ahora `DevicesViewModel.DownloadForReportAsync`
+  (1) conecta con el reloj si no lo está (`EnsureConnectedAsync`, tope de 20 s; si ya hay un intento
+  en curso del reintento automático espera ese mismo; al vencer cancela el intento), (2) vincula los
+  PINs con los empleados vigentes y (3) descarga todas las marcaciones que tiene el reloj, guardando
+  las que faltan y subiéndolas a Supabase. Si no logra conectar devuelve el motivo y aun así hace lo
+  que no necesita el reloj; nunca lanza. El botón Actualizar de Asistencia
+  (`AttendanceViewModel.RefreshFromDeviceAsync`) hace lo mismo antes de recargar la lista y deja el
+  resultado en la barra de estado ("Reloj — N nueva(s) de M leída(s)" o el motivo del fallo).
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Navegación completa de la UI (Fase 3 del diseño visual — Sucursales, Empleados,

@@ -1181,37 +1181,100 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         }
     }
 
-    /// <summary>Descarga del reloj las marcaciones que faltan en la base local, para que el
-    /// reporte semanal (PayrollViewModel) las incluya — pedido explícito del usuario: "al
-    /// generar un reporte trame las marcaciones que estoy solicitando". No hace nada si no
-    /// hay un reloj conectado ahora mismo (<c>Attempted</c> = false): conectar sigue siendo
-    /// decisión explícita de la pantalla Dispositivos. Reutiliza
-    /// <see cref="DownloadAttendanceCoreAsync"/> (deduplica y respeta su guardia de
-    /// reentrancia) y sube a Supabase lo nuevo igual que el botón "Descargar asistencias".
-    /// Debe llamarse desde el hilo de UI (esa descarga refresca AttendanceRecords).</summary>
+    /// <summary>Tope de espera para conectar con el reloj al pulsar "Actualizar" — sin él, un reloj
+    /// apagado o fuera de la red dejaría la pantalla en "Trayendo marcaciones..." hasta que
+    /// vencieran todos los tiempos de espera del SDK de ZKTeco.</summary>
+    private static readonly TimeSpan ConnectOnRefreshTimeout = TimeSpan.FromSeconds(20);
+
+    /// <summary>Conecta con el reloj seleccionado si todavía no lo está, esperando a lo más
+    /// <see cref="ConnectOnRefreshTimeout"/>. Si ya hay un intento en curso (el reintento
+    /// automático de cada 15 s) espera ese mismo en vez de lanzar otro.</summary>
+    /// <returns>null si quedó conectado; si no, el motivo para mostrarlo al usuario.</returns>
+    public async Task<string?> EnsureConnectedAsync()
+    {
+        if (SelectedDevice is null)
+        {
+            return "no hay ningún reloj seleccionado";
+        }
+
+        if (IsConnected)
+        {
+            return null;
+        }
+
+        var connect = _isConnecting ? Task.CompletedTask : ConnectAsync();
+        var deadline = DateTime.UtcNow + ConnectOnRefreshTimeout;
+        while (!IsConnected && DateTime.UtcNow < deadline && (!connect.IsCompleted || _isConnecting))
+        {
+            await Task.WhenAny(connect.IsCompleted ? Task.Delay(250) : connect, Task.Delay(250));
+        }
+
+        if (IsConnected)
+        {
+            return null;
+        }
+
+        if (_isConnecting)
+        {
+            // Se acabó el tiempo con el intento aún corriendo: se cancela para no dejar el
+            // SDK colgado (el reintento automático lo retoma en 15 s).
+            _connectionCts?.Cancel();
+            return $"el reloj ({SelectedDevice.IpAddress}) no respondió en {ConnectOnRefreshTimeout.TotalSeconds:0} s";
+        }
+
+        var reason = AuthResult.TrimStart('❌', ' ');
+        return string.IsNullOrWhiteSpace(reason) || reason == "No verificado"
+            ? $"no se pudo conectar con el reloj ({SelectedDevice.IpAddress})"
+            : $"no se pudo conectar con el reloj: {reason}";
+    }
+
+    /// <summary>Lo que hace "Actualizar" (en Reportes y en Asistencia) respecto al reloj físico —
+    /// pedido explícito del usuario: "que se traiga los registros del reloj checador físico al
+    /// momento de darle actualizar". En orden: (1) conecta con el reloj si no lo está
+    /// (<see cref="EnsureConnectedAsync"/>); (2) vincula los PINs con los empleados vigentes
+    /// (<see cref="AutoLinkDeviceUsersAsync"/>; con el reloj conectado además lee sus usuarios);
+    /// (3) descarga TODAS las marcaciones que tiene el reloj y guarda las que faltan
+    /// (<see cref="DownloadAttendanceCoreAsync"/>: deduplica y respeta su guardia de
+    /// reentrancia), subiendo lo nuevo a Supabase igual que el botón "Descargar asistencias".
+    /// Si no se pudo conectar, igual se hace lo que no necesita el reloj (paso 2 con los
+    /// vínculos ya guardados) y se devuelve el motivo en <c>Error</c> — nunca lanza.
+    /// Debe llamarse desde el hilo de UI (la descarga refresca AttendanceRecords).</summary>
     public async Task<ReportDownloadOutcome> DownloadForReportAsync()
     {
+        if (SelectedDevice is null)
+        {
+            return new ReportDownloadOutcome(false, null, 0, 0, null);
+        }
+
+        string? connectError = null;
+        try
+        {
+            connectError = await EnsureConnectedAsync();
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "No se pudo conectar con el reloj al actualizar.");
+            connectError = "error inesperado al conectar con el reloj";
+        }
+
         // Primero los vínculos PIN↔empleado, luego las marcaciones: así lo que se descargue
         // ya nace vinculado, y lo que estaba a nombre de un empleado dado de baja pasa al
         // vigente (sin vínculo el reporte descarta la marcación y el empleado sale con
         // "Falta"). Corre aunque el reloj no esté conectado: con los vínculos ya guardados
         // basta para reparar un catálogo reemplazado.
         AutoLinkOutcome? link = null;
-        if (SelectedDevice is not null)
+        try
         {
-            try
-            {
-                link = await AutoLinkDeviceUsersAsync();
-            }
-            catch (Exception ex)
-            {
-                Log.Error(ex, "No se pudieron vincular automáticamente los PINs del reloj.");
-            }
+            link = await AutoLinkDeviceUsersAsync();
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "No se pudieron vincular automáticamente los PINs del reloj.");
         }
 
-        if (!IsConnected || SelectedDevice is null)
+        if (connectError is not null)
         {
-            return new ReportDownloadOutcome(false, null, 0, 0, link);
+            return new ReportDownloadOutcome(true, connectError, 0, 0, link);
         }
 
         var (success, error, totalRead, savedCount) = await DownloadAttendanceCoreAsync();
@@ -1228,8 +1291,8 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         return new ReportDownloadOutcome(true, null, totalRead, savedCount, link);
     }
 
-    /// <summary>Resultado de <see cref="DownloadForReportAsync"/>. <c>Attempted</c> = false si
-    /// no había un reloj conectado (no se intentó nada).</summary>
+    /// <summary>Resultado de <see cref="DownloadForReportAsync"/>. <c>Attempted</c> = false solo si no
+    /// hay ningún reloj seleccionado; <c>Error</c> trae por qué no se pudo conectar o leer.</summary>
     public sealed record ReportDownloadOutcome(
         bool Attempted, string? Error, int TotalRead, int SavedCount, AutoLinkOutcome? Link);
 

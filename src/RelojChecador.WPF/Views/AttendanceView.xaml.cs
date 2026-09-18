@@ -22,7 +22,8 @@ public partial class AttendanceView : UserControl
             return;
         }
 
-        await viewModel.LoadAsync();
+        // Trae primero las marcaciones del reloj físico y luego recarga la lista.
+        await viewModel.RefreshFromDeviceAsync();
     }
 
     private async void OnCreateManualAttendanceClick(object sender, RoutedEventArgs e)

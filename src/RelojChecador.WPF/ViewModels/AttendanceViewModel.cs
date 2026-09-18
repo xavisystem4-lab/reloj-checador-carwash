@@ -92,6 +92,13 @@ public sealed partial class AttendanceViewModel : ObservableObject
 
     private IReadOnlyList<AttendanceRow> _allRows = [];
 
+    private readonly DevicesViewModel _devicesViewModel;
+
+    /// <summary>Qué pasó con el reloj en el último "Actualizar" (conectó, cuántas marcaciones
+    /// nuevas trajo, o por qué no pudo) — se agrega al mensaje de estado en ApplySearchFilter
+    /// para que no se pierda al escribir en el buscador.</summary>
+    private string _deviceNote = "";
+
     [ObservableProperty]
     private string _statusMessage = "Cargando asistencias...";
 
@@ -117,8 +124,9 @@ public sealed partial class AttendanceViewModel : ObservableObject
     public AttendanceViewModel(
         IAttendanceRepository attendanceRepository, IBranchRepository branchRepository, IDeviceRepository deviceRepository,
         IEmployeeRepository employeeRepository, IEmployeeDeviceMappingRepository mappingRepository,
-        IUnitOfWork unitOfWork, SupabaseSyncBackgroundService syncService)
+        IUnitOfWork unitOfWork, SupabaseSyncBackgroundService syncService, DevicesViewModel devicesViewModel)
     {
+        _devicesViewModel = devicesViewModel;
         _attendanceRepository = attendanceRepository;
         _branchRepository = branchRepository;
         _deviceRepository = deviceRepository;
@@ -249,16 +257,47 @@ public sealed partial class AttendanceViewModel : ObservableObject
             Attendances.Add(row);
         }
 
+        var note = _deviceNote.Length > 0 ? $" Reloj — {_deviceNote}." : "";
         if (filtered.Count == 0)
         {
-            StatusMessage = "Sin marcaciones para estos filtros.";
+            StatusMessage = "Sin marcaciones para estos filtros." + note;
             return;
         }
 
         var unresolvedCount = filtered.Count(r => r.EmployeeName is null);
-        StatusMessage = unresolvedCount > 0
+        StatusMessage = (unresolvedCount > 0
             ? $"{filtered.Count} marcación(es) encontrada(s) ({unresolvedCount} sin vincular a empleado)."
-            : $"{filtered.Count} marcación(es) encontrada(s).";
+            : $"{filtered.Count} marcación(es) encontrada(s).") + note;
+    }
+
+    /// <summary>"Actualizar": primero trae las marcaciones del reloj físico (conectándose si hace
+    /// falta, ver DevicesViewModel.DownloadForReportAsync) y vincula los PINs, y después recarga
+    /// la lista — pedido explícito del usuario: "que se traiga los registros del reloj checador
+    /// físico al momento de darle actualizar". Nunca lanza: si el reloj no responde, igual
+    /// muestra lo que ya hay en la base local y dice por qué.</summary>
+    public async Task RefreshFromDeviceAsync()
+    {
+        StatusMessage = "Trayendo marcaciones del reloj...";
+        try
+        {
+            var outcome = await _devicesViewModel.DownloadForReportAsync();
+            _deviceNote = !outcome.Attempted
+                ? "ningún reloj seleccionado"
+                : outcome.Error is not null
+                    ? outcome.Error
+                    : $"{outcome.SavedCount} nueva(s) de {outcome.TotalRead} leída(s)";
+            if (outcome.Link is { Error: null, Linked: > 0 } link)
+            {
+                _deviceNote += $"; {link.Linked} PIN(s) vinculado(s)";
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "No se pudieron traer marcaciones del reloj al actualizar Asistencia.");
+            _deviceNote = "no se pudo leer el reloj";
+        }
+
+        await LoadAsync();
     }
 
     // ─────────────────────────────────────────────────────────────────────────

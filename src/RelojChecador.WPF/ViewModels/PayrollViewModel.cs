@@ -380,7 +380,7 @@ public sealed partial class PayrollViewModel : ObservableObject
                 }
 
                 parts.Add(outcome.Error is not null
-                    ? $"no se pudo leer el reloj ({outcome.Error})"
+                    ? $"reloj: {outcome.Error}"
                     : $"reloj: {outcome.SavedCount} nueva(s) de {outcome.TotalRead} leída(s)");
             }
         }
