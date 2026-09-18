@@ -42,3 +42,6 @@ appsettings.Local.json
 dashboard/.netlify/
 /.netlify/
 empleados_catalogo_importacion.csv
+
+# Metadatos AppleDouble de macOS (rompen la compilacion en Windows: el SDK los toma como .cs)
+._*
