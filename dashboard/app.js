@@ -18,6 +18,7 @@ import {
   addDaysIso, getWeekStartIso, dayLabel, shortDate, longDate, calculateWeek, dayBadgeText,
   formatHoursAndMinutes, formatMoney, netPay, buildAttendanceReportCsv,
 } from './payroll-calc.js';
+import { APP_VERSION } from './version.js';
 
 const SUPABASE_URL = 'https://vkvlucpjgvqrlvevcimq.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZrdmx1Y3BqZ3Zxcmx2ZXZjaW1xIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY2MDQ1MTQsImV4cCI6MjEwMjE4MDUxNH0.RWTJLCXhsPbSJLNpO2V2HNkhKqstqWgx33rkLekUxFI';
@@ -186,6 +187,8 @@ let lastLoadedRows = []; // guarda la última carga ya enriquecida, para exporta
 init();
 
 async function init() {
+  // Versión del sitio en los pies de login / cuenta pendiente / Dashboard (ver version.js).
+  document.querySelectorAll('[data-app-version]').forEach(el => { el.textContent = 'v' + APP_VERSION; });
   applyThemeIcons(currentTheme()); // sincroniza el ícono con lo que ya fijó el <script> del <head>
 
   const { data: { session } } = await supabase.auth.getSession();
