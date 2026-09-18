@@ -199,6 +199,17 @@ navegador.
 ese sí es un timestamp UTC genuino generado por el servidor, y necesita la conversión
 normal a hora local para mostrarse correctamente.
 
+## Versión del sitio
+
+`version.js` (`APP_VERSION`) es la MISMA versión del sistema (`Directory.Build.props` → instalador de la
+PC). Se ve arriba junto al título ("Reportes de asistencia · v1.xx.x") y en los pies de login/Dashboard,
+igual que el pie de la app de escritorio. Al subir la versión de un release hay que cambiar también
+`version.js`: `node --test tests/dashboard/version.test.mjs` falla si no coinciden.
+
+**Importante:** el sitio se despliega por SUBIDA MANUAL a Netlify (ver abajo); hacer `git push` NO lo
+actualiza (el proyecto no tiene repositorio conectado — el último despliegue automático de `git`
+nunca existió). Un cambio en `dashboard/` solo se ve en línea después de desplegar.
+
 ## Desplegar cambios
 
 El sitio vive en Netlify, proyecto `reloj-checador-carwash` (`d4473e62-f94c-4789-bed5-636c49720eeb`).

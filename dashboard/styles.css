@@ -554,6 +554,10 @@ tbody td { padding: 11px 16px; border-top: 1px solid var(--row-border); white-sp
 
 .table-note { font-size: 11.5px; color: var(--dim); margin-top: 12px; }
 
+/* Pie del Dashboard: crédito + versión (misma que el pie de la app de escritorio). */
+.dashboard-credit { margin: 28px 0 8px; text-align: center; font-size: 12px; color: var(--dim); }
+.dashboard-credit [data-app-version], .login-credit [data-app-version] { font-weight: 700; }
+
 /* ---------- Modal de usuarios ---------- */
 .modal-overlay {
   position: fixed;
