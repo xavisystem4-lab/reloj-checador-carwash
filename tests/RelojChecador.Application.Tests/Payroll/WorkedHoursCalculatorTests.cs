@@ -139,7 +139,7 @@ public class WorkedHoursCalculatorTests
     }
 
     [Fact]
-    public void CalculateDay_ConDosEntradasSeguidas_UsaLaMasRecienteYAdvierte()
+    public void CalculateDay_ConDosEntradasSeguidas_UsaLaPrimeraYAdvierte()
     {
         var date = new DateOnly(2026, 8, 10);
         var attendances = new[]
@@ -151,9 +151,49 @@ public class WorkedHoursCalculatorTests
 
         var summary = WorkedHoursCalculator.CalculateDay(date, attendances);
 
-        // Se usa la entrada de las 9:00 (la más reciente antes de la salida) — 8 horas, no 9.
+        // Decisión del usuario: se usa la PRIMERA entrada (8:00, la llegada real) y se ignora la
+        // repetida — 9 horas, no 8. La advertencia dice cuál se tomó y cuál se ignoró.
+        Assert.Equal(TimeSpan.FromHours(9), summary.RegularTime);
+        var warning = Assert.Single(summary.Warnings);
+        Assert.Contains("08:00", warning);
+        Assert.Contains("09:00", warning);
+    }
+
+    [Fact]
+    public void CalculateDay_CasoRealAdali_DobleChecadaCercaDeLaSalida_CuentaElTurnoCompleto()
+    {
+        // 15/09/2026, Adali (datos reales): 07:53 Entrada, 15:29 Entrada (toque repetido),
+        // 15:53 Salida. Antes contaba 0:24 h; ahora 8:00 h.
+        var date = new DateOnly(2026, 9, 15);
+        var attendances = new[]
+        {
+            CreateAttendance(new DateTime(2026, 9, 15, 7, 53, 0, DateTimeKind.Utc), punchType: 0),
+            CreateAttendance(new DateTime(2026, 9, 15, 15, 29, 0, DateTimeKind.Utc), punchType: 0),
+            CreateAttendance(new DateTime(2026, 9, 15, 15, 53, 0, DateTimeKind.Utc), punchType: 1),
+        };
+
+        var summary = WorkedHoursCalculator.CalculateDay(date, attendances);
+
         Assert.Equal(TimeSpan.FromHours(8), summary.RegularTime);
         Assert.Single(summary.Warnings);
+    }
+
+    [Fact]
+    public void CalculateDay_TresEntradasSeguidas_ConservaLaPrimeraYAdviertePorCadaRepetida()
+    {
+        var date = new DateOnly(2026, 8, 10);
+        var attendances = new[]
+        {
+            CreateAttendance(new DateTime(2026, 8, 10, 8, 0, 0, DateTimeKind.Utc), punchType: 0),
+            CreateAttendance(new DateTime(2026, 8, 10, 8, 1, 0, DateTimeKind.Utc), punchType: 0),
+            CreateAttendance(new DateTime(2026, 8, 10, 8, 2, 0, DateTimeKind.Utc), punchType: 0),
+            CreateAttendance(new DateTime(2026, 8, 10, 16, 0, 0, DateTimeKind.Utc), punchType: 1),
+        };
+
+        var summary = WorkedHoursCalculator.CalculateDay(date, attendances);
+
+        Assert.Equal(TimeSpan.FromHours(8), summary.RegularTime);
+        Assert.Equal(2, summary.Warnings.Count);
     }
 
     [Fact]

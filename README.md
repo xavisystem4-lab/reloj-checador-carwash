@@ -581,6 +581,18 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   que no necesita el reloj; nunca lanza. El botón Actualizar de Asistencia
   (`AttendanceViewModel.RefreshFromDeviceAsync`) hace lo mismo antes de recargar la lista y deja el
   resultado en la barra de estado ("Reloj — N nueva(s) de M leída(s)" o el motivo del fallo).
+- **v1.67.0 — doble checada: se toma la PRIMERA entrada; y Advertencias ya no agranda las filas.**
+  Ya con las checadas visibles (v1.66.0) el reporte mostraba horas absurdas y "31 con advertencias":
+  con dos "Entradas" seguidas (p. ej. Adali 15/09: 07:53 Entrada, 15:29 Entrada, 15:53 Salida — el
+  reloj F22/ID no tiene botones y `ShiftPunchTypeClassifier` no puede saber que la de las 15:29 es un
+  toque repetido) `WorkedHoursCalculator.PairAndSum` descartaba la PRIMERA (la llegada real) y contaba
+  solo 0:24 h ese día (1:53 h otro). Decisión explícita del usuario (18/09/2026): conservar la
+  primera entrada e ignorar la repetida, igual que el reporte web (primera checada = entrada); la
+  advertencia dice cuál se tomó y cuál se ignoró. Cambia la regla anterior (conservar la más
+  reciente), por lo que las horas de semanas pasadas con dobles checadas suben. Además la columna
+  Advertencias de Reportes envolvía TODO el texto en ~130 px y una fila con varias advertencias medía
+  cientos de píxeles: ahora muestra 2 líneas con "…" y el detalle completo (una por línea) en el
+  tooltip (`PayrollRow.WarningsTooltip`); Empleado y Advertencias se reparten el ancho sobrante.
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Navegación completa de la UI (Fase 3 del diseño visual — Sucursales, Empleados,
