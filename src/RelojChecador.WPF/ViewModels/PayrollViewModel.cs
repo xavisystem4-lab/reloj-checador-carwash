@@ -430,7 +430,20 @@ public sealed partial class PayrollViewModel : ObservableObject
 
         var deviceIds = (await _deviceRepository.ListAsync()).Select(d => d.Id).ToHashSet();
         var branchIds = (await _branchRepository.ListAsync()).Select(b => b.Id).ToHashSet();
-        var employeeIds = (await _employeeRepository.ListAsync()).Select(e => e.Id).ToHashSet();
+        var employees = await _employeeRepository.ListAsync();
+        var employeeIds = employees.Select(e => e.Id).ToHashSet();
+        var activeById = employees.Where(e => e.Status != EmploymentStatus.Terminated).ToDictionary(e => e.Id);
+        // Dueño VIGENTE de cada (reloj, PIN) según los vínculos locales — la nube puede traer
+        // la marcación atribuida a un empleado ya dado de baja (catálogo reemplazado, ver
+        // DevicesViewModel.AutoLinkDeviceUsersAsync), y el reporte solo lista vigentes.
+        var activeOwnerByDevicePin = new Dictionary<(Guid DeviceId, string Pin), Employee>();
+        foreach (var mapping in await _mappingRepository.ListAsync())
+        {
+            if (activeById.TryGetValue(mapping.EmployeeId, out var activeOwner))
+            {
+                activeOwnerByDevicePin[(mapping.DeviceId, mapping.DeviceUserPin)] = activeOwner;
+            }
+        }
 
         var local = await _attendanceRepository.ListAsync(fromUtc, toUtc, int.MaxValue);
         var knownIds = local.Select(a => a.Id).ToHashSet();
@@ -455,6 +468,7 @@ public sealed partial class PayrollViewModel : ObservableObject
 
             try
             {
+                var currentOwner = activeOwnerByDevicePin.GetValueOrDefault((dto.DeviceId, pin));
                 var attendance = Attendance.Restore(
                     dto.Id, dto.DeviceId,
                     dto.BranchId is { } branchId && branchIds.Contains(branchId) ? branchId : null,
@@ -463,6 +477,16 @@ public sealed partial class PayrollViewModel : ObservableObject
                     Enum.TryParse<AttendanceVerifyMethod>(dto.VerifyMethod, out var verifyMethod) ? verifyMethod : AttendanceVerifyMethod.Unknown,
                     dto.PunchType, dto.RawPayload,
                     ToUtc(dto.CreatedAtUtc), ToUtc(dto.UpdatedAtUtc), dto.ConcurrencyToken);
+
+                // La nube la tiene a nombre de otro (típicamente un empleado dado de baja) —
+                // pasa al dueño vigente del PIN. ReconcileEmployee la marca modificada, así se
+                // vuelve a subir y el Dashboard web también la ve con el empleado vigente. Si
+                // el PIN no tiene dueño vigente se deja tal cual vino (no se pierde nada).
+                if (currentOwner is not null && attendance.EmployeeId != currentOwner.Id)
+                {
+                    attendance.ReconcileEmployee(currentOwner.Id, currentOwner.BranchId);
+                }
+
                 await _attendanceRepository.AddAsync(attendance);
                 knownIds.Add(attendance.Id);
                 knownKeys.Add((attendance.DeviceId, attendance.DeviceUserPin, attendance.TimestampUtc));

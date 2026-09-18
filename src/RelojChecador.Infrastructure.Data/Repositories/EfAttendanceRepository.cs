@@ -39,6 +39,12 @@ public sealed class EfAttendanceRepository(RelojChecadorDbContext dbContext) : I
             .Take(maxCount)
             .ToListAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<Attendance>> ListByDeviceAndPinAsync(
+        Guid deviceId, string deviceUserPin, CancellationToken cancellationToken = default) =>
+        await dbContext.Attendances
+            .Where(a => a.DeviceId == deviceId && a.DeviceUserPin == deviceUserPin)
+            .ToListAsync(cancellationToken);
+
     public async Task<IReadOnlyList<Attendance>> ListUnresolvedByDeviceAndPinAsync(
         Guid deviceId, string deviceUserPin, CancellationToken cancellationToken = default) =>
         await dbContext.Attendances

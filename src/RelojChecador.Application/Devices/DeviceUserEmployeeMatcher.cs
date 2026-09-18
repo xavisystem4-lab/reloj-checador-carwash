@@ -4,179 +4,218 @@ using RelojChecador.Domain.Employees;
 
 namespace RelojChecador.Application.Devices;
 
-/// <summary>Cómo se resolvió (o por qué no) el vínculo de un usuario del reloj con un
-/// empleado — ver <see cref="DeviceUserEmployeeMatcher"/>.</summary>
-public enum DeviceUserMatchKind
+/// <summary>Cómo se resolvió (o por qué no) el vínculo de un PIN del reloj con un empleado —
+/// ver <see cref="DeviceUserEmployeeMatcher"/>.</summary>
+public enum PinMatchKind
 {
-    /// <summary>El nombre del usuario en el reloj coincide con el del empleado (sin
-    /// distinguir mayúsculas, acentos ni espacios repetidos).</summary>
-    ExactName,
+    /// <summary>Todas las palabras del nombre del empleado aparecen, en orden, en alguno de
+    /// los nombres que ese PIN tiene hoy (el del reloj o el del empleado dado de baja que lo
+    /// tenía) — p. ej. "Antony Beltran" ↔ "Antony Salvador Beltran Garcia".</summary>
+    NameMatch,
 
-    /// <summary>El reloj guarda el nombre truncado (unos ~24 caracteres): el nombre del
-    /// empleado empieza con el del reloj y es el único que lo hace.</summary>
-    TruncatedName,
-
-    /// <summary>Employee.Number == PIN — la convención del catálogo ("el número de empleado
-    /// coincide con el PIN"). Es el criterio principal: se revisa ANTES que el nombre.</summary>
+    /// <summary>Sin coincidencia por nombre, pero Employee.Number == PIN (solo dígitos, sin
+    /// distinguir ceros a la izquierda). Solo es respaldo: en un catálogo renumerado
+    /// ("EMP-007") el número YA NO coincide con el PIN y no se usa como criterio principal.</summary>
     EmployeeNumber,
 
-    /// <summary>Ese PIN ya tiene un vínculo en este dispositivo — no se toca.</summary>
+    /// <summary>Ese PIN ya pertenece a un empleado vigente (no dado de baja) — no se toca.</summary>
     AlreadyLinked,
 
-    /// <summary>Se encontró al empleado pero ya está vinculado a otro PIN de este
-    /// dispositivo (o ya lo reclamó otro usuario del reloj) — un empleado solo puede tener un
-    /// PIN por dispositivo.</summary>
-    EmployeeAlreadyLinked,
-
-    /// <summary>Varios empleados coinciden — nunca se adivina entre ellos.</summary>
+    /// <summary>Hay más de un empleado que podría ser — nunca se adivina.</summary>
     Ambiguous,
 
-    /// <summary>Ningún empleado coincide — queda para vincular a mano.</summary>
+    /// <summary>Ningún empleado vigente sin PIN coincide — queda para vincular a mano.</summary>
     NoMatch,
 }
 
-public sealed record DeviceUserMatchResult(DeviceUserRecord User, Employee? Employee, DeviceUserMatchKind Kind)
+/// <summary>Un PIN del reloj tal como está hoy. <paramref name="Names"/> son todos los nombres
+/// con que se puede reconocer a su dueño: el que tiene en la memoria del reloj y/o el del
+/// empleado (posiblemente dado de baja) al que hoy está vinculado. <paramref name="MappedEmployeeId"/>
+/// es ese empleado, o null si el PIN no tiene vínculo.</summary>
+public sealed record PinSlot(string Pin, IReadOnlyList<string> Names, Guid? MappedEmployeeId)
 {
-    /// <summary>true si hay que crear el vínculo PIN↔empleado.</summary>
-    public bool ShouldLink =>
-        Employee is not null &&
-        Kind is DeviceUserMatchKind.ExactName or DeviceUserMatchKind.TruncatedName or DeviceUserMatchKind.EmployeeNumber;
+    public string DisplayName => Names.FirstOrDefault(n => !string.IsNullOrWhiteSpace(n)) ?? "(sin nombre)";
+}
+
+public sealed record PinMatchResult(PinSlot Slot, Employee? Employee, PinMatchKind Kind)
+{
+    /// <summary>true si hay que asignar este PIN a <see cref="Employee"/> (creando el vínculo,
+    /// o traspasando el que tenía un empleado dado de baja).</summary>
+    public bool ShouldLink => Employee is not null && Kind is PinMatchKind.NameMatch or PinMatchKind.EmployeeNumber;
 }
 
 /// <summary>
-/// Empareja los usuarios que viven en la memoria del reloj (PIN + nombre, ver
-/// <see cref="DeviceUserRecord"/>) con los empleados del catálogo local, para crear
-/// automáticamente los vínculos (EmployeeDeviceMapping) que faltan. Sin el vínculo, una
-/// marcación queda "pendiente de asignación" y el reporte semanal la descarta: el empleado
-/// aparece con "Falta" toda la semana aunque sí haya checado.
+/// Empareja los PINs del reloj con los empleados VIGENTES del catálogo, para crear los
+/// vínculos (EmployeeDeviceMapping) que faltan. Sin vínculo a un empleado vigente, el reporte
+/// semanal descarta las marcaciones y el empleado sale con "Falta" aunque sí haya checado.
 ///
-/// Lógica pura, sin acceso a datos ni al dispositivo — quien la llama (DevicesViewModel) es
-/// quien lee el reloj y persiste. Criterio deliberadamente conservador: solo vincula cuando
-/// hay EXACTAMENTE un empleado candidato; ante duda (varios, o ninguno) no adivina y lo
-/// reporta para vincularlo a mano.
+/// Caso real que motivó este diseño (18/09/2026): "Reemplazar catálogo" creó 54 empleados
+/// nuevos (EMP-001…EMP-054, nombres cortos como "Adali") y dio de baja a los anteriores
+/// (número = PIN, nombres completos como "Adali Monserrat Tabanico Ramos", PIN 38), que
+/// siguieron siendo dueños de su PIN y de todas sus marcaciones. El número nuevo no coincide
+/// con el PIN (Andrés Herrera es EMP-007 pero su PIN es 6), así que se empareja por NOMBRE.
+///
+/// Lógica pura, sin acceso a datos ni al dispositivo. Criterio conservador: un PIN solo se
+/// asigna cuando hay UN candidato claro; ante duda no adivina y lo reporta.
 /// </summary>
 public static class DeviceUserEmployeeMatcher
 {
-    /// <summary>Largo mínimo del nombre del reloj para aceptar una coincidencia por prefijo —
-    /// evita que un nombre corto ("Ana") coincida con cualquier "Ana ..." del catálogo.</summary>
-    private const int MinTruncatedNameLength = 15;
-
-    /// <param name="users">Usuarios tal cual están en el reloj.</param>
-    /// <param name="employees">Empleados candidatos (los dados de baja se ignoran).</param>
-    /// <param name="linkedPins">PINs que YA tienen vínculo en este dispositivo.</param>
-    /// <param name="linkedEmployeeIds">Empleados que YA tienen vínculo en este dispositivo.</param>
-    public static IReadOnlyList<DeviceUserMatchResult> Match(
-        IReadOnlyList<DeviceUserRecord> users,
-        IReadOnlyList<Employee> employees,
-        IReadOnlySet<string> linkedPins,
-        IReadOnlySet<Guid> linkedEmployeeIds)
+    /// <param name="slots">Todos los PINs del dispositivo (los del reloj y los que ya tienen vínculo).</param>
+    /// <param name="employees">TODOS los empleados, incluidos los dados de baja (se necesitan para
+    /// saber si el dueño actual de un PIN sigue vigente).</param>
+    public static IReadOnlyList<PinMatchResult> Match(IReadOnlyList<PinSlot> slots, IReadOnlyList<Employee> employees)
     {
-        var candidates = employees
-            .Where(e => e.Status != EmploymentStatus.Terminated)
-            .Select(e => (Employee: e, Name: NormalizeName(e.FullName)))
-            .ToList();
-        var claimed = new HashSet<Guid>(linkedEmployeeIds);
+        var active = employees.Where(e => e.Status != EmploymentStatus.Terminated).ToList();
+        var activeIds = active.Select(e => e.Id).ToHashSet();
 
-        var results = new List<DeviceUserMatchResult>(users.Count);
-        foreach (var user in users)
+        var results = new PinMatchResult?[slots.Count];
+        var employeesWithPin = new HashSet<Guid>();
+        for (var i = 0; i < slots.Count; i++)
         {
-            var pin = user.DeviceUserPin.Trim();
-            if (linkedPins.Contains(pin))
+            if (slots[i].MappedEmployeeId is { } owner && activeIds.Contains(owner))
             {
-                results.Add(new DeviceUserMatchResult(user, null, DeviceUserMatchKind.AlreadyLinked));
-                continue;
+                results[i] = new PinMatchResult(slots[i], null, PinMatchKind.AlreadyLinked);
+                employeesWithPin.Add(owner);
             }
-
-            var (employee, kind) = Resolve(user, pin, candidates);
-            if (employee is null)
-            {
-                results.Add(new DeviceUserMatchResult(user, null, kind));
-                continue;
-            }
-
-            // Un empleado solo puede tener un PIN por dispositivo (índice único) — si ya lo
-            // tiene, o ya lo reclamó otro usuario del reloj en esta misma pasada, no se
-            // vincula otra vez.
-            if (!claimed.Add(employee.Id))
-            {
-                results.Add(new DeviceUserMatchResult(user, employee, DeviceUserMatchKind.EmployeeAlreadyLinked));
-                continue;
-            }
-
-            results.Add(new DeviceUserMatchResult(user, employee, kind));
         }
 
-        return results;
+        var pool = active
+            .Where(e => !employeesWithPin.Contains(e.Id))
+            .Select(e => (Employee: e, Tokens: Tokenize(e.FullName)))
+            .Where(e => e.Tokens.Count > 0)
+            .OrderByDescending(e => e.Tokens.Count)
+            .ThenBy(e => e.Employee.Number.Value, StringComparer.Ordinal)
+            .ToList();
+        var slotNames = slots.Select(s => s.Names.Select(Tokenize).Where(t => t.Count > 0).ToList()).ToList();
+
+        // 1) Por nombre, en pasadas: cada empleado sin pareja mira qué PINs libres lo
+        // contienen; solo se asigna si tiene UN solo PIN posible y, entre todos los que
+        // compiten por ese PIN, es el más específico (más palabras) sin empate. Repetir hasta
+        // que no cambie nada resuelve casos encadenados ("Pablo" cabe en dos PINs hasta que
+        // "Jose Pablo Rojo" se queda con el suyo).
+        var assigned = new Dictionary<int, (Employee Employee, PinMatchKind Kind)>();
+        var used = new HashSet<Guid>();
+        bool changed;
+        do
+        {
+            changed = false;
+            foreach (var (employee, tokens) in pool)
+            {
+                if (used.Contains(employee.Id))
+                {
+                    continue;
+                }
+
+                var candidates = CandidateSlots(tokens, slotNames, results, assigned);
+                if (candidates.Count != 1)
+                {
+                    continue;
+                }
+
+                var slotIndex = candidates[0];
+                var best = pool
+                    .Where(p => !used.Contains(p.Employee.Id) && CandidateSlots(p.Tokens, slotNames, results, assigned).Contains(slotIndex))
+                    .GroupBy(p => p.Tokens.Count)
+                    .OrderByDescending(g => g.Key)
+                    .First()
+                    .ToList();
+                if (best.Count == 1 && best[0].Employee.Id == employee.Id)
+                {
+                    assigned[slotIndex] = (employee, PinMatchKind.NameMatch);
+                    used.Add(employee.Id);
+                    changed = true;
+                }
+            }
+        }
+        while (changed);
+
+        // 2) Respaldo: Employee.Number == PIN, solo con un único empleado libre.
+        for (var i = 0; i < slots.Count; i++)
+        {
+            if (results[i] is not null || assigned.ContainsKey(i))
+            {
+                continue;
+            }
+
+            var byNumber = pool.Where(p => !used.Contains(p.Employee.Id) && NumberMatchesPin(p.Employee, slots[i].Pin)).ToList();
+            if (byNumber.Count == 1)
+            {
+                assigned[i] = (byNumber[0].Employee, PinMatchKind.EmployeeNumber);
+                used.Add(byNumber[0].Employee.Id);
+            }
+        }
+
+        for (var i = 0; i < slots.Count; i++)
+        {
+            if (results[i] is not null)
+            {
+                continue;
+            }
+
+            if (assigned.TryGetValue(i, out var match))
+            {
+                results[i] = new PinMatchResult(slots[i], match.Employee, match.Kind);
+                continue;
+            }
+
+            var stillPossible = pool.Any(p => !used.Contains(p.Employee.Id) && ContainsTokens(slotNames[i], p.Tokens));
+            results[i] = new PinMatchResult(slots[i], null, stillPossible ? PinMatchKind.Ambiguous : PinMatchKind.NoMatch);
+        }
+
+        return results!;
     }
 
-    private static (Employee? Employee, DeviceUserMatchKind Kind) Resolve(
-        DeviceUserRecord user, string pin, List<(Employee Employee, string Name)> candidates)
+    private static List<int> CandidateSlots(
+        IReadOnlyList<string> employeeTokens, List<List<IReadOnlyList<string>>> slotNames,
+        PinMatchResult?[] fixedResults, Dictionary<int, (Employee Employee, PinMatchKind Kind)> assigned)
     {
-        // 1) Número de empleado = PIN: la regla del catálogo ("el número de empleado
-        // coincide con el PIN") y el criterio MÁS confiable — el nombre en el reloj puede
-        // estar abreviado, con otro orden o mal escrito, el número no. Gana sobre el nombre.
-        var byPinNumber = candidates.Where(c => NumberMatchesPin(c.Employee, pin)).Select(c => c.Employee).ToList();
-        if (byPinNumber.Count == 1)
+        var candidates = new List<int>();
+        for (var i = 0; i < slotNames.Count; i++)
         {
-            return (byPinNumber[0], DeviceUserMatchKind.EmployeeNumber);
-        }
-
-        if (byPinNumber.Count > 1)
-        {
-            return (null, DeviceUserMatchKind.Ambiguous);
-        }
-
-        // 2) Sin número que coincida: por nombre.
-        var deviceName = NormalizeName(user.Name);
-
-        if (deviceName.Length > 0)
-        {
-            var exact = candidates.Where(c => c.Name == deviceName).Select(c => c.Employee).ToList();
-            if (exact.Count == 1)
+            if (fixedResults[i] is null && !assigned.ContainsKey(i) && ContainsTokens(slotNames[i], employeeTokens))
             {
-                return (exact[0], DeviceUserMatchKind.ExactName);
-            }
-
-            if (exact.Count > 1)
-            {
-                // Homónimos y ninguno con Número = PIN: no se adivina.
-                return (null, DeviceUserMatchKind.Ambiguous);
-            }
-
-            if (deviceName.Length >= MinTruncatedNameLength)
-            {
-                var truncated = candidates
-                    .Where(c => c.Name.Length > deviceName.Length && c.Name.StartsWith(deviceName, StringComparison.Ordinal))
-                    .Select(c => c.Employee)
-                    .ToList();
-                if (truncated.Count == 1)
-                {
-                    return (truncated[0], DeviceUserMatchKind.TruncatedName);
-                }
-
-                if (truncated.Count > 1)
-                {
-                    return (null, DeviceUserMatchKind.Ambiguous);
-                }
+                candidates.Add(i);
             }
         }
 
-        return (null, DeviceUserMatchKind.NoMatch);
+        return candidates;
+    }
+
+    /// <summary>¿Alguno de los nombres contiene TODAS las palabras del empleado, en el mismo orden?</summary>
+    private static bool ContainsTokens(List<IReadOnlyList<string>> names, IReadOnlyList<string> employeeTokens) =>
+        names.Any(name => IsSubsequence(employeeTokens, name));
+
+    private static bool IsSubsequence(IReadOnlyList<string> needle, IReadOnlyList<string> haystack)
+    {
+        var next = 0;
+        foreach (var word in haystack)
+        {
+            if (next < needle.Count && needle[next] == word)
+            {
+                next++;
+            }
+        }
+
+        return next == needle.Count;
     }
 
     /// <summary>Igual sin distinguir mayúsculas; y si ambos son solo dígitos, también sin
-    /// ceros a la izquierda ("0114" = "114"): el teclado del reloj guarda el PIN como número.</summary>
+    /// ceros a la izquierda ("0114" = "114").</summary>
     private static bool NumberMatchesPin(Employee employee, string pin)
     {
         var number = employee.Number.Value.Trim();
-        if (string.Equals(number, pin, StringComparison.OrdinalIgnoreCase))
+        var trimmedPin = pin.Trim();
+        if (string.Equals(number, trimmedPin, StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
 
-        return number.Length > 0 && pin.Length > 0 && number.All(char.IsAsciiDigit) && pin.All(char.IsAsciiDigit)
-            && number.TrimStart('0') == pin.TrimStart('0');
+        return number.Length > 0 && trimmedPin.Length > 0 && number.All(char.IsAsciiDigit) && trimmedPin.All(char.IsAsciiDigit)
+            && number.TrimStart('0') == trimmedPin.TrimStart('0');
     }
+
+    private static IReadOnlyList<string> Tokenize(string? name) =>
+        NormalizeName(name).Split(' ', StringSplitOptions.RemoveEmptyEntries);
 
     /// <summary>Minúsculas, sin acentos, solo letras/dígitos y espacios simples — así "José
     /// Pérez", "JOSE  PEREZ" y "jose perez" son el mismo nombre.</summary>
@@ -191,8 +230,7 @@ public static class DeviceUserEmployeeMatcher
         var sb = new StringBuilder(decomposed.Length);
         foreach (var ch in decomposed)
         {
-            var category = CharUnicodeInfo.GetUnicodeCategory(ch);
-            if (category == UnicodeCategory.NonSpacingMark)
+            if (CharUnicodeInfo.GetUnicodeCategory(ch) == UnicodeCategory.NonSpacingMark)
             {
                 continue;
             }

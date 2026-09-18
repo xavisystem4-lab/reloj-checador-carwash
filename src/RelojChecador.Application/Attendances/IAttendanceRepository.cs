@@ -60,6 +60,13 @@ public interface IAttendanceRepository
     /// queda "sin vincular" otra vez, igual que antes de que existiera el vínculo.</summary>
     Task<IReadOnlyList<Attendance>> ListByEmployeeAsync(Guid employeeId, CancellationToken cancellationToken = default);
 
+    /// <summary>TODAS las marcaciones de un dispositivo+PIN, sin importar a qué empleado están
+    /// atribuidas hoy ni de qué fecha sean — usado por la vinculación automática de PINs para
+    /// pasar al empleado vigente las marcaciones que quedaron a nombre de un empleado dado de
+    /// baja (ver DevicesViewModel.AutoLinkDeviceUsersAsync). Entidades trackeadas.</summary>
+    Task<IReadOnlyList<Attendance>> ListByDeviceAndPinAsync(
+        Guid deviceId, string deviceUserPin, CancellationToken cancellationToken = default);
+
     /// <summary>Marcaciones sin vincular a ningún empleado (EmployeeId null), de CUALQUIER
     /// dispositivo/PIN y SIN límite de fecha (a diferencia de ListUnresolvedByDeviceAndPinAsync,
     /// que solo busca un PIN puntual) — usado por "Vincular pendientes" en Empleados para

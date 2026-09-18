@@ -36,6 +36,18 @@ public sealed class EmployeeDeviceMapping : Entity
         };
     }
 
+    /// <summary>Traspasa este vínculo (mismo dispositivo y mismo PIN) a OTRO empleado — caso
+    /// real: tras "Reemplazar catálogo" los empleados anteriores quedan dados de baja pero
+    /// siguen "dueños" de su PIN en el reloj, y sus marcaciones también; el empleado nuevo de
+    /// la misma persona necesita heredar ese PIN. Se reasigna la fila (mismo Id) en vez de
+    /// borrar y crear otra porque la nube nunca recibe un DELETE y el índice único
+    /// (DeviceId, DeviceUserPin) de Supabase rechazaría una fila nueva con el mismo PIN.</summary>
+    public void ReassignEmployee(Guid newEmployeeId)
+    {
+        Guard.AgainstEmptyGuid(newEmployeeId, nameof(newEmployeeId));
+        EmployeeId = newEmployeeId;
+    }
+
     /// <summary>Corrige el PIN de un vínculo ya existente — caso real: el usuario captura
     /// un PIN equivocado al vincular (p. ej. el número de empleado en vez del PIN real del
     /// reloj) y no puede simplemente "vincular de nuevo" porque el índice único
