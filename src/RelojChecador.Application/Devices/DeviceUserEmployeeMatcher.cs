@@ -16,8 +16,8 @@ public enum DeviceUserMatchKind
     /// empleado empieza con el del reloj y es el único que lo hace.</summary>
     TruncatedName,
 
-    /// <summary>Sin coincidencia por nombre, pero Employee.Number == PIN — la convención del
-    /// catálogo ("se respete tal cual la numeración del PIN").</summary>
+    /// <summary>Employee.Number == PIN — la convención del catálogo ("el número de empleado
+    /// coincide con el PIN"). Es el criterio principal: se revisa ANTES que el nombre.</summary>
     EmployeeNumber,
 
     /// <summary>Ese PIN ya tiene un vínculo en este dispositivo — no se toca.</summary>
@@ -112,6 +112,21 @@ public static class DeviceUserEmployeeMatcher
     private static (Employee? Employee, DeviceUserMatchKind Kind) Resolve(
         DeviceUserRecord user, string pin, List<(Employee Employee, string Name)> candidates)
     {
+        // 1) Número de empleado = PIN: la regla del catálogo ("el número de empleado
+        // coincide con el PIN") y el criterio MÁS confiable — el nombre en el reloj puede
+        // estar abreviado, con otro orden o mal escrito, el número no. Gana sobre el nombre.
+        var byPinNumber = candidates.Where(c => NumberMatchesPin(c.Employee, pin)).Select(c => c.Employee).ToList();
+        if (byPinNumber.Count == 1)
+        {
+            return (byPinNumber[0], DeviceUserMatchKind.EmployeeNumber);
+        }
+
+        if (byPinNumber.Count > 1)
+        {
+            return (null, DeviceUserMatchKind.Ambiguous);
+        }
+
+        // 2) Sin número que coincida: por nombre.
         var deviceName = NormalizeName(user.Name);
 
         if (deviceName.Length > 0)
@@ -124,11 +139,8 @@ public static class DeviceUserEmployeeMatcher
 
             if (exact.Count > 1)
             {
-                // Homónimos: el número de empleado = PIN desempata; si no, no se adivina.
-                var byNumber = exact.Where(e => NumberMatchesPin(e, pin)).ToList();
-                return byNumber.Count == 1
-                    ? (byNumber[0], DeviceUserMatchKind.ExactName)
-                    : (null, DeviceUserMatchKind.Ambiguous);
+                // Homónimos y ninguno con Número = PIN: no se adivina.
+                return (null, DeviceUserMatchKind.Ambiguous);
             }
 
             if (deviceName.Length >= MinTruncatedNameLength)
@@ -149,17 +161,22 @@ public static class DeviceUserEmployeeMatcher
             }
         }
 
-        var byPinNumber = candidates.Where(c => NumberMatchesPin(c.Employee, pin)).Select(c => c.Employee).ToList();
-        return byPinNumber.Count switch
-        {
-            1 => (byPinNumber[0], DeviceUserMatchKind.EmployeeNumber),
-            > 1 => (null, DeviceUserMatchKind.Ambiguous),
-            _ => (null, DeviceUserMatchKind.NoMatch),
-        };
+        return (null, DeviceUserMatchKind.NoMatch);
     }
 
-    private static bool NumberMatchesPin(Employee employee, string pin) =>
-        string.Equals(employee.Number.Value, pin, StringComparison.OrdinalIgnoreCase);
+    /// <summary>Igual sin distinguir mayúsculas; y si ambos son solo dígitos, también sin
+    /// ceros a la izquierda ("0114" = "114"): el teclado del reloj guarda el PIN como número.</summary>
+    private static bool NumberMatchesPin(Employee employee, string pin)
+    {
+        var number = employee.Number.Value.Trim();
+        if (string.Equals(number, pin, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return number.Length > 0 && pin.Length > 0 && number.All(char.IsAsciiDigit) && pin.All(char.IsAsciiDigit)
+            && number.TrimStart('0') == pin.TrimStart('0');
+    }
 
     /// <summary>Minúsculas, sin acentos, solo letras/dígitos y espacios simples — así "José
     /// Pérez", "JOSE  PEREZ" y "jose perez" son el mismo nombre.</summary>

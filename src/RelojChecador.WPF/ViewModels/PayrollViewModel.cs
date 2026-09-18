@@ -285,7 +285,12 @@ public sealed partial class PayrollViewModel : ObservableObject
 
             if (pullPunches)
             {
-                _punchSourcesNote = await PullMissingPunchesAsync(fromUtc, toUtc);
+                // Pedido explícito del usuario: traer las marcaciones "de la semana pasada a
+                // la fecha" — no solo la semana en pantalla. El reloj ya entrega todo su
+                // historial en cada descarga; a la nube se le pide desde la semana anterior a
+                // la mostrada hasta hoy (o el fin de la semana mostrada, si es posterior).
+                var todayEndUtc = DateTime.SpecifyKind(DateTime.Now.Date.AddDays(1).AddTicks(-1), DateTimeKind.Utc);
+                _punchSourcesNote = await PullMissingPunchesAsync(fromUtc.AddDays(-7), toUtc > todayEndUtc ? toUtc : todayEndUtc);
                 StatusMessage = "Calculando...";
             }
 

@@ -118,7 +118,7 @@ const devicesStatusRow = document.getElementById('devices-status-row');
 const connectionBadge = document.getElementById('connection-badge');
 const connectionBadgeText = document.getElementById('connection-badge-text');
 
-// ---- Reporte de asistencia (horas trabajadas) — ver openAttendanceReport/computeEmployeeHours.
+// ---- Reporte de asistencia (entrada/salida por día) — ver openAttendanceReport/buildEmployeeWeekView.
 // Pedido explícito del usuario: "quiero que al darle clic al reporte de asistencia
 // automáticamente se abra la imagen que se acabo de apuntar. No quiero la otra, quiero esa
 // imagen" — "Reporte de asistencia" abre la previsualización DIRECTO, ya no hay una
@@ -132,7 +132,7 @@ const reportPreviewPage = document.getElementById('report-preview-page');
 // redimensiona; report-preview-page solo se transforma visualmente dentro de él.
 const reportPreviewPageFrame = document.getElementById('report-preview-page-frame');
 const previewRangeText = document.getElementById('preview-range-text');
-const previewTbody = document.getElementById('preview-tbody');
+const previewWeeks = document.getElementById('preview-weeks');
 const previewEmptyText = document.getElementById('preview-empty-text');
 const previewGeneratedText = document.getElementById('preview-generated-text');
 const previewPrintButton = document.getElementById('preview-print-button');
@@ -1297,19 +1297,12 @@ function csvEscape(value) {
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
-// ---- Reporte de asistencia (horas trabajadas) — pedido explícito del usuario: "quiero
-// tener un botón que se llame reporte de asistencia ... que me salgan las horas trabajadas
-// del empleado, que lo pueda filtrar de tal fecha a tal fecha ... para que me ayude a hacer
-// un reporte de nómina ... quiero que me aparezcan las horas trabajadas hasta el día de
-// hoy" (ya cubierto: "Hasta" nace en el día de hoy, ver init()). Reutiliza el rango
-// Desde/Hasta/Sucursal de los filtros principales — no duplica esos controles aquí. ----
-
-const PUNCH_IN = 0;
-const PUNCH_OUT = 1;
-const BREAK_OUT = 2;
-const BREAK_IN = 3;
-const OVERTIME_IN = 4;
-const OVERTIME_OUT = 5;
+// ---- Reporte de asistencia — pedido explícito del usuario: "quiero tener un botón que se
+// llame reporte de asistencia ... que lo pueda filtrar de tal fecha a tal fecha", y después:
+// "lo vamos a cambiar por la hora en que entró cada empleado y salió durante toda la semana
+// en lugar de que se acumulen las horas, mejor que me salgan las marcaciones de la semana"
+// (ya NO se calculan horas acumuladas). Reutiliza el rango Desde/Hasta/Sucursal de los
+// filtros principales — no duplica esos controles aquí. ----
 
 /// "Ahora" con el mismo criterio que timestamp_utc en toda la base: NO es UTC real, es la
 /// hora de pared del negocio sin convertir (ver formatAttendanceDateTime más abajo) — así
@@ -1324,128 +1317,28 @@ function nowAsFakeUtcIso() {
     `T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}.000Z`;
 }
 
-/// Pedido explícito del usuario: "si el empleado no checa a su hora de salida, esta se
-/// marca automáticamente para que no sigan corriendo las horas". Un turno de HOY que sigue
-/// abierto ya NO cuenta en vivo para siempre — se congela en cuanto se cumple su horario de
-/// salida esperado (+30 min de margen) o, si no tiene horario capturado, a las 8 horas
-/// desde que entró ("el horario de todos son 8 horas", regla general dada por el usuario).
-/// Puramente un tope de VISUALIZACIÓN en tiempo real — nunca escribe nada en la base, mismo
-/// criterio conservador que el repo principal (WorkedHoursCalculator nunca inventa un
-/// cierre real, solo advierte).
-const DEFAULT_SHIFT_HOURS = 8;
-const SCHEDULE_GRACE_MINUTES = 30;
-
 function isoTimeToMinutes(iso) {
   const [h, m] = iso.slice(11, 16).split(':').map(Number);
   return h * 60 + m;
 }
 
-/// <param name="openAtIso">Cuándo entró (quedó abierto sin su salida todavía).</param>
-/// <param name="nowIso">"Ahora", en el mismo formato pseudo-UTC que el resto del archivo.</param>
-/// <param name="scheduledEndTime">"HH:mm:ss" (Employee.ScheduledEndTime) o null.</param>
-function capOpenUntilIso(openAtIso, nowIso, scheduledEndTime) {
-  const day = openAtIso.slice(0, 10);
-  const openMinutes = isoTimeToMinutes(openAtIso);
-  let capMinutes = openMinutes + DEFAULT_SHIFT_HOURS * 60;
-  if (scheduledEndTime) {
-    const [h, m] = scheduledEndTime.split(':').map(Number);
-    const scheduledCapMinutes = h * 60 + m + SCHEDULE_GRACE_MINUTES;
-    // Si el horario programado ya queda antes/igual que la entrada (turno que cruza
-    // medianoche, o dato inconsistente), no sirve como tope — se queda con el de 8 horas.
-    if (scheduledCapMinutes > openMinutes) {
-      capMinutes = scheduledCapMinutes;
-    }
-  }
-  capMinutes = Math.min(capMinutes, 24 * 60 - 1); // nunca "cruza" al día siguiente aquí
-
-  const nowMinutes = day === nowIso.slice(0, 10) ? isoTimeToMinutes(nowIso) : capMinutes;
-  const effectiveMinutes = Math.min(capMinutes, nowMinutes);
-  const hh = String(Math.floor(effectiveMinutes / 60)).padStart(2, '0');
-  const mm = String(effectiveMinutes % 60).padStart(2, '0');
-  return `${day}T${hh}:${mm}:00.000Z`;
-}
-
-/// Empareja cronológicamente cada marcación "abre" (openType) con la siguiente "cierra"
-/// (closeType) dentro de un mismo día y suma la diferencia en milisegundos — mismo
-/// criterio que WorkedHoursCalculator.PairAndSum del repo principal (RelojChecador.
-/// Application.Payroll). Un desbalance (dos aperturas seguidas, un cierre sin apertura)
-/// simplemente no se cuenta — este reporte no muestra advertencias por fila, a diferencia
-/// del cálculo de nómina de la app de escritorio.
-///
-/// <paramref name="todayCapContext"/>: pedido explícito del usuario — "las horas
-/// trabajadas cuéntalas en tiempo real desde que checaron hasta ahorita [pero] si no
-/// checan su salida, que no sigan corriendo". Si al terminar de recorrer las marcaciones
-/// queda una apertura SIN su cierre (el empleado sigue trabajando ahora mismo) y se pasó
-/// este contexto, se cuenta el tiempo hasta el tope calculado por capOpenUntilIso (nunca
-/// más allá) en vez de dejarlo en 0 — quien llama solo lo pasa para el DÍA DE HOY (ver
-/// computeEmployeeHours), nunca para un día pasado con una salida realmente olvidada.
-function pairAndSumMs(sortedDayRows, openType, closeType, todayCapContext = null) {
-  let totalMs = 0;
-  let openAtIso = null;
-  for (const row of sortedDayRows) {
-    if (row.punch_type === openType) {
-      openAtIso = row.timestamp_utc;
-    } else if (row.punch_type === closeType) {
-      if (openAtIso) {
-        totalMs += new Date(row.timestamp_utc) - new Date(openAtIso);
-        openAtIso = null;
-      }
-    }
-  }
-  if (openAtIso && todayCapContext) {
-    // Horario especial (Velador/Gerente con horario flexible o nocturno, pedido explícito
-    // del usuario): sin tope automático — sigue contando en vivo como antes.
-    const cappedUntilIso = todayCapContext.hasSpecialSchedule
-      ? todayCapContext.nowIso
-      : capOpenUntilIso(openAtIso, todayCapContext.nowIso, todayCapContext.scheduledEndTime);
-    const elapsedMs = new Date(cappedUntilIso) - new Date(openAtIso);
-    if (elapsedMs > 0) totalMs += elapsedMs;
-  }
-  return totalMs;
-}
-
-/// Horas normales + horas extra de UN empleado, agrupando primero por día calendario (el
-/// prefijo "YYYY-MM-DD" del timestamp, sin conversión de huso horario — mismo criterio que
-/// el resto del Dashboard) y emparejando Entrada/Salida SOLO dentro de cada día, para no
-/// mezclar una entrada de un día con una salida de otro. Descanso (2/3) resta de las horas
-/// normales, sin bajar de 0. Un turno de HOY que sigue abierto (sin Salida todavía) cuenta
-/// en tiempo real hasta el tope de capOpenUntilIso — ver pairAndSumMs.
-function computeEmployeeHours(employeeRows, scheduledEndTime = null, hasSpecialSchedule = false) {
-  const nowIso = nowAsFakeUtcIso();
-  const today = nowIso.slice(0, 10);
-
-  const byDay = new Map();
-  for (const row of employeeRows) {
-    const day = row.timestamp_utc.slice(0, 10);
-    if (!byDay.has(day)) byDay.set(day, []);
-    byDay.get(day).push(row);
-  }
-
-  let regularMs = 0;
-  let overtimeMs = 0;
-  for (const [day, dayRows] of byDay) {
-    const sorted = [...dayRows].sort((a, b) => a.timestamp_utc.localeCompare(b.timestamp_utc));
-    const todayCapContext = day === today ? { nowIso, scheduledEndTime, hasSpecialSchedule } : null;
-    const dayRegularMs = pairAndSumMs(sorted, PUNCH_IN, PUNCH_OUT, todayCapContext);
-    const dayBreakMs = pairAndSumMs(sorted, BREAK_OUT, BREAK_IN);
-    regularMs += Math.max(0, dayRegularMs - dayBreakMs);
-    overtimeMs += pairAndSumMs(sorted, OVERTIME_IN, OVERTIME_OUT, todayCapContext);
-  }
-  return { regularMs, overtimeMs };
-}
-
 /// Mismo criterio que WeekBoundary.cs del repo principal — la semana es lunes a domingo.
+function localDateIso(d) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 function getWeekStartIso(dayIso) {
   const d = new Date(`${dayIso}T00:00:00`);
   const dow = (d.getDay() + 6) % 7; // 0=lunes ... 6=domingo
   d.setDate(d.getDate() - dow);
-  return toDateInputValue(d);
+  return localDateIso(d);
 }
 
 function addDaysIso(dayIso, days) {
   const d = new Date(`${dayIso}T00:00:00`);
   d.setDate(d.getDate() + days);
-  return toDateInputValue(d);
+  return localDateIso(d);
 }
 
 /// Clasifica cada día del rango [fromIso, toIso] de UN empleado en Trabajado/Descanso/
@@ -1529,42 +1422,124 @@ function buildAttendanceReportRows() {
         // área, no solo quienes tienen Department capturado.
         department: row.employeeDepartment || row.branchName || '—',
         scheduledStartTime: row.employeeScheduledStartTime ?? null,
-        scheduledEndTime: row.employeeScheduledEndTime ?? null,
         hasSpecialSchedule: row.employeeHasSpecialSchedule === true,
-        rows: [],
+        byDay: new Map(),
       });
     }
+    // Marcaciones agrupadas por día calendario (prefijo "YYYY-MM-DD" del timestamp, sin
+    // conversión de huso horario — mismo criterio que el resto del Dashboard).
     const entry = byEmployee.get(key);
-    entry.rows.push(row);
+    const day = row.timestamp_utc.slice(0, 10);
+    if (!entry.byDay.has(day)) entry.byDay.set(day, []);
+    entry.byDay.get(day).push(row);
   }
 
-  const result = [];
-  for (const entry of byEmployee.values()) {
-    const { regularMs, overtimeMs } = computeEmployeeHours(entry.rows, entry.scheduledEndTime, entry.hasSpecialSchedule);
-
-    const byDay = new Map();
-    for (const row of entry.rows) {
-      const day = row.timestamp_utc.slice(0, 10);
-      if (!byDay.has(day)) byDay.set(day, []);
-      byDay.get(day).push(row);
+  const result = [...byEmployee.values()];
+  for (const entry of result) {
+    for (const dayRows of entry.byDay.values()) {
+      dayRows.sort((a, b) => a.timestamp_utc.localeCompare(b.timestamp_utc));
     }
-    const classification = classifyEmployeeDays(
-      byDay, fromInput.value, toInput.value, entry.scheduledStartTime, entry.hasSpecialSchedule);
-
-    result.push({
-      number: entry.number,
-      name: entry.name,
-      department: entry.department,
-      regularHours: regularMs / 3_600_000,
-      overtimeHours: overtimeMs / 3_600_000,
-      totalHours: (regularMs + overtimeMs) / 3_600_000,
-      absenceCount: classification.absenceCount,
-      attendanceColor: attendanceColorFor(classification, entry.hasSpecialSchedule),
-    });
   }
-
   result.sort((a, b) => a.name.localeCompare(b.name, 'es-MX'));
   return result;
+}
+
+const WEEKDAY_LABELS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+
+/// Todos los días "YYYY-MM-DD" de [fromIso, toIso], ambos incluidos.
+function listDaysIso(fromIso, toIso) {
+  const days = [];
+  for (let day = fromIso; day <= toIso && days.length < 400; day = addDaysIso(day, 1)) {
+    days.push(day);
+  }
+  return days;
+}
+
+/// Divide el rango elegido en bloques de semana (lunes a domingo), recortados al rango — un
+/// reporte de una semana da UN bloque; uno de un mes da cuatro o cinco.
+function reportWeekBlocks(fromIso, toIso) {
+  const blocks = [];
+  for (let weekStart = getWeekStartIso(fromIso); weekStart <= toIso; weekStart = addDaysIso(weekStart, 7)) {
+    const weekEnd = addDaysIso(weekStart, 6);
+    blocks.push({
+      fromIso: weekStart < fromIso ? fromIso : weekStart,
+      toIso: weekEnd > toIso ? toIso : weekEnd,
+    });
+  }
+  return blocks;
+}
+
+/// "HH:MM" de una marcación (24 h) — la hora de pared tal cual quedó guardada, sin
+/// conversión de huso horario (ver nowAsFakeUtcIso).
+function punchTimeLabel(row) {
+  return row.timestamp_utc.slice(11, 16);
+}
+
+/// Lo que se muestra de UN empleado en [blockFromIso, blockToIso] (dentro de una misma
+/// semana, o varias — se reinicia el descanso al cambiar de semana): una celda por día con
+/// la hora de Entrada (primera marcación del día) y de Salida (última; null si solo hay
+/// una, todavía no checa salida). Los días sin marcación se marcan Descanso (el primero de
+/// la semana), Falta (los demás ya vencidos) o pendiente (hoy en adelante) — mismo criterio
+/// que classifyEmployeeDays / WorkedHoursCalculator.CalculateWeek del repo principal.
+function buildEmployeeWeekView(employee, blockFromIso, blockToIso) {
+  const todayIso = nowAsFakeUtcIso().slice(0, 10);
+  const cells = [];
+  let currentWeekStart = null;
+  let restDayTaken = false;
+
+  for (const dayIso of listDaysIso(blockFromIso, blockToIso)) {
+    const weekStart = getWeekStartIso(dayIso);
+    if (weekStart !== currentWeekStart) {
+      currentWeekStart = weekStart;
+      restDayTaken = false;
+    }
+
+    const punches = employee.byDay.get(dayIso) ?? [];
+    if (punches.length > 0) {
+      cells.push({
+        dayIso,
+        status: 'worked',
+        entry: punchTimeLabel(punches[0]),
+        exit: punches.length > 1 ? punchTimeLabel(punches[punches.length - 1]) : null,
+        allPunches: punches.map(punchTimeLabel).join(', '),
+      });
+    } else if (dayIso >= todayIso) {
+      cells.push({ dayIso, status: 'pending' });
+    } else if (!restDayTaken) {
+      restDayTaken = true;
+      cells.push({ dayIso, status: 'rest' });
+    } else {
+      cells.push({ dayIso, status: 'absent' });
+    }
+  }
+
+  const classification = classifyEmployeeDays(
+    employee.byDay, blockFromIso, blockToIso, employee.scheduledStartTime, employee.hasSpecialSchedule);
+  return {
+    cells,
+    absenceCount: classification.absenceCount,
+    attendanceColor: attendanceColorFor(classification, employee.hasSpecialSchedule),
+  };
+}
+
+/// "Lun" + "14/09" para el encabezado de un día.
+function dayHeaderParts(dayIso) {
+  const weekday = WEEKDAY_LABELS[new Date(`${dayIso}T00:00:00`).getDay()];
+  return { weekday, date: `${dayIso.slice(8, 10)}/${dayIso.slice(5, 7)}` };
+}
+
+function dayCellHtml(cell) {
+  switch (cell.status) {
+    case 'worked':
+      return `<div class="punch-line" title="${escapeHtml(cell.allPunches)}"><b>E</b>${escapeHtml(cell.entry)}</div>` +
+        `<div class="punch-line${cell.exit ? '' : ' punch-line--missing'}"><b>S</b>${escapeHtml(cell.exit ?? '—')}</div>`;
+    case 'rest':
+      return '<span class="day-note">Descanso</span>';
+    case 'absent':
+      return '<span class="day-note day-note--absent">Falta</span>';
+    default:
+      return ''; // pendiente: todavía no llega ese día
+  }
 }
 
 /// Pedido explícito del usuario: "un buscador que busque por número, PIN, empleado, en
@@ -1610,10 +1585,6 @@ function populatePreviewDepartmentOptions(rows) {
 /// cambio de rango de fechas, para que los tres filtros siempre se respeten a la vez.
 function applyPreviewFilters() {
   renderPreviewTable(filterReportRows(lastReportRows, previewSearchInput.value, previewDepartmentSelect.value));
-}
-
-function formatHours(hours) {
-  return hours.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function reportRangeLabel() {
@@ -1739,44 +1710,56 @@ async function onPreviewDateRangeChange() {
 function renderPreviewTable(rows) {
   currentPreviewRows = rows;
 
-  previewTbody.innerHTML = '';
+  previewWeeks.innerHTML = '';
   previewEmptyText.hidden = rows.length > 0;
   if (rows.length === 0) {
     return;
   }
 
+  // Una tabla por semana (lunes a domingo, recortada al rango elegido), con una columna por
+  // día: Entrada/Salida de cada empleado — ver buildEmployeeWeekView.
   const fragment = document.createDocumentFragment();
-  let totalRegular = 0;
-  let totalOvertime = 0;
-  let totalAbsences = 0;
-  for (const row of rows) {
-    totalRegular += row.regularHours;
-    totalOvertime += row.overtimeHours;
-    totalAbsences += row.absenceCount;
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${escapeHtml(row.number ?? '—')}</td>
-      <td>${escapeHtml(row.name)}</td>
-      <td>${escapeHtml(row.department)}</td>
-      <td>${formatHours(row.regularHours)} h</td>
-      <td>${formatHours(row.overtimeHours)} h</td>
-      <td>${formatHours(row.totalHours)} h</td>
-      <td>${row.absenceCount}</td>
-      <td>${attendanceColorBadgeHtml(row.attendanceColor)}</td>
-    `;
-    fragment.appendChild(tr);
+  for (const block of reportWeekBlocks(fromInput.value, toInput.value)) {
+    const days = listDaysIso(block.fromIso, block.toIso);
+    const dayHeaders = days.map(dayIso => {
+      const { weekday, date } = dayHeaderParts(dayIso);
+      return `<th class="col-day">${weekday}<small>${date}</small></th>`;
+    }).join('');
+
+    const bodyHtml = rows.map(row => {
+      const view = buildEmployeeWeekView(row, block.fromIso, block.toIso);
+      return `<tr>
+        <td>${escapeHtml(row.number ?? '—')}</td>
+        <td>${escapeHtml(row.name)}</td>
+        <td>${escapeHtml(row.department)}</td>
+        ${view.cells.map(cell => `<td class="cell-day">${dayCellHtml(cell)}</td>`).join('')}
+        <td class="cell-faltas">${view.absenceCount}</td>
+        <td>${attendanceColorBadgeHtml(view.attendanceColor)}</td>
+      </tr>`;
+    }).join('');
+
+    const section = document.createElement('section');
+    section.className = 'report-week';
+    section.innerHTML = `
+      <h3 class="report-week-title">Semana del ${escapeHtml(dayHeaderParts(block.fromIso).date)} al ${escapeHtml(dayHeaderParts(block.toIso).date)}</h3>
+      <table class="report-preview-table report-preview-table--week">
+        <thead>
+          <tr>
+            <th class="col-number">Número</th>
+            <th class="col-name">Empleado</th>
+            <th class="col-dept">Departamento</th>
+            ${dayHeaders}
+            <th class="col-faltas">Faltas</th>
+            <!-- Verde=puntual, amarillo=retardo (tolerancia 10 min), rojo=falta — ver
+                 PunctualityClassifier del repo principal. -->
+            <th class="col-punct">Puntualidad</th>
+          </tr>
+        </thead>
+        <tbody>${bodyHtml}</tbody>
+      </table>`;
+    fragment.appendChild(section);
   }
-  const totalTr = document.createElement('tr');
-  totalTr.innerHTML = `
-    <td colspan="4">Total</td>
-    <td>${formatHours(totalRegular)} h</td>
-    <td>${formatHours(totalOvertime)} h</td>
-    <td>${formatHours(totalRegular + totalOvertime)} h</td>
-    <td>${totalAbsences}</td>
-    <td></td>
-  `;
-  fragment.appendChild(totalTr);
-  previewTbody.appendChild(fragment);
+  previewWeeks.appendChild(fragment);
 }
 
 const ATTENDANCE_COLOR_LABELS = { green: 'Puntual', yellow: 'Retardo', red: 'Falta', neutral: '—' };
@@ -1867,20 +1850,36 @@ async function onExportReportExcelClick() {
   try {
     await ensureExportLibrariesLoaded();
 
+    // Una sola hoja con TODO el rango: dos columnas por día (Entrada y Salida) — así se
+    // puede seguir editando/sumando en Excel. En los días sin marcación, la columna Entrada
+    // dice "Descanso" o "Falta" y Salida queda vacía.
+    const days = listDaysIso(fromInput.value, toInput.value);
+    const dayHeaders = days.flatMap(dayIso => {
+      const { weekday, date } = dayHeaderParts(dayIso);
+      return [`${weekday} ${date} Entrada`, `${weekday} ${date} Salida`];
+    });
     const sheetRows = [
       ['Drive In Car Wash — Reporte de Asistencia'],
       [reportRangeLabel()],
       [],
-      ['Número', 'Empleado', 'Departamento', 'Horas normales', 'Horas extra', 'Total horas', 'Faltas', 'Puntualidad'],
+      ['Número', 'Empleado', 'Departamento', ...dayHeaders, 'Faltas', 'Puntualidad'],
       // currentPreviewRows, NO lastReportRows — exporta exactamente lo que está en pantalla
       // (respeta el buscador si hay uno en curso).
-      ...currentPreviewRows.map(r => [
-        r.number ?? '', r.name, r.department, Number(r.regularHours.toFixed(2)), Number(r.overtimeHours.toFixed(2)),
-        Number(r.totalHours.toFixed(2)), r.absenceCount, attendanceColorLabel(r.attendanceColor),
-      ]),
+      ...currentPreviewRows.map(r => {
+        const view = buildEmployeeWeekView(r, fromInput.value, toInput.value);
+        const dayValues = view.cells.flatMap(cell => {
+          if (cell.status === 'worked') return [cell.entry, cell.exit ?? ''];
+          if (cell.status === 'rest') return ['Descanso', ''];
+          if (cell.status === 'absent') return ['Falta', ''];
+          return ['', ''];
+        });
+        return [r.number ?? '', r.name, r.department, ...dayValues, view.absenceCount, attendanceColorLabel(view.attendanceColor)];
+      }),
     ];
     const worksheet = XLSX.utils.aoa_to_sheet(sheetRows);
-    worksheet['!cols'] = [{ wch: 10 }, { wch: 32 }, { wch: 18 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 10 }, { wch: 14 }];
+    worksheet['!cols'] = [
+      { wch: 10 }, { wch: 32 }, { wch: 18 }, ...days.flatMap(() => [{ wch: 9 }, { wch: 9 }]), { wch: 8 }, { wch: 14 },
+    ];
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Asistencia');
 
@@ -1911,11 +1910,12 @@ async function onExportReportPdfClick() {
     const canvas = await html2canvas(reportPreviewPage, { scale: 2, backgroundColor: '#FFFFFF' });
     const imgData = canvas.toDataURL('image/png');
 
-    // Tamaño Carta (8.5in x 11in) — pedido explícito del usuario.
+    // Tamaño Carta HORIZONTAL (11in x 8.5in): una columna por día de la semana no cabe en
+    // vertical.
     const { jsPDF } = window.jspdf;
-    const pdf = new jsPDF({ unit: 'in', format: 'letter', orientation: 'portrait' });
-    const pageWidthIn = 8.5;
-    const pageHeightIn = 11;
+    const pdf = new jsPDF({ unit: 'in', format: 'letter', orientation: 'landscape' });
+    const pageWidthIn = 11;
+    const pageHeightIn = 8.5;
     const imgHeightIn = (canvas.height * pageWidthIn) / canvas.width;
 
     // La hoja puede ser más alta que una página Carta (muchos empleados) — se reparte en

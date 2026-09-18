@@ -748,15 +748,17 @@ select.preview-date-input { max-width: 190px; cursor: pointer; }
    report-preview-scroll, igual que antes. */
 .report-preview-page-frame { flex-shrink: 0; overflow: hidden; }
 
-/* Tamaño Carta real (8.5in x 11in) — pedido explícito del usuario. En pantalla se ve
+/* Tamaño Carta real, horizontal (11in x 8.5in) — pedido explícito del usuario. En pantalla se ve
    dentro de un contenedor con scroll (fondo gris alrededor, como una hoja sobre un
    escritorio); @media print más abajo deja SOLO esta hoja visible al imprimir/guardar
    como PDF. Colores fijos (no var(--...)) a propósito: un reporte impreso/exportado nunca
    debe verse "modo oscuro", sin importar el tema activo del Dashboard. */
 .report-preview-page {
-  width: 8.5in;
-  min-height: 11in;
-  padding: 0.6in 0.7in;
+  /* HORIZONTAL (11in x 8.5in) — el reporte muestra una columna por día de la semana con la
+     hora de entrada y salida, que no cabe en vertical. */
+  width: 11in;
+  min-height: 8.5in;
+  padding: 0.5in 0.5in;
   background: #FFFFFF;
   color: #101828;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
@@ -784,6 +786,31 @@ select.preview-date-input { max-width: 190px; cursor: pointer; }
 }
 .report-preview-table td { padding: 6px 8px; border-bottom: 1px solid #E1E7F0; }
 .report-preview-table tfoot td { font-weight: 800; border-top: 2px solid #0B62A7; }
+
+/* Una tabla por semana (ver renderPreviewTable en app.js): ancho fijo por columna para que
+   los 7 días midan lo mismo y las horas queden alineadas de un empleado a otro. */
+.report-week { margin-bottom: 18px; break-inside: avoid; }
+.report-week-title { font-size: 12px; font-weight: 800; color: #095183; margin: 0 0 6px; }
+.report-preview-table--week { table-layout: fixed; }
+.report-preview-table--week th, .report-preview-table--week td { padding: 5px 4px; }
+/* Los th globales van en mayúsculas y con espaciado de letras (pensados para las tablas del
+   Dashboard) — aquí se anulan: en columnas angostas se encimaban unos con otros. */
+.report-preview-table--week th { text-transform: none; letter-spacing: 0; font-size: 10.5px; }
+.report-preview-table--week .col-number { width: 54px; }
+.report-preview-table--week .col-name { width: 150px; }
+.report-preview-table--week .col-dept { width: 92px; }
+.report-preview-table--week .col-faltas { width: 48px; text-align: center; }
+.report-preview-table--week .col-punct { width: 92px; }
+.report-preview-table--week th.col-day { text-align: center; line-height: 1.25; }
+.report-preview-table--week th.col-day small { display: block; font-weight: 600; color: #5B6472; }
+.report-preview-table--week td.cell-day { text-align: center; line-height: 1.35; white-space: nowrap; }
+.report-preview-table--week td.cell-faltas { text-align: center; }
+/* Entrada / Salida de un día: dos líneas cortas ("E 08:02" / "S 17:15"). Salida en gris
+   claro si no hay (todavía no checa o falta la marcación de salida). */
+.punch-line b { display: inline-block; width: 11px; font-weight: 800; color: #095183; }
+.punch-line--missing { color: #96A0AC; }
+.day-note { font-size: 10px; color: #96A0AC; }
+.day-note--absent { color: #C62828; font-weight: 700; }
 /* La tabla del reporte SIEMPRE es blanca (para imprimir/exportar igual sin importar el
    tema del Dashboard) — pero la regla global "tbody tr:hover" (pensada para las tablas
    oscuras del Dashboard, usa var(--brand-soft)) se colaba aquí y en modo oscuro pintaba la
@@ -810,7 +837,7 @@ select.preview-date-input { max-width: 190px; cursor: pointer; }
     width: 100%;
     min-height: auto;
   }
-  @page { size: letter; margin: 0.5in; }
+  @page { size: letter landscape; margin: 0.4in; }
 }
 
 /* =====================================================================
