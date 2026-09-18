@@ -34,6 +34,51 @@ public partial class DeviceUsersDialog : Window
 
     private async void OnRefreshClick(object sender, RoutedEventArgs e) => await RefreshAsync();
 
+    private async void OnAutoLinkClick(object sender, RoutedEventArgs e)
+    {
+        var button = (Button)sender;
+        button.IsEnabled = false;
+        try
+        {
+            var outcome = await _viewModel.AutoLinkDeviceUsersAsync();
+            if (outcome.Error is not null)
+            {
+                MessageBox.Show(this, outcome.Error, "No se pudo vincular", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            var summary = $"{outcome.Linked} PIN(s) vinculado(s) ahora.\n" +
+                          $"{outcome.AlreadyLinked} ya estaban vinculados.\n" +
+                          $"{outcome.ReconciledPunches} marcación(es) pendiente(s) quedaron atribuidas a su empleado.";
+            if (outcome.Unmatched.Count > 0)
+            {
+                const int maxListed = 25;
+                var lines = outcome.Unmatched
+                    .Take(maxListed)
+                    .Select(m => $"  • PIN {m.User.DeviceUserPin} — \"{m.User.Name}\" ({Describe(m.Kind)})");
+                summary += $"\n\n{outcome.Unmatched.Count} usuario(s) sin vincular (hazlo a mano en Empleados → Vincular pendientes):\n" +
+                           string.Join("\n", lines);
+                if (outcome.Unmatched.Count > maxListed)
+                {
+                    summary += $"\n  … y {outcome.Unmatched.Count - maxListed} más.";
+                }
+            }
+
+            MessageBox.Show(this, summary, "Vinculación automática", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        finally
+        {
+            button.IsEnabled = true;
+        }
+    }
+
+    private static string Describe(RelojChecador.Application.Devices.DeviceUserMatchKind kind) => kind switch
+    {
+        RelojChecador.Application.Devices.DeviceUserMatchKind.Ambiguous => "varios empleados coinciden",
+        RelojChecador.Application.Devices.DeviceUserMatchKind.EmployeeAlreadyLinked => "ese empleado ya tiene otro PIN en este reloj",
+        _ => "ningún empleado coincide",
+    };
+
     private async void OnBulkRenumberClick(object sender, RoutedEventArgs e)
     {
         var dialog = new BulkRenumberDevicePinsDialog(_viewModel, _viewModel.DeviceUsers) { Owner = this };
