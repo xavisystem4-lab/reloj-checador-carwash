@@ -235,3 +235,26 @@ protección real es RLS (Row Level Security) en la base de datos, no que la clav
   porque eso requeriría crear una cuenta de Supabase Auth y escribir una contraseña en
   el formulario — algo que, por diseño, nunca se hace automáticamente. Falta que el
   usuario cree su primera cuenta (ver arriba) y confirme que puede entrar.
+
+## Reporte de asistencia (ventana como la de la PC)
+
+El botón "📊 Reporte de asistencia" abre una ventana con la misma información que la pantalla
+**Reportes** de la app de escritorio: una fila por empleado activo con sus 7 días (insignia de color con
+las horas y debajo la hora de entrada–salida), faltas, horas normales/extra y — solo cuentas **Admin** —
+sueldo semanal, pago de horas extra, total, deducciones y neto.
+
+- **Cálculo:** `payroll-calc.js` es un port a JavaScript de `WorkedHoursCalculator` y
+  `PunctualityClassifier` del repo principal (mismas reglas: el primer día sin checada es descanso, los
+  demás faltas; doble checada = se toma la primera entrada; semáforo con tolerancia de 10 min). Es un
+  módulo puro, sin DOM: se prueba con `node --test tests/dashboard/payroll-calc.test.mjs`. Si una regla
+  cambia en C#, hay que cambiarla también ahí.
+- **Datos:** semana lunes–domingo elegida en la ventana. Empleados (todos menos dados de baja),
+  marcaciones de la semana, vínculos (dispositivo, PIN) y sucursales; para Admin también sueldos y
+  `payroll_deductions`. Una marcación se atribuye a su `employee_id` si ese empleado sigue activo; si
+  no (catálogo reemplazado), al empleado vigente de su (dispositivo, PIN).
+- **Actualizar:** recarga y crea el mismo pedido remoto que "🔄 Actualizar asistencias" (la PC baja del
+  reloj); cuando termina, la tabla se refresca sola.
+- **Vista previa e imprimir:** hoja Carta horizontal con la tabla de nómina (igual que la vista previa
+  de la PC); Imprimir, Exp. Excel y Exp. PDF.
+- **Indicador "Conectado" (arriba):** verde si al menos un reloj se comunicó con la PC hace ≤ 5 min
+  (`DEVICE_ONLINE_THRESHOLD_MINUTES`); al pasar el ratón muestra el estado de cada reloj.

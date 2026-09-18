@@ -371,8 +371,6 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
             return;
         }
 
-        await TryPersistCommunicationResultAsync(succeeded: true);
-
         if (savedCount > 0)
         {
             AppendLog($"🔄 Descarga automática: {savedCount} marcación(es) nueva(s) de {totalRead} leída(s).");
@@ -532,11 +530,23 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
             // dashboard/app.js DEVICE_ONLINE_THRESHOLD_MINUTES) expiraba a los 5 minutos
             // del último "Conectar" manual aunque el reloj siguiera mandando marcaciones
             // con total normalidad — reportado por el usuario como "a veces se desconecta".
-            device.RecordSuccessfulCommunication(DateTime.UtcNow);
+            // En una descarga EN LOTE (employeeByPin != null) el latido se registra UNA sola vez al
+            // terminar el lote (ver DownloadAttendanceCoreAsync). Antes se registraba y guardaba
+            // aquí por CADA marcación —incluidas las repetidas—, o sea ~1269 SaveChanges por ciclo
+            // de 10 s con el reloj lleno: la descarga tardaba tanto que el ciclo siguiente la
+            // encontraba "en curso" y el estado "Conectado" del Dashboard quedaba sin refrescar.
+            if (employeeByPin is null)
+            {
+                device.RecordSuccessfulCommunication(DateTime.UtcNow);
+            }
 
             if (alreadyExists)
             {
-                await _unitOfWork.SaveChangesAsync();
+                if (employeeByPin is null)
+                {
+                    await _unitOfWork.SaveChangesAsync();
+                }
+
                 return false;
             }
 
@@ -1585,6 +1595,13 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
                     savedCount++;
                 }
             }
+
+            // Toda descarga exitosa es prueba de que el reloj respondió AHORA: se registra el latido
+            // (y se sube a Supabase) una sola vez por lote — el indicador "Conectado" del Dashboard
+            // web depende de esto (ver DEVICE_ONLINE_THRESHOLD_MINUTES en dashboard/app.js). Antes
+            // solo lo hacía la descarga automática de 10 s; Actualizar en Reportes/Asistencia, el
+            // botón manual y el pedido remoto dejaban el latido viejo aunque sí hubieran leído del reloj.
+            await TryPersistCommunicationResultAsync(succeeded: true);
 
             return (true, null, result.Value.Count, savedCount);
         }

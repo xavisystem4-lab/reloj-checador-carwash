@@ -593,6 +593,32 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   Advertencias de Reportes envolvía TODO el texto en ~130 px y una fila con varias advertencias medía
   cientos de píxeles: ahora muestra 2 líneas con "…" y el detalle completo (una por línea) en el
   tooltip (`PayrollRow.WarningsTooltip`); Empleado y Advertencias se reparten el ancho sobrante.
+- **v1.68.0 — Reporte de asistencia de la web como el de la PC, y el latido del reloj.**
+  (1) Dashboard web: "Reporte de asistencia" abre una ventana que replica la pantalla Reportes de la
+  PC — navegación por semana (lunes a domingo, empieza en la actual), buscador, filtros de sucursal
+  y departamento, una fila por empleado ACTIVO con sus 7 días (insignia de color del semáforo con las
+  horas, como la PC, y debajo la entrada–salida), Faltas, Horas normales/extra y, solo para cuentas
+  Admin, Sueldo semanal, Pago horas extra, Total, Deducciones y Neto (decisión del usuario). El cálculo
+  es un port exacto del de la PC en `dashboard/payroll-calc.js` (horas, descanso/falta, doble checada =
+  primera entrada, advertencias, sueldo + horas extra, semáforo) con 30 pruebas en
+  `tests/dashboard` (`node --test tests/dashboard/payroll-calc.test.mjs`). Los montos solo se
+  DESCARGAN de Supabase para Admin (RLS no restringe esas columnas por rol; además
+  `payroll_deductions` es legible por cualquier autenticado — ver nota de seguridad abajo).
+  "Actualizar" recarga y, además, crea el mismo pedido de "🔄 Actualizar asistencias" para que la PC
+  baje las marcaciones del reloj; al terminar la tabla se refresca sola. "Vista previa e imprimir" abre
+  la hoja Carta horizontal con la MISMA tabla de nómina que la vista previa de la PC (logo, encabezado,
+  Empleado…Neto a pagar) con Imprimir / Exp. Excel / Exp. PDF; CSV con las columnas del CSV de la PC
+  más Número y Entrada–Salida por día. (2) Indicador "Conectado" de arriba: la web lo calcula con la
+  última comunicación del reloj (≤ 5 min). Causa de que se quedara en "Desconectado" con la PC viva
+  (sincronizando cada 10 s): el latido solo se guardaba en la descarga automática de 10 s, no en
+  Actualizar, "Descargar asistencias" ni el pedido remoto, y `PersistAttendanceAsync` hacía un
+  `SaveChanges` por CADA marcación —también las repetidas— (~1269 por ciclo). Ahora
+  `DownloadAttendanceCoreAsync` registra el latido una vez por lote exitoso y el lote ya no guarda por
+  marcación repetida. El indicador muestra por reloj su estado y hace cuánto no se comunica al pasar el
+  ratón. Nota de seguridad: el registro público está abierto y auto-aprueba cuentas; Supabase permite a
+  cualquier cuenta aprobada leer `employees` completo (incluye sueldo) y a cualquier autenticado
+  `payroll_deductions` — la web ya no muestra montos a cuentas 'user', pero la API sí los entrega;
+  conviene cerrar el registro o restringir esas políticas.
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Navegación completa de la UI (Fase 3 del diseño visual — Sucursales, Empleados,
