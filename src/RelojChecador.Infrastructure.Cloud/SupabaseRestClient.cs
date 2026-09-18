@@ -54,8 +54,9 @@ public sealed class SupabaseRestClient
         if (!response.IsSuccessStatusCode)
         {
             var body = await response.Content.ReadAsStringAsync(cancellationToken);
-            throw new HttpRequestException(
-                $"Supabase rechazó el upsert a '{table}' ({(int)response.StatusCode} {response.StatusCode}): {body}");
+            throw new SupabaseApiException(
+                $"Supabase rechazó el upsert a '{table}' ({(int)response.StatusCode} {response.StatusCode}): {body}",
+                response.StatusCode, SupabaseApiException.ParsePostgresCode(body));
         }
     }
 

@@ -467,6 +467,21 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
     vínculo local sigue siendo válido.
   - Confirmación explícita antes de eliminar (individual o en lote), dejando claro que es
     irreversible en el dispositivo pero no afecta el historial ya guardado.
+- **v1.60.0 — la sincronización se repara sola cuando el Id de una sucursal no coincide con
+  el de Supabase.** Caso real (sucursal "CAFETERIA", barra roja "Nube: error — branches …
+  409 … branches_code_key" + "employees … 409 … employees_branch_id_fkey"): el motor es
+  push-only y nunca manda `DELETE`, así que una sucursal borrada en local y recreada con el
+  mismo `Code` nacía con un `Id` nuevo que chocaba con la fila que la nube conservaba, y de
+  rebote todos sus empleados fallaban por llave foránea. Ahora, ante un 409/`23505` en
+  `branches`, `SupabaseSyncBackgroundService.PushBranchesAsync` consulta los `Id`/`Code` de
+  la nube, reasigna el `Id` local (`IBranchIdReconciler` → `EfBranchIdReconciler`: sucursal,
+  empleados, dispositivos, marcaciones y la lista de sucursales de los usuarios, en una
+  transacción) y reintenta en el mismo ciclo — sin consultar la nube en el caso normal. Si el
+  `Id` de la nube ya lo ocupa otra sucursal local no toca nada y reporta el error (fusión
+  manual). `SupabaseRestClient.UpsertBatchAsync` lanza ahora `SupabaseApiException`
+  (subclase de `HttpRequestException` con el código SQLSTATE). El comando
+  `fix-branch-id` del CLI queda como respaldo manual y usa el mismo reconciliador (además
+  ahora repara `Users.BranchIds`, que antes omitía).
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Navegación completa de la UI (Fase 3 del diseño visual — Sucursales, Empleados,

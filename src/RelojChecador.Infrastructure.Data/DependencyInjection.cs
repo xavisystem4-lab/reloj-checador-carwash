@@ -27,6 +27,7 @@ public static class DependencyInjection
 
         services.AddScoped<IUnitOfWork>(sp => sp.GetRequiredService<RelojChecadorDbContext>());
         services.AddScoped<IBranchRepository, EfBranchRepository>();
+        services.AddScoped<IBranchIdReconciler, EfBranchIdReconciler>();
         services.AddScoped<IEmployeeRepository, EfEmployeeRepository>();
         services.AddScoped<IDeviceRepository, EfDeviceRepository>();
         services.AddScoped<IUserRepository, EfUserRepository>();

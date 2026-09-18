@@ -108,4 +108,46 @@ public class SupabaseRestClientTests
 
         Assert.Contains("dato invalido", ex.Message);
     }
+
+    [Fact]
+    public async Task UpsertBatchAsync_ConflictoDeLlaveUnica_LanzaExcepcionTipadaConElCodigoDePostgres()
+    {
+        var handler = new FakeHttpMessageHandler
+        {
+            ResponseFactory = _ => new HttpResponseMessage(HttpStatusCode.Conflict)
+            {
+                Content = new StringContent(
+                    """{"code":"23505","details":"Key (code)=(CAFETERIA) already exists.","message":"duplicate key"}""",
+                    Encoding.UTF8, "application/json"),
+            },
+        };
+        var client = new SupabaseRestClient(new HttpClient(handler), ConfiguredOptions());
+
+        var ex = await Assert.ThrowsAsync<SupabaseApiException>(
+            () => client.UpsertBatchAsync("branches", [new SampleRow(Guid.NewGuid(), "x")], CancellationToken.None));
+
+        Assert.True(ex.IsUniqueViolation);
+        Assert.Equal("23505", ex.PostgresCode);
+        Assert.Equal(HttpStatusCode.Conflict, ex.StatusCode);
+        Assert.Contains("branches", ex.Message);
+    }
+
+    [Fact]
+    public async Task UpsertBatchAsync_ErrorSinJsonDePostgres_NoSeTomaPorLlaveUnica()
+    {
+        var handler = new FakeHttpMessageHandler
+        {
+            ResponseFactory = _ => new HttpResponseMessage(HttpStatusCode.BadGateway)
+            {
+                Content = new StringContent("<html>bad gateway</html>", Encoding.UTF8, "text/html"),
+            },
+        };
+        var client = new SupabaseRestClient(new HttpClient(handler), ConfiguredOptions());
+
+        var ex = await Assert.ThrowsAsync<SupabaseApiException>(
+            () => client.UpsertBatchAsync("branches", [new SampleRow(Guid.NewGuid(), "x")], CancellationToken.None));
+
+        Assert.False(ex.IsUniqueViolation);
+        Assert.Null(ex.PostgresCode);
+    }
 }

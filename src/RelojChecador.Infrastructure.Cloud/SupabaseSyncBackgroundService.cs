@@ -9,6 +9,7 @@ using RelojChecador.Application.Employees;
 using RelojChecador.Application.Identity;
 using RelojChecador.Application.Payroll;
 using RelojChecador.Application.Sync;
+using RelojChecador.Domain.Branches;
 using RelojChecador.Infrastructure.Cloud.Dtos;
 
 namespace RelojChecador.Infrastructure.Cloud;
@@ -205,9 +206,7 @@ public sealed class SupabaseSyncBackgroundService(
         // oportunidad a las demás de sincronizar en el mismo ciclo.
         var failures = new List<string>();
 
-        await PushFullTableAsync(restClient, "branches",
-            (await services.GetRequiredService<IBranchRepository>().ListAsync(cancellationToken))
-                .Select(BranchDto.FromDomain).ToList(), failures, cancellationToken);
+        await PushBranchesAsync(restClient, services, failures, cancellationToken);
 
         await PushFullTableAsync(restClient, "employees",
             (await services.GetRequiredService<IEmployeeRepository>().ListAsync(cancellationToken))
@@ -239,6 +238,98 @@ public sealed class SupabaseSyncBackgroundService(
             // tablas ya tuvieron su oportunidad de subir.
             throw new InvalidOperationException(string.Join(" | ", failures));
         }
+    }
+
+    private sealed record RemoteBranchKey(Guid Id, string Code);
+
+    /// <summary>Sube las sucursales y, si Supabase las rechaza por un choque de llave única,
+    /// se repara sola: el caso real (2026-09-18, "CAFETERIA") es una sucursal local que se
+    /// borró y se volvió a crear con el mismo Code pero otro Id, mientras la nube conserva
+    /// la fila con el Id original — el upsert por id intenta un INSERT y choca contra
+    /// branches_code_key (409/23505), y por arrastre todo empleado de esa sucursal falla por
+    /// llave foránea. La reparación es reactiva a propósito (solo se consulta la nube
+    /// cuando hay un 409, no en cada ciclo) y se reintenta UNA vez en el mismo ciclo, para
+    /// que los empleados que dependen de la sucursal suban sin esperar al siguiente.</summary>
+    private async Task PushBranchesAsync(
+        SupabaseRestClient restClient, IServiceProvider services, List<string> failures, CancellationToken cancellationToken)
+    {
+        var branches = await services.GetRequiredService<IBranchRepository>().ListAsync(cancellationToken);
+        if (branches.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            try
+            {
+                await restClient.UpsertBatchAsync("branches", branches.Select(BranchDto.FromDomain).ToList(), cancellationToken);
+            }
+            catch (SupabaseApiException ex) when (ex.IsUniqueViolation)
+            {
+                logger.LogWarning(ex,
+                    "Supabase rechazó las sucursales por un código duplicado — se intenta reconciliar los Id locales con la nube.");
+
+                if (!await ReconcileBranchIdsAsync(restClient, branches, cancellationToken))
+                {
+                    throw;
+                }
+
+                // Scope nuevo: el DbContext del ciclo aún rastrea las sucursales con el Id viejo.
+                using var retryScope = scopeFactory.CreateScope();
+                var reconciled = await retryScope.ServiceProvider.GetRequiredService<IBranchRepository>()
+                    .ListAsync(cancellationToken);
+                await restClient.UpsertBatchAsync("branches", reconciled.Select(BranchDto.FromDomain).ToList(), cancellationToken);
+            }
+
+            logger.LogDebug("Sincronizadas {Count} fila(s) de 'branches'.", branches.Count);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "No se pudo sincronizar la tabla 'branches' — se continúa con las demás.");
+            failures.Add($"branches: {ex.Message}");
+        }
+    }
+
+    /// <returns>true si se reasignó al menos un Id local (vale la pena reintentar el upsert).</returns>
+    private async Task<bool> ReconcileBranchIdsAsync(
+        SupabaseRestClient restClient, IReadOnlyList<Branch> localBranches, CancellationToken cancellationToken)
+    {
+        var remoteBranches = await restClient.GetAsync<RemoteBranchKey>("branches", "select=id,code", cancellationToken);
+
+        using var scope = scopeFactory.CreateScope();
+        var reconciler = scope.ServiceProvider.GetRequiredService<IBranchIdReconciler>();
+        var anyReassigned = false;
+
+        foreach (var local in localBranches)
+        {
+            var remote = remoteBranches.FirstOrDefault(r =>
+                string.Equals(r.Code, local.Code, StringComparison.OrdinalIgnoreCase) && r.Id != local.Id);
+            if (remote is null)
+            {
+                continue;
+            }
+
+            var result = await reconciler.ReassignAsync(local.Id, remote.Id, cancellationToken);
+            switch (result)
+            {
+                case BranchIdReassignResult.Reassigned:
+                    logger.LogWarning(
+                        "Sucursal '{Code}': Id local {LocalId} reasignado al Id de la nube {RemoteId} " +
+                        "(empleados, dispositivos, marcaciones y usuarios incluidos).",
+                        local.Code, local.Id, remote.Id);
+                    anyReassigned = true;
+                    break;
+                case BranchIdReassignResult.TargetAlreadyExists:
+                    logger.LogError(
+                        "Sucursal '{Code}': la nube la conoce con el Id {RemoteId}, pero ya existe OTRA sucursal " +
+                        "local con ese Id — no se puede reparar sola, hay que fusionarlas a mano.",
+                        local.Code, remote.Id);
+                    break;
+            }
+        }
+
+        return anyReassigned;
     }
 
     private async Task PushFullTableAsync<T>(
