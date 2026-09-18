@@ -547,6 +547,7 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   además lee los usuarios del reloj. La importación desde la nube también pasa las marcaciones
   al dueño vigente del PIN. Prueba de regresión con el catálogo real completo (42 PINs
   resueltos, 8 empleados sin PIN que no se inventan).
+- **v1.64.1 — Reportes (escritorio): la tabla ya no corta encabezados ni textos.** Las columnas tenían anchos fijos menores que su encabezado ("Departamen", "Falta:", "Horas norn", "Neto a pa") y el texto descriptivo y la barra de estado (más larga desde que resume reloj/nube/PINs) no se ajustaban. Ahora las columnas usan Width="Auto" (con mínimo), Advertencias se ajusta en varias líneas y los dos textos hacen salto de línea.
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Navegación completa de la UI (Fase 3 del diseño visual — Sucursales, Empleados,
