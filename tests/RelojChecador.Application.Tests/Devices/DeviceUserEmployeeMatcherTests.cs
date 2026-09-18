@@ -39,6 +39,45 @@ public class DeviceUserEmployeeMatcherTests
     }
 
     [Fact]
+    public void NumeroDeEmpleadoIgualAlPin_GanaAunqueElNombreDelRelojNoSeParezca()
+    {
+        var emp = Emp("14", "Adrian Uribe Salazar");
+        var otro = Emp("15", "Adri");
+
+        // El reloj tiene un apodo; el número (= PIN) es el criterio confiable.
+        var result = Single(User("14", "Adri U."), [emp, otro]);
+
+        Assert.True(result.ShouldLink);
+        Assert.Equal(emp.Id, result.Employee!.Id);
+        Assert.Equal(DeviceUserMatchKind.EmployeeNumber, result.Kind);
+    }
+
+    [Fact]
+    public void NumeroDeEmpleado_GanaSobreUnNombreQueApuntaAOtroEmpleado()
+    {
+        var porNumero = Emp("7", "Jose Perez");
+        var porNombre = Emp("8", "Ana Torres");
+
+        var result = Single(User("7", "Ana Torres"), [porNumero, porNombre]);
+
+        Assert.Equal(porNumero.Id, result.Employee!.Id);
+    }
+
+    [Theory]
+    [InlineData("0114", "114")]
+    [InlineData("114", "0114")]
+    [InlineData("007", "7")]
+    public void NumeroYPin_IgnoranCerosAIzquierda(string employeeNumber, string pin)
+    {
+        var emp = Emp(employeeNumber, "Roberto Diaz");
+
+        var result = Single(User(pin, "otro nombre"), [emp]);
+
+        Assert.True(result.ShouldLink);
+        Assert.Equal(DeviceUserMatchKind.EmployeeNumber, result.Kind);
+    }
+
+    [Fact]
     public void NombreTruncadoPorElReloj_VinculaSiEsElUnicoQueEmpiezaAsi()
     {
         var full = Emp("20", "Maria Guadalupe Hernandez Ramirez");

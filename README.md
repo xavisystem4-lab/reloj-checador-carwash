@@ -511,6 +511,20 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   Actualizar en Reportes con el reloj conectado (antes de descargar las marcaciones) y también
   con el botón "🔗 Vincular con empleados" del diálogo "Usuarios del reloj". La barra de estado
   de Reportes avisa además cuántas marcaciones de la semana siguen con PIN sin vincular.
+- **v1.63.0 — Número de empleado = PIN pasa a ser el criterio principal de vinculación, y el
+  reporte web muestra las marcaciones de la semana.** (1) `DeviceUserEmployeeMatcher` ahora
+  revisa PRIMERO Número = PIN (ignorando ceros a la izquierda: `0114` = `114`) y solo después
+  el nombre, porque el nombre en el reloj puede venir abreviado o distinto y el número no; gana
+  sobre un nombre que apunte a otro empleado. (2) Al pulsar Actualizar en Reportes, la consulta
+  a Supabase cubre desde la semana anterior a la mostrada hasta hoy (antes solo la semana en
+  pantalla), para poder reportar "de la semana pasada a la fecha". (3) Dashboard web (Reporte
+  de asistencia): en lugar de horas normales/extra acumuladas, cada empleado muestra la hora de
+  **Entrada** (primera marcación del día) y **Salida** (última) de cada día, una tabla por
+  semana lunes-domingo (`buildEmployeeWeekView`), con Descanso/Falta en los días sin marcación
+  y el semáforo de puntualidad; la hoja es Carta horizontal y el Excel trae dos columnas
+  (Entrada/Salida) por día. Se eliminaron `computeEmployeeHours`/`pairAndSumMs`/
+  `capOpenUntilIso` (solo servían a las horas acumuladas). El resto de Reportes de escritorio
+  (horas/nómina) no cambia.
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Navegación completa de la UI (Fase 3 del diseño visual — Sucursales, Empleados,

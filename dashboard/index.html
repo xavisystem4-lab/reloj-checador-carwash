@@ -334,9 +334,9 @@
        esa imagen" — "Reporte de asistencia" abre ESTA previsualización directo (antes había
        una pantalla intermedia con solo la tabla; se quitó). Reutiliza el mismo
        Desde/Hasta/Sucursal ya elegidos en los filtros principales — ver openAttendanceReport
-       en app.js. Horas calculadas emparejando Entrada/Salida por día, mismo criterio que
-       WorkedHoursCalculator del repo principal (ver computeEmployeeHours en app.js).
-       report-preview-page es tamaño Carta real (8.5in x 11in, ver styles.css) — en pantalla
+       en app.js. Muestra la hora de Entrada/Salida de cada día de la semana (ver
+       buildEmployeeWeekView en app.js), ya no horas acumuladas.
+       report-preview-page es tamaño Carta HORIZONTAL real (11in x 8.5in, ver styles.css) — en pantalla
        se ve dentro de un contenedor con scroll; @media print deja SOLO esa hoja visible al
        imprimir/guardar como PDF del navegador. -->
   <div id="report-preview-modal" class="modal-overlay" hidden>
@@ -400,23 +400,13 @@
               <div class="report-preview-subtitle" id="preview-range-text"></div>
             </div>
           </div>
-          <table class="report-preview-table" id="preview-table">
-            <thead>
-              <tr>
-                <th>Número</th>
-                <th>Empleado</th>
-                <th>Departamento</th>
-                <th>Horas normales</th>
-                <th>Horas extra</th>
-                <th>Total</th>
-                <th>Faltas</th>
-                <!-- Verde=puntual, amarillo=retardo (tolerancia 10 min), rojo=falta — ver
-                     PunctualityClassifier del repo principal. -->
-                <th>Puntualidad</th>
-              </tr>
-            </thead>
-            <tbody id="preview-tbody"></tbody>
-          </table>
+          <!-- Pedido explícito del usuario: "el reporte de asistencia de la web lo vamos a
+               cambiar por la hora en que entró cada empleado y salió durante toda la semana
+               en lugar de que se acumulen las horas, mejor que me salgan las marcaciones de
+               la semana". renderPreviewTable arma aquí UNA tabla por semana (lunes a domingo,
+               recortada al rango elegido) con una columna por día: Entrada (E) = primera
+               marcación del día, Salida (S) = última — ver buildEmployeeWeekView en app.js. -->
+          <div id="preview-weeks"></div>
           <div id="preview-empty-text" class="report-preview-empty" hidden>Sin resultados para esta búsqueda.</div>
           <div class="report-preview-footer" id="preview-generated-text"></div>
         </div>
