@@ -1258,7 +1258,15 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
     /// EmployeeDeviceMapping.ReassignEmployee — la nube nunca recibe DELETE); si no tenía, se
     /// crea; y las marcaciones sin dueño o de un dueño dado de baja pasan al empleado vigente
     /// (Attendance.ReconcileEmployee, que además las marca para volver a subirse a la nube).
-    /// Nunca toca un PIN que ya es de un empleado vigente ni marcaciones de uno.
+    /// Nunca toca un PIN con checadas que ya es de un empleado vigente ni marcaciones de uno.
+    ///
+    /// SEGUNDO CASO REAL (verificado en Supabase, mismo día): "Enviar empleados al reloj" dio a
+    /// los 54 empleados vigentes PINs NUEVOS (60–110) sin ninguna checada, mientras las 1262
+    /// marcaciones seguían en los PINs viejos (1–59). Un PIN de empleado vigente SIN marcaciones
+    /// es "de relleno": si el nombre del empleado coincide con un PIN viejo, se le quita el de
+    /// relleno (en la nube primero, ver SupabaseSyncBackgroundService.TryDeleteMappingsRemoteAsync)
+    /// y se le da el real, donde están sus huellas y sus checadas. El usuario del reloj con el PIN
+    /// de relleno queda huérfano en el reloj — se puede borrar desde "Usuarios del reloj".
     ///
     /// Con el reloj conectado lee además la lista de usuarios de su memoria (nombres y PINs
     /// nuevos); sin conexión trabaja solo con los vínculos que ya hay en la base local — así
@@ -1289,9 +1297,10 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
 
         var employees = await _employeeRepository.ListAsync();
         var employeesById = employees.ToDictionary(e => e.Id);
-        var mappingByPin = (await _mappingRepository.ListAsync())
-            .Where(m => m.DeviceId == device.Id)
-            .ToDictionary(m => m.DeviceUserPin);
+        var deviceMappings = (await _mappingRepository.ListAsync()).Where(m => m.DeviceId == device.Id).ToList();
+        var mappingByPin = deviceMappings.ToDictionary(m => m.DeviceUserPin);
+        var mappingByEmployee = deviceMappings.ToDictionary(m => m.EmployeeId); // índice único (dispositivo, empleado)
+        var pinsWithPunches = await _attendanceRepository.ListPinsWithAttendancesAsync(device.Id);
 
         var clockNameByPin = clockUsers
             .GroupBy(u => u.DeviceUserPin.Trim())
@@ -1315,7 +1324,7 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
                     }
                 }
 
-                return new PinSlot(pin, names, ownerId);
+                return new PinSlot(pin, names, ownerId, pinsWithPunches.Contains(pin));
             })
             .ToList();
 
@@ -1332,7 +1341,9 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         var unmatched = new List<PinMatchResult>();
         foreach (var match in matches)
         {
-            if (match.Kind == PinMatchKind.AlreadyLinked)
+            // AlreadyLinked: ya es de un empleado vigente. Released: PIN de relleno cuyo dueño se
+            // va a su PIN real — se procesa al asignar ese PIN (abajo), no aquí.
+            if (match.Kind is PinMatchKind.AlreadyLinked or PinMatchKind.Released)
             {
                 continue;
             }
@@ -1347,13 +1358,42 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
             {
                 var employee = match.Employee!;
                 var pin = match.Slot.Pin;
+
+                // El empleado ya tenía un PIN "de relleno" (asignado por "Enviar empleados al
+                // reloj", sin ninguna checada): se quita ANTES de darle el real — primero en la
+                // nube, porque allá el índice único (dispositivo, empleado) rechazaría el nuevo
+                // vínculo y, como todos los vínculos suben en un solo lote, fallaría la tabla
+                // completa en cada ciclo. Si la nube no responde se omite este empleado (no se
+                // deja la nube inconsistente); se reintenta en el siguiente Actualizar.
+                if (mappingByEmployee.TryGetValue(employee.Id, out var placeholderMapping) &&
+                    placeholderMapping.DeviceUserPin != pin)
+                {
+                    if (_syncService.IsCloudConfigured &&
+                        !await _syncService.TryDeleteMappingsRemoteAsync([placeholderMapping.Id]))
+                    {
+                        Log.Warning("No se pudo quitar en la nube el PIN de relleno {Pin} de {Employee}; se omite hasta tener conexión.",
+                            placeholderMapping.DeviceUserPin, employee.FullName);
+                        unmatched.Add(new PinMatchResult(match.Slot, null, PinMatchKind.NoMatch));
+                        continue;
+                    }
+
+                    await _mappingRepository.RemoveAsync(placeholderMapping);
+                    await _unitOfWork.SaveChangesAsync();
+                    mappingByEmployee.Remove(employee.Id);
+                    mappingByPin.Remove(placeholderMapping.DeviceUserPin);
+                }
+
                 if (mappingByPin.TryGetValue(pin, out var existing))
                 {
                     existing.ReassignEmployee(employee.Id);
+                    mappingByEmployee[employee.Id] = existing;
                 }
                 else
                 {
-                    await _mappingRepository.AddAsync(EmployeeDeviceMapping.Create(employee.Id, device.Id, pin));
+                    var created = EmployeeDeviceMapping.Create(employee.Id, device.Id, pin);
+                    await _mappingRepository.AddAsync(created);
+                    mappingByPin[pin] = created;
+                    mappingByEmployee[employee.Id] = created;
                 }
 
                 var moved = 0;

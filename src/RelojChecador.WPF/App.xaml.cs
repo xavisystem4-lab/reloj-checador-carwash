@@ -33,8 +33,13 @@ public partial class App : System.Windows.Application
 {
     private IHost? _host;
     private IServiceScope? _mainWindowScope;
-    private readonly string _appDataDirectory = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RelojChecador");
+    // RELOJCHECADOR_DATA_DIR: carpeta de datos alternativa (base SQLite, logs, appsettings.Local.json)
+    // — solo para pruebas y capturas de pantalla con datos de ejemplo sin tocar la base real de
+    // esta PC. Sin la variable, exactamente la de siempre: %LocalAppData%\\RelojChecador.
+    private readonly string _appDataDirectory =
+        Environment.GetEnvironmentVariable("RELOJCHECADOR_DATA_DIR") is { Length: > 0 } dataDirOverride
+            ? dataDirOverride
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RelojChecador");
 
     protected override void OnStartup(StartupEventArgs e)
     {

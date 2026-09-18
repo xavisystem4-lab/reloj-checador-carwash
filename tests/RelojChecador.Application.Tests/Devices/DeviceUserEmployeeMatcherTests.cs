@@ -180,6 +180,68 @@ public class DeviceUserEmployeeMatcherTests
         Assert.False(result.ShouldLink);
     }
 
+    // ---- PINs "de relleno": asignados por "Enviar empleados al reloj", sin ninguna checada ----
+
+    [Fact]
+    public void PinDeRelleno_SeCambiaPorElPinRealConLasChecadas()
+    {
+        var viejo = Emp("38", "Adali Monserrat Tabanico Ramos", EmploymentStatus.Terminated);
+        var nuevo = Emp("EMP-037", "Adali");
+        var slots = new[]
+        {
+            new PinSlot("38", ["Adali Monserrat Tabanico Ramos"], viejo.Id, HasPunches: true),
+            new PinSlot("94", ["Adali", "Adali"], nuevo.Id, HasPunches: false), // relleno de hoy
+        };
+
+        var results = DeviceUserEmployeeMatcher.Match(slots, [viejo, nuevo]);
+
+        Assert.True(results[0].ShouldLink);
+        Assert.Equal(nuevo.Id, results[0].Employee!.Id);
+        Assert.Equal(PinMatchKind.Released, results[1].Kind);
+        Assert.Equal(nuevo.Id, results[1].Employee!.Id);
+    }
+
+    [Fact]
+    public void PinDeRelleno_SinMejorCandidato_SeQuedaComoEsta()
+    {
+        var nuevo = Emp("EMP-051", "Ana Laura");
+
+        var results = DeviceUserEmployeeMatcher.Match(
+            [new PinSlot("107", ["Ana Laura"], nuevo.Id, HasPunches: false)], [nuevo]);
+
+        Assert.Equal(PinMatchKind.AlreadyLinked, results[0].Kind);
+    }
+
+    [Fact]
+    public void PinConChecadas_DeEmpleadoVigente_NuncaSeMueve()
+    {
+        var vigente = Emp("EMP-043", "Miguel Sauceda");
+        var otro = Emp("77", "Miguel Sauceda Lopez", EmploymentStatus.Terminated);
+        var slots = new[]
+        {
+            new PinSlot("36", ["Miguel Sauceda"], vigente.Id, HasPunches: true),
+            new PinSlot("77", ["Miguel Sauceda Lopez"], otro.Id, HasPunches: true),
+        };
+
+        var results = DeviceUserEmployeeMatcher.Match(slots, [vigente, otro]);
+
+        Assert.Equal(PinMatchKind.AlreadyLinked, results[0].Kind);
+        Assert.False(results[1].ShouldLink);
+    }
+
+    [Fact]
+    public void PinDeRelleno_NuncaEsDestinoDeOtroEmpleado()
+    {
+        // El PIN 60 es de relleno de "Juan Perez"; "Juan Perez Lopez" no debe caer ahí.
+        var juan = Emp("EMP-1", "Juan Perez");
+        var juanLopez = Emp("EMP-2", "Juan Perez Lopez");
+        var slots = new[] { new PinSlot("60", ["Juan Perez"], juan.Id, HasPunches: false) };
+
+        var results = DeviceUserEmployeeMatcher.Match(slots, [juan, juanLopez]);
+
+        Assert.False(results[0].ShouldLink);
+    }
+
     // ---- Caso real (18/09/2026): catálogo reemplazado, 54 nuevos vs 59 anteriores dados de baja ----
 
     private static readonly (string Number, string Name)[] NewCatalog =
@@ -262,5 +324,45 @@ public class DeviceUserEmployeeMatcherTests
 
         // Ningún PIN se asigna a dos empleados ni un empleado a dos PINs.
         Assert.Equal(pinByName.Count, pinByName.Values.Distinct().Count());
+    }
+
+    [Fact]
+    public void CasoReal_ConPinesDeRellenoDeHoy_CadaEmpleadoPasaDeSuPin60a110AlPinViejoConLasChecadas()
+    {
+        // Estado real de Supabase (18/09/2026 18:15 UTC): los 54 vigentes tienen PINs 60..110
+        // (sin ninguna checada); los viejos (1..59) siguen a nombre de empleados dados de baja
+        // y son donde están las 1262 checadas.
+        var newEmployees = NewCatalog.Select(e => Emp(e.Number, e.Name)).ToList();
+        var oldEmployees = OldCatalog.Select(o => (o.Pin, Employee: Emp(o.Pin, o.Name, EmploymentStatus.Terminated))).ToList();
+
+        var slots = oldEmployees
+            .Select(o => new PinSlot(o.Pin, [o.Employee.FullName], o.Employee.Id, HasPunches: true))
+            .ToList();
+        var nextPin = 60;
+        foreach (var employee in newEmployees)
+        {
+            slots.Add(new PinSlot((nextPin++).ToString(), [employee.FullName, employee.FullName], employee.Id, HasPunches: false));
+        }
+
+        var results = DeviceUserEmployeeMatcher.Match(slots, [.. newEmployees, .. oldEmployees.Select(o => o.Employee)]);
+
+        var moved = results.Where(r => r.ShouldLink).ToDictionary(r => r.Employee!.FullName, r => r.Slot.Pin);
+        Assert.Equal("38", moved["Adali"]);
+        Assert.Equal("6", moved["Andres Herrera"]);   // EMP-007, PIN real 6 (no 7)
+        Assert.Equal("11", moved["Isaac Rojo"]);
+        // 43 resueltos + 8 sin PIN posible + 3 que ya checan con su PIN real (Miguel Sauceda,
+        // Felix Josue, Angel Norzagaray) = los 54 vigentes.
+        Assert.True(moved.Count == 43, string.Join(", ", moved.Select(kv => $"{kv.Key}->{kv.Value}")));
+
+        // Cada empleado que se mudó libera su PIN de relleno; el resto se queda con el suyo.
+        var released = results.Where(r => r.Kind == PinMatchKind.Released).Select(r => r.Employee!.FullName).ToHashSet();
+        Assert.Equal(moved.Keys.ToHashSet(), released);
+        Assert.DoesNotContain(results, r => r.Kind == PinMatchKind.Released && !moved.ContainsKey(r.Employee!.FullName));
+
+        // Los que no tienen PIN viejo se quedan con su PIN de relleno, sin tocar.
+        foreach (var name in new[] { "Ana Laura", "Armando", "Fabian", "Isaac", "Ivan Martinez", "Kevin Ruiz", "Yajaira", "Juanito" })
+        {
+            Assert.False(moved.ContainsKey(name), name);
+        }
     }
 }

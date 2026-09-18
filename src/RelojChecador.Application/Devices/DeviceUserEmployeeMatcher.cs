@@ -18,8 +18,15 @@ public enum PinMatchKind
     /// ("EMP-007") el número YA NO coincide con el PIN y no se usa como criterio principal.</summary>
     EmployeeNumber,
 
-    /// <summary>Ese PIN ya pertenece a un empleado vigente (no dado de baja) — no se toca.</summary>
+    /// <summary>Ese PIN ya pertenece a un empleado vigente (no dado de baja) que ya checa con él
+    /// — no se toca.</summary>
     AlreadyLinked,
+
+    /// <summary>PIN "de relleno": pertenece a un empleado vigente pero NUNCA ha tenido una
+    /// checada (lo asignó "Enviar empleados al reloj"), y ese empleado se emparejó con su PIN
+    /// real (el que sí tiene las marcaciones). <see cref="PinMatchResult.Employee"/> es ese
+    /// empleado; su vínculo con este PIN debe quitarse.</summary>
+    Released,
 
     /// <summary>Hay más de un empleado que podría ser — nunca se adivina.</summary>
     Ambiguous,
@@ -31,8 +38,10 @@ public enum PinMatchKind
 /// <summary>Un PIN del reloj tal como está hoy. <paramref name="Names"/> son todos los nombres
 /// con que se puede reconocer a su dueño: el que tiene en la memoria del reloj y/o el del
 /// empleado (posiblemente dado de baja) al que hoy está vinculado. <paramref name="MappedEmployeeId"/>
-/// es ese empleado, o null si el PIN no tiene vínculo.</summary>
-public sealed record PinSlot(string Pin, IReadOnlyList<string> Names, Guid? MappedEmployeeId)
+/// es ese empleado, o null si el PIN no tiene vínculo. <paramref name="HasPunches"/>: ¿este PIN
+/// tiene alguna marcación guardada? Un PIN de empleado vigente SIN marcaciones es de relleno
+/// (ver <see cref="PinMatchKind.Released"/>) y su dueño puede cambiarlo por su PIN real.</summary>
+public sealed record PinSlot(string Pin, IReadOnlyList<string> Names, Guid? MappedEmployeeId, bool HasPunches = true)
 {
     public string DisplayName => Names.FirstOrDefault(n => !string.IsNullOrWhiteSpace(n)) ?? "(sin nombre)";
 }
@@ -41,7 +50,7 @@ public sealed record PinMatchResult(PinSlot Slot, Employee? Employee, PinMatchKi
 {
     /// <summary>true si hay que asignar este PIN a <see cref="Employee"/> (creando el vínculo,
     /// o traspasando el que tenía un empleado dado de baja).</summary>
-    public bool ShouldLink => Employee is not null && Kind is PinMatchKind.NameMatch or PinMatchKind.EmployeeNumber;
+    public bool ShouldLink => Employee is not null && (Kind is PinMatchKind.NameMatch or PinMatchKind.EmployeeNumber);
 }
 
 /// <summary>
@@ -54,6 +63,11 @@ public sealed record PinMatchResult(PinSlot Slot, Employee? Employee, PinMatchKi
 /// (número = PIN, nombres completos como "Adali Monserrat Tabanico Ramos", PIN 38), que
 /// siguieron siendo dueños de su PIN y de todas sus marcaciones. El número nuevo no coincide
 /// con el PIN (Andrés Herrera es EMP-007 pero su PIN es 6), así que se empareja por NOMBRE.
+///
+/// Segundo caso real (mismo día): "Enviar empleados al reloj" dio a esos 54 empleados nuevos
+/// PINs nuevos (60–110) — sin ninguna checada — mientras las marcaciones seguían en los PINs
+/// viejos. Por eso un PIN de empleado vigente SIN marcaciones se trata como "de relleno": su
+/// dueño vuelve a estar disponible y, si su nombre coincide con un PIN viejo, cambia a ese.
 ///
 /// Lógica pura, sin acceso a datos ni al dispositivo. Criterio conservador: un PIN solo se
 /// asigna cuando hay UN candidato claro; ante duda no adivina y lo reporta.
@@ -70,12 +84,24 @@ public static class DeviceUserEmployeeMatcher
 
         var results = new PinMatchResult?[slots.Count];
         var employeesWithPin = new HashSet<Guid>();
+        var placeholder = new bool[slots.Count];
         for (var i = 0; i < slots.Count; i++)
         {
-            if (slots[i].MappedEmployeeId is { } owner && activeIds.Contains(owner))
+            if (slots[i].MappedEmployeeId is not { } owner || !activeIds.Contains(owner))
+            {
+                continue;
+            }
+
+            if (slots[i].HasPunches)
             {
                 results[i] = new PinMatchResult(slots[i], null, PinMatchKind.AlreadyLinked);
                 employeesWithPin.Add(owner);
+            }
+            else
+            {
+                // De relleno: el dueño sigue disponible para emparejarse con su PIN real, pero
+                // este PIN nunca es destino de nadie.
+                placeholder[i] = true;
             }
         }
 
@@ -106,7 +132,7 @@ public static class DeviceUserEmployeeMatcher
                     continue;
                 }
 
-                var candidates = CandidateSlots(tokens, slotNames, results, assigned);
+                var candidates = CandidateSlots(tokens, slotNames, results, assigned, placeholder);
                 if (candidates.Count != 1)
                 {
                     continue;
@@ -114,7 +140,7 @@ public static class DeviceUserEmployeeMatcher
 
                 var slotIndex = candidates[0];
                 var best = pool
-                    .Where(p => !used.Contains(p.Employee.Id) && CandidateSlots(p.Tokens, slotNames, results, assigned).Contains(slotIndex))
+                    .Where(p => !used.Contains(p.Employee.Id) && CandidateSlots(p.Tokens, slotNames, results, assigned, placeholder).Contains(slotIndex))
                     .GroupBy(p => p.Tokens.Count)
                     .OrderByDescending(g => g.Key)
                     .First()
@@ -132,7 +158,7 @@ public static class DeviceUserEmployeeMatcher
         // 2) Respaldo: Employee.Number == PIN, solo con un único empleado libre.
         for (var i = 0; i < slots.Count; i++)
         {
-            if (results[i] is not null || assigned.ContainsKey(i))
+            if (results[i] is not null || assigned.ContainsKey(i) || placeholder[i])
             {
                 continue;
             }
@@ -158,6 +184,17 @@ public static class DeviceUserEmployeeMatcher
                 continue;
             }
 
+            if (placeholder[i])
+            {
+                // Su dueño ya se fue a su PIN real → este PIN se libera; si no encontró uno mejor
+                // se queda con este (sin tocar nada).
+                var owner = employees.First(e => e.Id == slots[i].MappedEmployeeId);
+                results[i] = used.Contains(owner.Id)
+                    ? new PinMatchResult(slots[i], owner, PinMatchKind.Released)
+                    : new PinMatchResult(slots[i], null, PinMatchKind.AlreadyLinked);
+                continue;
+            }
+
             var stillPossible = pool.Any(p => !used.Contains(p.Employee.Id) && ContainsTokens(slotNames[i], p.Tokens));
             results[i] = new PinMatchResult(slots[i], null, stillPossible ? PinMatchKind.Ambiguous : PinMatchKind.NoMatch);
         }
@@ -167,12 +204,12 @@ public static class DeviceUserEmployeeMatcher
 
     private static List<int> CandidateSlots(
         IReadOnlyList<string> employeeTokens, List<List<IReadOnlyList<string>>> slotNames,
-        PinMatchResult?[] fixedResults, Dictionary<int, (Employee Employee, PinMatchKind Kind)> assigned)
+        PinMatchResult?[] fixedResults, Dictionary<int, (Employee Employee, PinMatchKind Kind)> assigned, bool[] placeholder)
     {
         var candidates = new List<int>();
         for (var i = 0; i < slotNames.Count; i++)
         {
-            if (fixedResults[i] is null && !assigned.ContainsKey(i) && ContainsTokens(slotNames[i], employeeTokens))
+            if (fixedResults[i] is null && !placeholder[i] && !assigned.ContainsKey(i) && ContainsTokens(slotNames[i], employeeTokens))
             {
                 candidates.Add(i);
             }

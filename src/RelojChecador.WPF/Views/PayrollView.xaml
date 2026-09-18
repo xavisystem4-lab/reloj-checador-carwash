@@ -7,6 +7,36 @@
              mc:Ignorable="d" d:DesignHeight="600" d:DesignWidth="1050">
     <UserControl.Resources>
         <converters:AttendanceColorToBrushConverter x:Key="AttendanceColorToBrushConverter" />
+
+        <!-- La tabla es ancha (16 columnas): el tema global (RowHeight fijo de 36 px y relleno de
+             12 px a cada lado en celdas y encabezados) cortaba encabezados ("Horas norn"), textos
+             y la segunda línea de las insignias de días. Aquí: relleno chico, encabezados que se
+             acomodan en dos líneas y texto centrado verticalmente. -->
+        <Style x:Key="PayrollHeaderStyle" TargetType="DataGridColumnHeader" BasedOn="{StaticResource {x:Type DataGridColumnHeader}}">
+            <Setter Property="Padding" Value="6,8" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="ContentTemplate">
+                <Setter.Value>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding}" TextWrapping="Wrap" />
+                    </DataTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="PayrollCellStyle" TargetType="DataGridCell" BasedOn="{StaticResource {x:Type DataGridCell}}">
+            <Setter Property="Padding" Value="8,4" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style x:Key="PayrollCellText" TargetType="TextBlock">
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style x:Key="PayrollCellTextTrimmed" TargetType="TextBlock" BasedOn="{StaticResource PayrollCellText}">
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+            <Setter Property="ToolTip" Value="{Binding RelativeSource={RelativeSource Self}, Path=Text}" />
+        </Style>
+        <Style x:Key="PayrollCellTextWrapped" TargetType="TextBlock" BasedOn="{StaticResource PayrollCellText}">
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
     </UserControl.Resources>
     <Grid Margin="24">
         <Grid.RowDefinitions>
@@ -20,7 +50,7 @@
 
         <TextBlock Grid.Row="0" Text="Reportes" FontSize="26" FontWeight="Bold" Margin="0,0,0,4" />
         <TextBlock Grid.Row="1"
-                   Text="Horas trabajadas e insumo de nómina por semana. El primer día sin checada de la semana se toma como descanso; cualquier otro día sin checada se marca como falta — el sueldo semanal sale completo de cualquier forma, es el administrador quien ajusta a mano horas extra, faltas o cualquier otro cambio (botón &quot;Editar deducciones&quot;)."
+                   Text="Horas trabajadas e insumo de nómina por semana. El primer día sin checada de la semana se toma como descanso; cualquier otro día sin checada se marca como falta — el sueldo semanal sale completo de cualquier forma, es el administrador quien ajusta a mano horas extra, faltas o cualquier otro cambio (botón &quot;Deducciones&quot;)."
                    FontSize="13" TextWrapping="Wrap" Foreground="{DynamicResource BrushTextSecondary}" Margin="0,0,0,12" />
 
         <!-- Semana lunes a domingo (ver WeekBoundary) — navegación en vez de un rango de
@@ -56,36 +86,53 @@
         <TextBlock Grid.Row="4" Text="{Binding StatusMessage}" FontSize="14" TextWrapping="Wrap" Foreground="{DynamicResource BrushTextSecondary}" Margin="0,0,0,12" />
 
         <DataGrid Grid.Row="5" ItemsSource="{Binding PayrollRows}" AutoGenerateColumns="False" IsReadOnly="True"
-                  CanUserAddRows="False" GridLinesVisibility="Horizontal" HeadersVisibility="Column">
+                  CanUserAddRows="False" GridLinesVisibility="Horizontal" HeadersVisibility="Column"
+                  RowHeight="NaN" MinRowHeight="38"
+                  HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                  ColumnHeaderStyle="{StaticResource PayrollHeaderStyle}" CellStyle="{StaticResource PayrollCellStyle}">
             <DataGrid.Columns>
-                <DataGridTextColumn Header="Empleado" Binding="{Binding EmployeeName}" Width="*" MinWidth="170" />
-                <DataGridTextColumn Header="Sucursal" Binding="{Binding BranchName}" Width="Auto" MinWidth="90" />
-                <!-- Conserva la ubicación original de alguien fusionado a otra sucursal
-                     (ver EmployeesViewModel.ApplyCatalogReplaceAsync) — pedido explícito del
-                     usuario: "que en los reportes se acomoden por sucursal". -->
-                <DataGridTextColumn Header="Departamento" Binding="{Binding Department}" Width="Auto" MinWidth="110" />
+                <DataGridTextColumn Header="Empleado" Binding="{Binding EmployeeName}" Width="*" MinWidth="150"
+                                    ElementStyle="{StaticResource PayrollCellTextTrimmed}" />
+                <!-- Sucursal y, debajo, el departamento (conserva la ubicación original de alguien
+                     fusionado a otra sucursal — ver EmployeesViewModel.ApplyCatalogReplaceAsync;
+                     pedido explícito del usuario: "que en los reportes se acomoden por sucursal").
+                     Una sola columna de dos líneas en vez de dos columnas: la tabla tiene que
+                     caber completa en la ventana. -->
+                <DataGridTemplateColumn Header="Sucursal / Depto." Width="120" MinWidth="120">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="{Binding BranchName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
+                                           ToolTip="{Binding BranchName}" />
+                                <TextBlock Text="{Binding Department}" FontSize="11" TextTrimming="CharacterEllipsis"
+                                           Foreground="{DynamicResource BrushTextSecondary}" ToolTip="{Binding Department}" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
                 <!-- Descanso = primer día sin marcación de la semana (lun→dom); Falta =
                      cualquier día sin marcación posterior a ese — ver comentario de clase
                      de WorkedHoursCalculator. Solo informativo: el sueldo de la derecha ya
                      sale completo, el administrador ajusta a mano lo que corresponda.
                      Verde=puntual, amarillo=retardo (tolerancia 10 min), rojo=falta — ver
                      PunctualityClassifier; gris=sin juicio (descanso/pendiente/horario
-                     especial). -->
-                <DataGridTemplateColumn Header="Checadas de la semana" Width="Auto" MinWidth="300">
+                     especial). Los 7 días van SIEMPRE en una sola fila (StackPanel, no
+                     WrapPanel): con fila de altura fija la segunda línea quedaba cortada. -->
+                <DataGridTemplateColumn Header="Checadas de la semana" Width="398" MinWidth="398">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
-                            <ItemsControl ItemsSource="{Binding DailyBadges}" Focusable="False">
+                            <ItemsControl ItemsSource="{Binding DailyBadges}" Focusable="False" VerticalAlignment="Center">
                                 <ItemsControl.ItemsPanel>
                                     <ItemsPanelTemplate>
-                                        <WrapPanel />
+                                        <StackPanel Orientation="Horizontal" />
                                     </ItemsPanelTemplate>
                                 </ItemsControl.ItemsPanel>
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
                                         <Border Background="{Binding Color, Converter={StaticResource AttendanceColorToBrushConverter}, ConverterParameter=Surface}"
                                                 BorderBrush="{Binding Color, Converter={StaticResource AttendanceColorToBrushConverter}}"
-                                                BorderThickness="1" CornerRadius="4" Padding="5,2" Margin="2">
-                                            <TextBlock FontSize="11"
+                                                BorderThickness="1" CornerRadius="4" Padding="4,2" Margin="1">
+                                            <TextBlock FontSize="10.5"
                                                        Foreground="{Binding Color, Converter={StaticResource AttendanceColorToBrushConverter}}">
                                                 <Run Text="{Binding DayLabel, Mode=OneWay}" FontWeight="SemiBold" />
                                                 <Run Text=" " />
@@ -98,32 +145,34 @@
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
-                <DataGridTextColumn Header="Faltas" Binding="{Binding AbsenceCount}" Width="Auto" MinWidth="60" />
-                <DataGridTextColumn Header="Horas normales" Binding="{Binding RegularTimeText}" Width="Auto" MinWidth="100" />
-                <DataGridTextColumn Header="Horas extra" Binding="{Binding OvertimeTimeText}" Width="Auto" MinWidth="90" />
-                <DataGridTextColumn Header="Sueldo semanal" Binding="{Binding WeeklySalaryText}" Width="Auto" MinWidth="110" />
-                <DataGridTextColumn Header="Pago horas extra" Binding="{Binding Summary.OvertimePay, StringFormat='{}{0:C}'}" Width="Auto" MinWidth="120" />
-                <DataGridTextColumn Header="Total a pagar" Binding="{Binding Summary.TotalPay, StringFormat='{}{0:C}'}" Width="Auto" MinWidth="110" />
-                <!-- ISR/IMSS/Otro: capturados a mano (ver "Editar deducciones" más abajo),
-                     nunca calculados por el sistema — ver comentario de clase de
-                     PayrollDeduction. -->
-                <DataGridTextColumn Header="ISR" Binding="{Binding Deductions.IsrAmount, StringFormat='{}{0:C}'}" Width="Auto" MinWidth="80" />
-                <DataGridTextColumn Header="IMSS" Binding="{Binding Deductions.ImssAmount, StringFormat='{}{0:C}'}" Width="Auto" MinWidth="80" />
-                <DataGridTextColumn Header="Otro" Binding="{Binding Deductions.OtherAmount, StringFormat='{}{0:C}'}" Width="Auto" MinWidth="80" />
-                <DataGridTextColumn Header="Neto a pagar" Binding="{Binding NetPay, StringFormat='{}{0:C}'}" Width="Auto" MinWidth="110" />
-                <DataGridTextColumn Header="Advertencias" Binding="{Binding WarningsText}" Width="Auto" MinWidth="200" MaxWidth="360">
-                    <DataGridTextColumn.ElementStyle>
-                        <Style TargetType="TextBlock">
-                            <Setter Property="TextWrapping" Value="Wrap" />
-                        </Style>
-                    </DataGridTextColumn.ElementStyle>
-                </DataGridTextColumn>
-                <DataGridTemplateColumn Header="" Width="Auto" MinWidth="150">
+                <DataGridTextColumn Header="Faltas" Binding="{Binding AbsenceCount}" Width="56" MinWidth="56"
+                                    ElementStyle="{StaticResource PayrollCellText}" />
+                <DataGridTextColumn Header="Horas normales" Binding="{Binding RegularTimeText}" Width="80" MinWidth="80"
+                                    ElementStyle="{StaticResource PayrollCellText}" />
+                <DataGridTextColumn Header="Horas extra" Binding="{Binding OvertimeTimeText}" Width="66" MinWidth="66"
+                                    ElementStyle="{StaticResource PayrollCellText}" />
+                <DataGridTextColumn Header="Sueldo semanal" Binding="{Binding WeeklySalaryText}" Width="90" MinWidth="90"
+                                    ElementStyle="{StaticResource PayrollCellText}" />
+                <DataGridTextColumn Header="Pago horas extra" Binding="{Binding Summary.OvertimePay, StringFormat='{}{0:C}'}" Width="80" MinWidth="80"
+                                    ElementStyle="{StaticResource PayrollCellText}" />
+                <DataGridTextColumn Header="Total a pagar" Binding="{Binding Summary.TotalPay, StringFormat='{}{0:C}'}" Width="90" MinWidth="90"
+                                    ElementStyle="{StaticResource PayrollCellText}" />
+                <!-- ISR + IMSS + Otro en UNA columna: se capturan a mano (ver "Deducciones"), nunca
+                     los calcula el sistema — ver comentario de clase de PayrollDeduction. El
+                     desglose sigue en el diálogo y en el CSV. -->
+                <DataGridTextColumn Header="Deducciones" Binding="{Binding DeductionsTotal, StringFormat='{}{0:C}'}" Width="106" MinWidth="106"
+                                    ElementStyle="{StaticResource PayrollCellText}" />
+                <DataGridTextColumn Header="Neto a pagar" Binding="{Binding NetPay, StringFormat='{}{0:C}'}" Width="90" MinWidth="90"
+                                    ElementStyle="{StaticResource PayrollCellText}" />
+                <DataGridTextColumn Header="Advertencias" Binding="{Binding WarningsText}" Width="124" MinWidth="124"
+                                    ElementStyle="{StaticResource PayrollCellTextWrapped}" />
+                <DataGridTemplateColumn Header="" Width="98" MinWidth="98">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
                             <!-- DataContext heredado = el PayrollRow de la fila (igual
                                  patrón que EmployeesView) — el handler lo lee directo sin Tag. -->
-                            <Button Content="Editar deducciones" Padding="8,4" FontSize="12" Click="OnEditDeductionsClick" />
+                            <Button Content="Deducciones" ToolTip="Editar deducciones (ISR, IMSS, otro)" Padding="8,4" FontSize="12"
+                                    VerticalAlignment="Center" Click="OnEditDeductionsClick" />
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>

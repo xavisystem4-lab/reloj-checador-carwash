@@ -117,6 +117,48 @@ public sealed class SupabaseSyncBackgroundService(
         return await RunCycleAsync(cancellationToken);
     }
 
+    /// <summary>¿Hay Supabase configurado en esta instalación? — para que quien llame a
+    /// <see cref="TryDeleteMappingsRemoteAsync"/> distinga "no hay nube" (no hay nada que
+    /// borrar allá) de "la nube falló" (hay que abortar).</summary>
+    public bool IsCloudConfigured => options.IsConfigured;
+
+    /// <summary>Borra directamente en Supabase los vínculos PIN↔empleado con estos ids. Segunda
+    /// excepción DELIBERADA a "solo empuja, nunca borra" (la primera es
+    /// <see cref="TryDeleteAttendancesRemoteAsync"/>): al reasignar un PIN a otro empleado
+    /// (DevicesViewModel.AutoLinkDeviceUsersAsync) el vínculo "de relleno" del empleado debe
+    /// desaparecer de la nube ANTES de subir el nuevo — Supabase tiene índice único
+    /// (dispositivo, empleado) y (dispositivo, PIN), y todos los vínculos se suben en UN solo
+    /// lote, así que una fila vieja huérfana haría fallar la tabla completa en cada ciclo.
+    /// Se llama ANTES de guardar el cambio local. No lanza.</summary>
+    /// <returns>true si el borrado remoto se confirmó (o no había nada que borrar); false si
+    /// falló o no hay nube configurada — ver <see cref="IsCloudConfigured"/>.</returns>
+    public async Task<bool> TryDeleteMappingsRemoteAsync(
+        IReadOnlyList<Guid> mappingIds, CancellationToken cancellationToken = default)
+    {
+        if (mappingIds.Count == 0)
+        {
+            return true;
+        }
+
+        if (!options.IsConfigured)
+        {
+            return false;
+        }
+
+        try
+        {
+            using var scope = scopeFactory.CreateScope();
+            var restClient = scope.ServiceProvider.GetRequiredService<SupabaseRestClient>();
+            await restClient.DeleteAsync("employee_device_mappings", $"id=in.({string.Join(",", mappingIds)})", cancellationToken);
+            return true;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "No se pudo borrar en Supabase {Count} vínculo(s) PIN↔empleado.", mappingIds.Count);
+            return false;
+        }
+    }
+
     /// <summary>Borra directamente en Supabase las filas de asistencia con estos ids — pedido
     /// explícito del usuario: "podemos borrar en el sistema y que también mande la señal al
     /// sitio web". Única excepción DELIBERADA al resto de este motor (push-only, nunca
