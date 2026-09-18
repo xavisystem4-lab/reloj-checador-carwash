@@ -327,55 +327,66 @@
     </div>
   </div>
 
-  <!-- ===================== MODAL: reporte de asistencia (horas trabajadas) ===================== -->
-  <!-- ===================== MODAL: reporte de asistencia (previsualización directa) ===================== -->
-  <!-- Pedido explícito del usuario: "quiero que al darle clic al reporte de asistencia
-       automáticamente se abra la imagen que se acabo de apuntar. No quiero la otra, quiero
-       esa imagen" — "Reporte de asistencia" abre ESTA previsualización directo (antes había
-       una pantalla intermedia con solo la tabla; se quitó). Reutiliza el mismo
-       Desde/Hasta/Sucursal ya elegidos en los filtros principales — ver openAttendanceReport
-       en app.js. Muestra la hora de Entrada/Salida de cada día de la semana (ver
-       buildEmployeeWeekView en app.js), ya no horas acumuladas.
-       report-preview-page es tamaño Carta HORIZONTAL real (11in x 8.5in, ver styles.css) — en pantalla
-       se ve dentro de un contenedor con scroll; @media print deja SOLO esa hoja visible al
-       imprimir/guardar como PDF del navegador. -->
+  <!-- ===================== MODAL: reporte de asistencia (ventana como la PC) ===================== -->
+  <!-- Pedido explícito del usuario: "en Reporte de Asistencia se abra una ventana y que el formato sea
+       como el de la PC". Esta ventana replica la pantalla Reportes de la app de escritorio
+       (PayrollView): navegación por semana (lunes a domingo), buscador y filtro de sucursal,
+       una fila por empleado con sus 7 días (insignia de color con las horas del día, como la PC,
+       y debajo la hora de entrada y salida), Faltas, Horas normales/extra y — solo para cuentas
+       Admin — Sueldo semanal, Pago horas extra, Total, Deducciones y Neto a pagar. El cálculo
+       es un port exacto del de la PC (ver payroll-calc.js). "Vista previa e imprimir" abre la
+       hoja Carta horizontal (siguiente modal). -->
+  <div id="weekly-report-modal" class="modal-overlay" hidden>
+    <div class="weekly-report-shell" role="dialog" aria-modal="true" aria-labelledby="wr-title">
+      <div class="weekly-report-head">
+        <h2 id="wr-title">Reporte de asistencia</h2>
+        <button id="wr-close" class="btn btn-ghost" type="button">✕ Cerrar</button>
+      </div>
+      <p class="weekly-report-help">
+        Horas trabajadas e insumo de nómina por semana. El primer día sin checada de la semana se toma
+        como descanso; cualquier otro día sin checada se marca como falta — el sueldo semanal sale
+        completo de cualquier forma, es el administrador quien ajusta a mano horas extra, faltas o
+        cualquier otro cambio. Debajo de cada día: hora de entrada y de salida.
+      </p>
+      <div class="weekly-report-toolbar">
+        <button id="wr-prev" class="btn btn-outline" type="button">‹ Semana anterior</button>
+        <span id="wr-range" class="weekly-report-range"></span>
+        <button id="wr-next" class="btn btn-outline" type="button">Semana siguiente ›</button>
+        <button id="wr-refresh" class="btn btn-primary" type="button">Actualizar</button>
+        <button id="wr-csv" class="btn btn-outline" type="button">⬇ Exportar CSV</button>
+        <button id="wr-preview" class="btn btn-outline" type="button">📊 Vista previa e imprimir</button>
+      </div>
+      <div class="weekly-report-filters">
+        <label class="weekly-report-filter"><span>Buscar:</span>
+          <input id="wr-search" type="text" class="preview-search-input" placeholder="Número o empleado…" />
+        </label>
+        <label class="weekly-report-filter"><span>Sucursal:</span>
+          <select id="wr-branch" class="preview-date-input"><option value="">Todas las sucursales</option></select>
+        </label>
+        <label class="weekly-report-filter"><span>Departamento:</span>
+          <select id="wr-dept" class="preview-date-input"><option value="">Todos los deptos.</option></select>
+        </label>
+      </div>
+      <div id="wr-status" class="weekly-report-status"></div>
+      <div id="wr-sync-note" class="weekly-report-status"></div>
+      <div class="weekly-report-table-wrap">
+        <table class="weekly-report-table">
+          <thead id="wr-thead"></thead>
+          <tbody id="wr-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hoja Carta HORIZONTAL para imprimir / Exp. Excel / Exp. PDF — mismo formato que la "Vista
+       previa e imprimir" de la PC (PayrollReportDocumentBuilder): logotipo + encabezado + tabla
+       de nómina. Muestra exactamente lo que esté filtrado en la ventana del reporte. -->
   <div id="report-preview-modal" class="modal-overlay" hidden>
     <div class="report-preview-shell">
       <div class="report-preview-toolbar no-print">
-        <!-- Botones abreviados a "Exp." — pedido explícito del usuario: la barra se veía
-             apretada/fea con los filtros de fecha y buscador agregados; "si es necesario
-             abreviar, exportar a solamente tres letras Exp. Excel y Exp. PDF hazlo". -->
         <button id="preview-print-button" class="btn btn-outline" type="button">🖨️ Imprimir</button>
         <button id="preview-excel-button" class="btn btn-outline" type="button">📊 Exp. Excel</button>
         <button id="preview-pdf-button" class="btn btn-outline" type="button">📄 Exp. PDF</button>
-        <!-- Filtro por período — pedido explícito del usuario: "agrégale un filtro para
-             poder buscar por fecha ... que se pueda escribir libre, la fecha y también el
-             calendario, del ícono" — mismo input type="date" nativo que Desde/Hasta del
-             Dashboard (permite escribir la fecha a mano O usar el ícono de calendario).
-             Al cambiar, vuelve a consultar Supabase con el nuevo rango (ver
-             onPreviewDateRangeChange) y mantiene sincronizados from-input/to-input de
-             arriba, para que el nombre de archivo de las exportaciones y el resto del
-             Dashboard queden con el mismo rango. -->
-        <input id="preview-from-input" type="date" class="preview-date-input" aria-label="Desde" />
-        <span class="preview-date-sep">a</span>
-        <input id="preview-to-input" type="date" class="preview-date-input" aria-label="Hasta" />
-        <!-- Pedido explícito del usuario: "regálele también un buscador que busque por
-             número, PIN, empleado, en cuanto vaya escribiendo, se vaya autorrellenando" —
-             filtra las filas de la hoja EN VIVO (sin botón de buscar), mismo criterio que
-             el buscador principal del Dashboard. Lo que esté filtrado en pantalla es
-             también lo que se imprime/exporta. La columna PIN se quitó de la tabla y del
-             buscador (pedido explícito: "deja nada más el puro Número" — el PIN mostraba
-             varios valores separados por coma por empleado y confundía más de lo que ayudaba). -->
-        <input id="preview-search-input" type="text" class="preview-search-input" placeholder="Buscar número o empleado…" />
-        <!-- Otro filtro, pedido explícito del usuario: "otro filtro que sea buscar por
-             departamento" — select en vez de otro campo de texto (los departamentos son un
-             catálogo cerrado: car wash, arábica café, otros, plaza sabo, etc. — ver
-             buildAttendanceReportRows), más compacto que un buscador libre y evita que la
-             barra se vea más apretada todavía. Opciones pobladas en JS (ver
-             populatePreviewDepartmentOptions) a partir de lo que trae el reporte actual. -->
-        <select id="preview-department-select" class="preview-date-input" aria-label="Filtrar por departamento">
-          <option value="">Todos los deptos.</option>
-        </select>
         <button id="report-preview-close" class="btn btn-ghost" type="button">✕ Cerrar</button>
       </div>
       <div class="report-preview-scroll">
@@ -400,14 +411,11 @@
               <div class="report-preview-subtitle" id="preview-range-text"></div>
             </div>
           </div>
-          <!-- Pedido explícito del usuario: "el reporte de asistencia de la web lo vamos a
-               cambiar por la hora en que entró cada empleado y salió durante toda la semana
-               en lugar de que se acumulen las horas, mejor que me salgan las marcaciones de
-               la semana". renderPreviewTable arma aquí UNA tabla por semana (lunes a domingo,
-               recortada al rango elegido) con una columna por día: Entrada (E) = primera
-               marcación del día, Salida (S) = última — ver buildEmployeeWeekView en app.js. -->
-          <div id="preview-weeks"></div>
-          <div id="preview-empty-text" class="report-preview-empty" hidden>Sin resultados para esta búsqueda.</div>
+          <table class="report-preview-table report-preview-table--payroll">
+            <thead id="preview-thead"></thead>
+            <tbody id="preview-tbody"></tbody>
+          </table>
+          <div id="preview-empty-text" class="report-preview-empty" hidden>Sin empleados para estos filtros.</div>
           <div class="report-preview-footer" id="preview-generated-text"></div>
         </div>
         </div>

@@ -14,6 +14,10 @@
 // bloqueando el acceso (status='rejected', o un error técnico real al consultar el
 // perfil).
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import {
+  addDaysIso, getWeekStartIso, dayLabel, shortDate, longDate, calculateWeek, dayBadgeText,
+  formatHoursAndMinutes, formatMoney, netPay, buildAttendanceReportCsv,
+} from './payroll-calc.js';
 
 const SUPABASE_URL = 'https://vkvlucpjgvqrlvevcimq.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZrdmx1Y3BqZ3Zxcmx2ZXZjaW1xIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY2MDQ1MTQsImV4cCI6MjEwMjE4MDUxNH0.RWTJLCXhsPbSJLNpO2V2HNkhKqstqWgx33rkLekUxFI';
@@ -118,13 +122,40 @@ const devicesStatusRow = document.getElementById('devices-status-row');
 const connectionBadge = document.getElementById('connection-badge');
 const connectionBadgeText = document.getElementById('connection-badge-text');
 
-// ---- Reporte de asistencia (entrada/salida por día) — ver openAttendanceReport/buildEmployeeWeekView.
-// Pedido explícito del usuario: "quiero que al darle clic al reporte de asistencia
-// automáticamente se abra la imagen que se acabo de apuntar. No quiero la otra, quiero esa
-// imagen" — "Reporte de asistencia" abre la previsualización DIRECTO, ya no hay una
-// pantalla intermedia con solo la tabla. ----
+// ---- Reporte de asistencia — ventana como la de la PC ----
+// Pedidos explícitos del usuario: primero "quiero tener un botón que se llame reporte de
+// asistencia ... que lo pueda filtrar de tal fecha a tal fecha"; después "que me salgan las
+// marcaciones de la semana" (hora de entrada y salida de cada día); y por último "en Reporte de
+// Asistencia se abra una ventana y que el formato sea como el de la PC" — con sueldos, decidido
+// explícitamente por el usuario.
+//
+// La ventana (weekly-report-modal) replica la pantalla Reportes de la app de escritorio: navegación
+// por semana (lunes a domingo), buscador y filtros, una fila por empleado ACTIVO con sus 7 días
+// (insignia de color con las horas y, debajo, entrada–salida), Faltas, Horas normales/extra y las
+// columnas de nómina. El cálculo es el de la PC, portado a payroll-calc.js (con pruebas en
+// tests/dashboard). Los MONTOS (sueldo, deducciones, neto) solo se piden a Supabase y se muestran a
+// cuentas Admin — Supabase no restringe esas columnas por rol, así que la web ni siquiera las
+// descarga para una cuenta 'user'.
+
 const reportButton = document.getElementById('report-button');
 
+const weeklyReportModal = document.getElementById('weekly-report-modal');
+const wrClose = document.getElementById('wr-close');
+const wrPrev = document.getElementById('wr-prev');
+const wrNext = document.getElementById('wr-next');
+const wrRefresh = document.getElementById('wr-refresh');
+const wrCsv = document.getElementById('wr-csv');
+const wrPreview = document.getElementById('wr-preview');
+const wrRange = document.getElementById('wr-range');
+const wrSearch = document.getElementById('wr-search');
+const wrBranch = document.getElementById('wr-branch');
+const wrDept = document.getElementById('wr-dept');
+const wrStatus = document.getElementById('wr-status');
+const wrSyncNote = document.getElementById('wr-sync-note');
+const wrThead = document.getElementById('wr-thead');
+const wrTbody = document.getElementById('wr-tbody');
+
+// Hoja Carta horizontal (imprimir / Excel / PDF) — la "Vista previa e imprimir" de la PC.
 const reportPreviewModal = document.getElementById('report-preview-modal');
 const reportPreviewClose = document.getElementById('report-preview-close');
 const reportPreviewPage = document.getElementById('report-preview-page');
@@ -132,32 +163,21 @@ const reportPreviewPage = document.getElementById('report-preview-page');
 // redimensiona; report-preview-page solo se transforma visualmente dentro de él.
 const reportPreviewPageFrame = document.getElementById('report-preview-page-frame');
 const previewRangeText = document.getElementById('preview-range-text');
-const previewWeeks = document.getElementById('preview-weeks');
+const previewThead = document.getElementById('preview-thead');
+const previewTbody = document.getElementById('preview-tbody');
 const previewEmptyText = document.getElementById('preview-empty-text');
 const previewGeneratedText = document.getElementById('preview-generated-text');
 const previewPrintButton = document.getElementById('preview-print-button');
 const previewExcelButton = document.getElementById('preview-excel-button');
 const previewPdfButton = document.getElementById('preview-pdf-button');
-// Buscador de la previsualización — pedido explícito del usuario: "regálele también un
-// buscador que busque por número, PIN, empleado, en cuanto vaya escribiendo, se vaya
-// autorrellenando" — filtra EN VIVO (sin botón "buscar"), mismo criterio que el buscador
-// principal del Dashboard (ver searchInput más abajo).
-const previewSearchInput = document.getElementById('preview-search-input');
-// Filtro de rango de fechas dentro de la previsualización — pedido explícito del usuario:
-// "agrégale un filtro para poder buscar por fecha ... que se pueda escribir libre, la
-// fecha y también el calendario, del ícono". Se inicializan con el mismo rango que
-// from-input/to-input al abrir el reporte (ver openAttendanceReport) y, al cambiar,
-// mantienen sincronizado ese rango principal (ver onPreviewDateRangeChange).
-const previewFromInput = document.getElementById('preview-from-input');
-const previewToInput = document.getElementById('preview-to-input');
-// Filtro por departamento — pedido explícito del usuario: "otro filtro que sea buscar por
-// departamento". Sus opciones se pueblan en JS (ver populatePreviewDepartmentOptions) a
-// partir de lo que trae el reporte actual, no de una lista fija.
-const previewDepartmentSelect = document.getElementById('preview-department-select');
 
-let lastReportRows = []; // última tabla de horas ya calculada (SIN filtrar) — la búsqueda parte de aquí
-let currentPreviewRows = []; // lo que está renderizado AHORA en la hoja (ya filtrado) — Excel/PDF/Imprimir exportan esto, no lastReportRows
-let reportPreviewScaleBeforePrint = null; // ver beforeprint/afterprint en init() — restaura el escalado móvil tras imprimir
+let reportWeekStart = null; // lunes de la semana mostrada, "YYYY-MM-DD"
+let reportCanSeePay = false; // solo cuentas Admin ven (y descargan) sueldos y deducciones
+let reportAllRows = []; // todos los empleados activos con su semana ya calculada (sin filtrar)
+let reportVisibleRows = []; // lo que se ve ahora (filtrado) — CSV, Excel, hoja y PDF salen de aquí
+let reportUnlinkedCount = 0; // marcaciones de la semana cuyo PIN no pertenece a un empleado vigente
+let reportLoadToken = 0; // descarta respuestas viejas si se cambia de semana mientras carga
+let reportScaleBeforePrint = null; // ver beforeprint/afterprint en init() — restaura el escalado móvil tras imprimir
 
 let autoRefreshTimer = null;
 let lastLoadedRows = []; // guarda la última carga ya enriquecida, para exportar sin repetir el fetch
@@ -212,19 +232,34 @@ async function init() {
   mobileSearchQuery.addEventListener('change', placeSearchFieldForViewport);
 
   reportButton.addEventListener('click', openAttendanceReport);
+  wrClose.addEventListener('click', closeWeeklyReport);
+  weeklyReportModal.addEventListener('click', (event) => {
+    if (event.target === weeklyReportModal) closeWeeklyReport();
+  });
+  wrPrev.addEventListener('click', () => shiftReportWeek(-1));
+  wrNext.addEventListener('click', () => shiftReportWeek(1));
+  wrRefresh.addEventListener('click', onWeeklyReportRefreshClick);
+  wrCsv.addEventListener('click', onExportReportCsvClick);
+  wrPreview.addEventListener('click', openReportSheet);
+  wrSearch.addEventListener('input', debounce(applyReportFilters, 150));
+  wrBranch.addEventListener('change', applyReportFilters);
+  wrDept.addEventListener('change', applyReportFilters);
+
   reportPreviewClose.addEventListener('click', closeReportPreview);
   reportPreviewModal.addEventListener('click', (event) => {
     if (event.target === reportPreviewModal) closeReportPreview();
   });
   // Pedido explícito del usuario: "al presionar la tecla ESC lo que quiero es que se
-  // salga" — cierra el modal que esté abierto en ese momento (el de más arriba, si por
-  // alguna razón hubiera más de uno). No cierra nada si el foco está en un <select>
-  // desplegado (ese caso el propio navegador ya usa Escape para cerrar el desplegable,
-  // no para nuestro modal) ni si hay un diálogo nativo (alert/confirm) esperando.
+  // salga" — cierra el modal que esté abierto en ese momento, el de más arriba primero
+  // (la hoja de impresión va encima de la ventana del reporte). No cierra nada si el foco
+  // está en un <select> desplegado (ese caso el propio navegador ya usa Escape para cerrar el
+  // desplegable, no para nuestro modal) ni si hay un diálogo nativo (alert/confirm) esperando.
   document.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape') return;
     if (!reportPreviewModal.hidden) {
       closeReportPreview();
+    } else if (!weeklyReportModal.hidden) {
+      closeWeeklyReport();
     } else if (!usersModal.hidden) {
       closeUsersModal();
     }
@@ -232,10 +267,6 @@ async function init() {
   previewPrintButton.addEventListener('click', () => window.print());
   previewExcelButton.addEventListener('click', onExportReportExcelClick);
   previewPdfButton.addEventListener('click', onExportReportPdfClick);
-  previewSearchInput.addEventListener('input', debounce(applyPreviewFilters, 150));
-  previewDepartmentSelect.addEventListener('change', applyPreviewFilters);
-  previewFromInput.addEventListener('change', onPreviewDateRangeChange);
-  previewToInput.addEventListener('change', onPreviewDateRangeChange);
   // Recalcula el escalado de la hoja al girar el teléfono/tablet o cambiar de tamaño de
   // ventana — fitReportPreviewToViewport ya se sale sola si el modal está cerrado.
   window.addEventListener('resize', debounce(fitReportPreviewToViewport, 150));
@@ -245,10 +276,10 @@ async function init() {
   // achicada se estuviera viendo la hoja en un teléfono. beforeprint/afterprint cubren
   // cualquier forma de imprimir, no solo el botón.
   window.addEventListener('beforeprint', () => {
-    reportPreviewScaleBeforePrint = resetReportPreviewScale();
+    reportScaleBeforePrint = resetReportPreviewScale();
   });
   window.addEventListener('afterprint', () => {
-    restoreReportPreviewScale(reportPreviewScaleBeforePrint);
+    restoreReportPreviewScale(reportScaleBeforePrint);
   });
 
   showSignupButton.addEventListener('click', showSignupFormView);
@@ -823,11 +854,13 @@ async function loadDevicesStatus() {
   const now = Date.now();
   devicesStatusRow.innerHTML = '';
   let anyOnline = false;
+  const details = [];
   for (const device of data) {
     const lastCommMs = device.last_communication_at_utc ? new Date(device.last_communication_at_utc).getTime() : null;
     const minutesAgo = lastCommMs ? (now - lastCommMs) / 60_000 : null;
     const isOnline = minutesAgo !== null && minutesAgo <= DEVICE_ONLINE_THRESHOLD_MINUTES;
     if (isOnline) anyOnline = true;
+    details.push(`${device.name}: ${isOnline ? 'conectado' : describeOffline(minutesAgo).toLowerCase()}`);
 
     const pill = document.createElement('div');
     pill.className = 'device-status-pill';
@@ -842,7 +875,10 @@ async function loadDevicesStatus() {
   // Badge agregado del header (ver connection-badge en index.html): "Conectado" en verde
   // si AL MENOS un reloj checador está en vivo, para que se note de inmediato arriba —
   // sobre todo en móvil, donde la fila de pills por dispositivo puede quedar más abajo.
-  setConnectionBadge(anyOnline, data.length === 1 ? data[0].name : `${data.length} relojes`);
+  // El detalle (al pasar el ratón) dice el estado de cada reloj y, si está desconectado, hace cuánto
+  // que no se comunica — "Conectado" exige una comunicación de la PC con el reloj de hace ≤ 5 min
+  // (ver DEVICE_ONLINE_THRESHOLD_MINUTES); la app de escritorio la refresca con cada descarga.
+  setConnectionBadge(anyOnline, details.join(' · '));
 }
 
 function setConnectionBadge(isOnline, detail) {
@@ -965,6 +1001,7 @@ function pollSyncRequest() {
       stopPollingSyncRequest();
       loadReport();
       loadDevicesStatus();
+      if (!weeklyReportModal.hidden) loadWeeklyReport(); // el reporte abierto se actualiza solo al terminar la PC
     } else if (data.status === 'failed') {
       setSyncRequestStatus('❌ ' + (data.error_message ?? 'Ocurrió un error.'), 'error');
       stopPollingSyncRequest();
@@ -988,6 +1025,7 @@ function stopPollingSyncRequest() {
 }
 
 function setSyncRequestStatus(text, kind) {
+  wrSyncNote.textContent = text; // misma nota dentro de la ventana del reporte
   syncRequestStatusEl.textContent = text;
   syncRequestStatusEl.className = `sync-request-status ${kind}`;
   syncRequestStatusEl.hidden = false;
@@ -1297,19 +1335,11 @@ function csvEscape(value) {
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
-// ---- Reporte de asistencia — pedido explícito del usuario: "quiero tener un botón que se
-// llame reporte de asistencia ... que lo pueda filtrar de tal fecha a tal fecha", y después:
-// "lo vamos a cambiar por la hora en que entró cada empleado y salió durante toda la semana
-// en lugar de que se acumulen las horas, mejor que me salgan las marcaciones de la semana"
-// (ya NO se calculan horas acumuladas). Reutiliza el rango Desde/Hasta/Sucursal de los
-// filtros principales — no duplica esos controles aquí. ----
-
 /// "Ahora" con el mismo criterio que timestamp_utc en toda la base: NO es UTC real, es la
-/// hora de pared del negocio sin convertir (ver formatAttendanceDateTime más abajo) — así
-/// que para comparar contra eso, "ahora" tiene que armarse con los componentes de la hora
-/// LOCAL DEL NAVEGADOR (no Date.now()/toISOString(), que sí son UTC real y se desfasarían
-/// por el huso horario de quien esté viendo el Dashboard). Asume que quien lo ve está en el
-/// mismo huso horario que el negocio — mismo supuesto que ya usa el resto de la app.
+/// hora de pared del negocio sin convertir — así que para compararlo con eso "ahora" se arma con
+/// los componentes de la hora LOCAL DEL NAVEGADOR (no Date.now()/toISOString(), que sí son UTC
+/// real y se desfasarían por el huso horario de quien vea el Dashboard). Asume que quien lo ve
+/// está en el mismo huso que el negocio — mismo supuesto que el resto de la app.
 function nowAsFakeUtcIso() {
   const now = new Date();
   const pad = (n) => String(n).padStart(2, '0');
@@ -1317,305 +1347,298 @@ function nowAsFakeUtcIso() {
     `T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}.000Z`;
 }
 
-function isoTimeToMinutes(iso) {
-  const [h, m] = iso.slice(11, 16).split(':').map(Number);
-  return h * 60 + m;
+function todayIso() {
+  return nowAsFakeUtcIso().slice(0, 10);
 }
 
-/// Mismo criterio que WeekBoundary.cs del repo principal — la semana es lunes a domingo.
-function localDateIso(d) {
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+/// Abre la ventana del reporte en la semana en curso.
+function openAttendanceReport() {
+  reportCanSeePay = currentProfile?.role === 'admin' && currentProfile?.status === 'approved';
+  reportWeekStart = getWeekStartIso(todayIso());
+
+  wrSearch.value = '';
+  wrDept.value = '';
+  wrBranch.innerHTML = '<option value="">Todas las sucursales</option>';
+  for (const option of branchSelect.options) {
+    if (!option.value) continue;
+    const copy = document.createElement('option');
+    copy.value = option.value;
+    copy.textContent = option.textContent;
+    wrBranch.appendChild(copy);
+  }
+
+  weeklyReportModal.hidden = false;
+  loadWeeklyReport();
+  ensureExportLibrariesLoaded(); // en segundo plano — Excel/PDF no bloquean la ventana
 }
 
-function getWeekStartIso(dayIso) {
-  const d = new Date(`${dayIso}T00:00:00`);
-  const dow = (d.getDay() + 6) % 7; // 0=lunes ... 6=domingo
-  d.setDate(d.getDate() - dow);
-  return localDateIso(d);
+function closeWeeklyReport() {
+  weeklyReportModal.hidden = true;
 }
 
-function addDaysIso(dayIso, days) {
-  const d = new Date(`${dayIso}T00:00:00`);
-  d.setDate(d.getDate() + days);
-  return localDateIso(d);
+function shiftReportWeek(weeks) {
+  reportWeekStart = addDaysIso(reportWeekStart, weeks * 7);
+  loadWeeklyReport();
 }
 
-/// Clasifica cada día del rango [fromIso, toIso] de UN empleado en Trabajado/Descanso/
-/// Falta/Pendiente, semana por semana (lunes a domingo) — mismo algoritmo que
-/// WorkedHoursCalculator.CalculateWeek del repo principal (RelojChecador.Application.
-/// Payroll): el primer día sin ninguna marcación de la semana es descanso, cualquier otro
-/// día sin marcación es falta; los días de hoy en adelante quedan pendientes (nunca se
-/// juzga un día que todavía no pasa). Puramente informativo — nunca cambia las horas
-/// calculadas arriba.
-function classifyEmployeeDays(byDayMap, fromIso, toIso, scheduledStartTime, hasSpecialSchedule) {
-  const todayIso = nowAsFakeUtcIso().slice(0, 10);
-  let absenceCount = 0;
-  let hadLate = false;
-  let hadWorkedOnTime = false;
-  let hadWorked = false;
+/// Trae TODAS las filas de una consulta paginando de 1000 en 1000 (PostgREST recorta cada
+/// respuesta a 1000). buildQuery debe devolver una consulta NUEVA en cada llamada y con orden
+/// determinista, para que las páginas no se traslapen.
+async function fetchAllPages(buildQuery) {
+  const pageSize = 1000;
+  const all = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await buildQuery().range(from, from + pageSize - 1);
+    if (error) throw new Error(error.message);
+    all.push(...(data ?? []));
+    if (!data || data.length < pageSize) return all;
+  }
+}
 
-  let weekStart = getWeekStartIso(fromIso);
-  while (weekStart <= toIso) {
-    let restDayTaken = false;
-    for (let i = 0; i < 7; i++) {
-      const dayIso = addDaysIso(weekStart, i);
-      if (dayIso < fromIso || dayIso > toIso) continue; // fuera del rango elegido en el reporte
+async function loadWeeklyReport() {
+  const token = ++reportLoadToken;
+  const weekStart = reportWeekStart;
+  const weekEnd = addDaysIso(weekStart, 6);
 
-      const dayRows = byDayMap.get(dayIso);
-      if (dayRows && dayRows.length > 0) {
-        hadWorked = true;
-        if (hasSpecialSchedule || !scheduledStartTime) {
-          hadWorkedOnTime = true; // sin horario capturado o con horario especial: no se juzga la hora
-        } else {
-          const sorted = [...dayRows].sort((a, b) => a.timestamp_utc.localeCompare(b.timestamp_utc));
-          const arrivalMinutes = isoTimeToMinutes(sorted[0].timestamp_utc);
-          const [h, m] = scheduledStartTime.split(':').map(Number);
-          const limitMinutes = h * 60 + m + 10; // tolerancia de 10 minutos, pedido explícito del usuario
-          if (arrivalMinutes <= limitMinutes) hadWorkedOnTime = true;
-          else hadLate = true;
-        }
-        continue;
-      }
+  wrRange.textContent = `${longDate(weekStart)} – ${longDate(weekEnd)}`;
+  wrStatus.textContent = 'Calculando…';
+  wrThead.innerHTML = '';
+  wrTbody.innerHTML = '';
 
-      if (dayIso >= todayIso) continue; // pendiente: todavía puede llegar una marcación hoy
-      if (!restDayTaken) restDayTaken = true;
-      else absenceCount++;
+  try {
+    const data = await fetchWeeklyReportData(weekStart, weekEnd, reportCanSeePay);
+    if (token !== reportLoadToken) return; // ya se pidió otra semana
+    const built = buildWeeklyReportRows(data, weekStart);
+    reportAllRows = built.rows;
+    reportUnlinkedCount = built.unlinkedCount;
+    populateReportDepartmentOptions(reportAllRows);
+    applyReportFilters();
+  } catch (error) {
+    if (token !== reportLoadToken) return;
+    reportAllRows = [];
+    reportVisibleRows = [];
+    wrStatus.textContent = 'No se pudo cargar el reporte: ' + error.message;
+  }
+}
+
+/// Todo lo que necesita el reporte de UNA semana. Los montos solo se piden si la cuenta es Admin.
+async function fetchWeeklyReportData(weekStart, weekEnd, canSeePay) {
+  const employeeColumns = 'id, number, full_name, branch_id, department, scheduled_start_time, has_special_schedule' +
+    (canSeePay ? ', weekly_salary, overtime_hourly_rate' : '');
+  // timestamp_utc se compara tal cual está guardado (hora de pared con sufijo "Z"), sin convertir.
+  const fromTs = `${weekStart}T00:00:00.000Z`;
+  const toTs = `${weekEnd}T23:59:59.999Z`;
+
+  const [employees, attendances, mappings, branches, deductions] = await Promise.all([
+    // Igual que la PC: todos menos los dados de baja.
+    fetchAllPages(() => supabase.from('employees').select(employeeColumns).neq('status', 'Terminated').order('full_name').order('id')),
+    fetchAllPages(() => supabase.from('attendances')
+      .select('id, device_id, employee_id, device_user_pin, timestamp_utc, punch_type')
+      .gte('timestamp_utc', fromTs).lte('timestamp_utc', toTs).order('timestamp_utc').order('id')),
+    fetchAllPages(() => supabase.from('employee_device_mappings').select('id, device_id, device_user_pin, employee_id').order('id')),
+    fetchAllPages(() => supabase.from('branches').select('id, name').order('id')),
+    canSeePay
+      ? fetchAllPages(() => supabase.from('payroll_deductions')
+        .select('id, employee_id, isr_amount, imss_amount, other_amount, other_label, notes').eq('week_start', weekStart).order('id'))
+      : Promise.resolve([]),
+  ]);
+  return { employees, attendances, mappings, branches, deductions };
+}
+
+/// Arma una fila por empleado activo con su semana calculada (payroll-calc.js). Resuelve a
+/// quién es cada marcación igual que la PC: primero su EmployeeId, y si ese empleado ya está dado
+/// de baja (catálogo reemplazado) o no tiene, por el vínculo (dispositivo, PIN) → empleado vigente.
+function buildWeeklyReportRows(data, weekStart) {
+  const { employees, attendances, mappings, branches, deductions } = data;
+  const branchNameById = new Map(branches.map(b => [b.id, b.name]));
+  const activeById = new Map(employees.map(e => [e.id, e]));
+  const mappedEmployee = new Map(mappings.map(m => [`${m.device_id}|${m.device_user_pin}`, m.employee_id]));
+
+  const punchesByEmployee = new Map();
+  let unlinkedCount = 0;
+  for (const a of attendances) {
+    const viaMapping = mappedEmployee.get(`${a.device_id}|${a.device_user_pin}`);
+    const owner = activeById.has(a.employee_id) ? a.employee_id : (activeById.has(viaMapping) ? viaMapping : null);
+    if (!owner) {
+      unlinkedCount++;
+      continue;
     }
-    weekStart = addDaysIso(weekStart, 7);
+    if (!punchesByEmployee.has(owner)) punchesByEmployee.set(owner, []);
+    punchesByEmployee.get(owner).push({ timestamp_utc: a.timestamp_utc, punch_type: a.punch_type });
   }
 
-  return { absenceCount, hadLate, hadWorkedOnTime, hadWorked };
-}
+  const deductionsByEmployee = new Map(deductions.map(d => [d.employee_id, {
+    isr: Number(d.isr_amount ?? 0), imss: Number(d.imss_amount ?? 0), other: Number(d.other_amount ?? 0),
+    label: d.other_label ?? null, notes: d.notes ?? null,
+  }]));
 
-/// Semáforo verde/amarillo/rojo/neutral a partir de classifyEmployeeDays — ver
-/// PunctualityClassifier del repo principal para la misma regla aplicada en la app de
-/// escritorio. Horario especial: nunca amarillo/rojo (pedido explícito: "excluirlos de
-/// retardo/falta automáticos"), solo verde si trabajó o neutral si no hay nada que juzgar.
-function attendanceColorFor(classification, hasSpecialSchedule) {
-  if (hasSpecialSchedule) {
-    return classification.hadWorked ? 'green' : 'neutral';
-  }
-  if (classification.absenceCount > 0) return 'red';
-  if (classification.hadLate) return 'yellow';
-  if (classification.hadWorkedOnTime) return 'green';
-  return 'neutral';
-}
-
-/// Arma una fila por empleado (agrupando por resolvedEmployeeId — o por PIN si nunca se
-/// vinculó a nadie) a partir de lastLoadedRows, ya filtrado por Sucursal/Desde/Hasta. NO
-/// aplica el buscador de texto libre de la tabla principal — el reporte parte siempre de
-/// TODOS los empleados del rango; el buscador propio de la previsualización (ver
-/// filterReportRows) filtra DESPUÉS, sobre esta misma lista ya calculada.
-function buildAttendanceReportRows() {
-  const byEmployee = new Map();
-  for (const row of lastLoadedRows) {
-    const key = row.resolvedEmployeeId ?? `unlinked:${row.device_user_pin}`;
-    if (!byEmployee.has(key)) {
-      byEmployee.set(key, {
-        number: row.employeeNumber ?? null,
-        name: row.employeeName ?? `PIN ${row.device_user_pin} · sin vincular`,
-        // Departamento (área original de alguien fusionado a CAR-WASH) si está capturado;
-        // si no, la propia Sucursal — pedido explícito del usuario: "el reporte de
-        // asistencia también agrega departamento, quienes pertenecen a sus áreas. Por
-        // ejemplo, car wash, arábica café, otros, plaza sabo" — así TODOS muestran algún
-        // área, no solo quienes tienen Department capturado.
-        department: row.employeeDepartment || row.branchName || '—',
-        scheduledStartTime: row.employeeScheduledStartTime ?? null,
-        hasSpecialSchedule: row.employeeHasSpecialSchedule === true,
-        byDay: new Map(),
-      });
-    }
-    // Marcaciones agrupadas por día calendario (prefijo "YYYY-MM-DD" del timestamp, sin
-    // conversión de huso horario — mismo criterio que el resto del Dashboard).
-    const entry = byEmployee.get(key);
-    const day = row.timestamp_utc.slice(0, 10);
-    if (!entry.byDay.has(day)) entry.byDay.set(day, []);
-    entry.byDay.get(day).push(row);
-  }
-
-  const result = [...byEmployee.values()];
-  for (const entry of result) {
-    for (const dayRows of entry.byDay.values()) {
-      dayRows.sort((a, b) => a.timestamp_utc.localeCompare(b.timestamp_utc));
-    }
-  }
-  result.sort((a, b) => a.name.localeCompare(b.name, 'es-MX'));
-  return result;
-}
-
-const WEEKDAY_LABELS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
-
-/// Todos los días "YYYY-MM-DD" de [fromIso, toIso], ambos incluidos.
-function listDaysIso(fromIso, toIso) {
-  const days = [];
-  for (let day = fromIso; day <= toIso && days.length < 400; day = addDaysIso(day, 1)) {
-    days.push(day);
-  }
-  return days;
-}
-
-/// Divide el rango elegido en bloques de semana (lunes a domingo), recortados al rango — un
-/// reporte de una semana da UN bloque; uno de un mes da cuatro o cinco.
-function reportWeekBlocks(fromIso, toIso) {
-  const blocks = [];
-  for (let weekStart = getWeekStartIso(fromIso); weekStart <= toIso; weekStart = addDaysIso(weekStart, 7)) {
-    const weekEnd = addDaysIso(weekStart, 6);
-    blocks.push({
-      fromIso: weekStart < fromIso ? fromIso : weekStart,
-      toIso: weekEnd > toIso ? toIso : weekEnd,
-    });
-  }
-  return blocks;
-}
-
-/// "HH:MM" de una marcación (24 h) — la hora de pared tal cual quedó guardada, sin
-/// conversión de huso horario (ver nowAsFakeUtcIso).
-function punchTimeLabel(row) {
-  return row.timestamp_utc.slice(11, 16);
-}
-
-/// Lo que se muestra de UN empleado en [blockFromIso, blockToIso] (dentro de una misma
-/// semana, o varias — se reinicia el descanso al cambiar de semana): una celda por día con
-/// la hora de Entrada (primera marcación del día) y de Salida (última; null si solo hay
-/// una, todavía no checa salida). Los días sin marcación se marcan Descanso (el primero de
-/// la semana), Falta (los demás ya vencidos) o pendiente (hoy en adelante) — mismo criterio
-/// que classifyEmployeeDays / WorkedHoursCalculator.CalculateWeek del repo principal.
-function buildEmployeeWeekView(employee, blockFromIso, blockToIso) {
-  const todayIso = nowAsFakeUtcIso().slice(0, 10);
-  const cells = [];
-  let currentWeekStart = null;
-  let restDayTaken = false;
-
-  for (const dayIso of listDaysIso(blockFromIso, blockToIso)) {
-    const weekStart = getWeekStartIso(dayIso);
-    if (weekStart !== currentWeekStart) {
-      currentWeekStart = weekStart;
-      restDayTaken = false;
-    }
-
-    const punches = employee.byDay.get(dayIso) ?? [];
-    if (punches.length > 0) {
-      cells.push({
-        dayIso,
-        status: 'worked',
-        entry: punchTimeLabel(punches[0]),
-        exit: punches.length > 1 ? punchTimeLabel(punches[punches.length - 1]) : null,
-        allPunches: punches.map(punchTimeLabel).join(', '),
-      });
-    } else if (dayIso >= todayIso) {
-      cells.push({ dayIso, status: 'pending' });
-    } else if (!restDayTaken) {
-      restDayTaken = true;
-      cells.push({ dayIso, status: 'rest' });
-    } else {
-      cells.push({ dayIso, status: 'absent' });
-    }
-  }
-
-  const classification = classifyEmployeeDays(
-    employee.byDay, blockFromIso, blockToIso, employee.scheduledStartTime, employee.hasSpecialSchedule);
-  return {
-    cells,
-    absenceCount: classification.absenceCount,
-    attendanceColor: attendanceColorFor(classification, employee.hasSpecialSchedule),
-  };
-}
-
-/// "Lun" + "14/09" para el encabezado de un día.
-function dayHeaderParts(dayIso) {
-  const weekday = WEEKDAY_LABELS[new Date(`${dayIso}T00:00:00`).getDay()];
-  return { weekday, date: `${dayIso.slice(8, 10)}/${dayIso.slice(5, 7)}` };
-}
-
-function dayCellHtml(cell) {
-  switch (cell.status) {
-    case 'worked':
-      return `<div class="punch-line" title="${escapeHtml(cell.allPunches)}"><b>E</b>${escapeHtml(cell.entry)}</div>` +
-        `<div class="punch-line${cell.exit ? '' : ' punch-line--missing'}"><b>S</b>${escapeHtml(cell.exit ?? '—')}</div>`;
-    case 'rest':
-      return '<span class="day-note">Descanso</span>';
-    case 'absent':
-      return '<span class="day-note day-note--absent">Falta</span>';
-    default:
-      return ''; // pendiente: todavía no llega ese día
-  }
-}
-
-/// Pedido explícito del usuario: "un buscador que busque por número, PIN, empleado, en
-/// cuanto vaya escribiendo, se vaya autorrellenando" — substring, sin distinguir
-/// mayúsculas. La columna PIN se quitó de la tabla del reporte ("deja nada más el puro
-/// Número"), así que el buscador ahora solo cubre Número y Empleado. `department`
-/// (exacto, no substring — viene de un <select> con las opciones ya existentes en el
-/// reporte, ver populatePreviewDepartmentOptions) se aplica junto con el texto, no en vez
-/// de — pedido explícito: "otro filtro que sea buscar por departamento".
-function filterReportRows(rows, term, department) {
-  const normalized = term.trim().toLowerCase();
-  return rows.filter(r => {
-    const matchesTerm = !normalized ||
-      (r.number ?? '').toLowerCase().includes(normalized) ||
-      r.name.toLowerCase().includes(normalized);
-    const matchesDepartment = !department || r.department === department;
-    return matchesTerm && matchesDepartment;
+  const today = todayIso();
+  const rows = employees.map(e => {
+    const week = calculateWeek({
+      scheduledStartTime: e.scheduled_start_time ?? null,
+      hasSpecialSchedule: e.has_special_schedule === true,
+      // undefined = esta cuenta no ve montos (no se descargaron); null = sueldo pendiente de captura.
+      weeklySalary: reportCanSeePay ? (e.weekly_salary === null || e.weekly_salary === undefined ? null : Number(e.weekly_salary)) : undefined,
+      overtimeHourlyRate: e.overtime_hourly_rate === null || e.overtime_hourly_rate === undefined ? null : Number(e.overtime_hourly_rate),
+    }, weekStart, punchesByEmployee.get(e.id) ?? [], today);
+    const employeeDeductions = deductionsByEmployee.get(e.id) ?? { isr: 0, imss: 0, other: 0, label: null, notes: null };
+    return {
+      id: e.id,
+      number: e.number ?? '',
+      name: e.full_name,
+      branchId: e.branch_id,
+      branchName: branchNameById.get(e.branch_id) ?? '(sucursal desconocida)',
+      department: e.department ?? '',
+      week,
+      deductions: employeeDeductions,
+      net: reportCanSeePay ? netPay(week.totalPay, employeeDeductions) : null,
+    };
   });
+  return { rows, unlinkedCount };
 }
 
-/// Reconstruye las opciones del <select> de departamento a partir de lo que trae el
-/// reporte ACTUAL (catálogo cerrado: car wash, arábica café, otros, plaza sabo, etc. — no
-/// una lista fija en el HTML). Conserva la selección previa si ese departamento sigue
-/// presente; si ya no existe (por ejemplo, se cambió el rango de fechas y ya no hay nadie
-/// de esa área), vuelve a "Todos los departamentos".
-function populatePreviewDepartmentOptions(rows) {
-  const previousValue = previewDepartmentSelect.value;
-  const departments = [...new Set(rows.map(r => r.department))].sort((a, b) => a.localeCompare(b, 'es-MX'));
-
-  previewDepartmentSelect.innerHTML = '<option value="">Todos los deptos.</option>';
+function populateReportDepartmentOptions(rows) {
+  const previous = wrDept.value;
+  const departments = [...new Set(rows.map(r => r.department).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es-MX'));
+  wrDept.innerHTML = '<option value="">Todos los deptos.</option>';
   for (const department of departments) {
     const option = document.createElement('option');
     option.value = department;
     option.textContent = department;
-    previewDepartmentSelect.appendChild(option);
+    wrDept.appendChild(option);
   }
-
-  previewDepartmentSelect.value = departments.includes(previousValue) ? previousValue : '';
+  wrDept.value = departments.includes(previous) ? previous : '';
 }
 
-/// Aplica el buscador de texto Y el filtro de departamento juntos sobre lastReportRows, y
-/// dibuja el resultado — punto único que usan el buscador, el select de departamento y el
-/// cambio de rango de fechas, para que los tres filtros siempre se respeten a la vez.
-function applyPreviewFilters() {
-  renderPreviewTable(filterReportRows(lastReportRows, previewSearchInput.value, previewDepartmentSelect.value));
+/// Búsqueda por número o nombre + Sucursal + Departamento, en memoria (sin volver a consultar).
+function applyReportFilters() {
+  const term = wrSearch.value.trim().toLowerCase();
+  reportVisibleRows = reportAllRows.filter(r =>
+    (!term || r.name.toLowerCase().includes(term) || r.number.toLowerCase().includes(term)) &&
+    (!wrBranch.value || r.branchId === wrBranch.value) &&
+    (!wrDept.value || r.department === wrDept.value));
+  renderWeeklyReport();
 }
 
-function reportRangeLabel() {
-  const branchLabel = branchSelect.value
-    ? (branchSelect.options[branchSelect.selectedIndex]?.textContent ?? '')
-    : 'Todas las sucursales';
-  return `Del ${fromInput.value} al ${toInput.value} — ${branchLabel}`;
+function reportWeekRangeText() {
+  return `${longDate(reportWeekStart)} – ${longDate(addDaysIso(reportWeekStart, 6))}`;
 }
 
-/// "Reporte de asistencia" — pedido explícito del usuario: "quiero que al darle clic al
-/// reporte de asistencia automáticamente se abra la imagen que se acabo de apuntar. No
-/// quiero la otra, quiero esa imagen" — calcula las horas y abre la previsualización
-/// DIRECTO, sin ninguna pantalla intermedia.
-function openAttendanceReport() {
-  lastReportRows = buildAttendanceReportRows();
-  if (lastReportRows.length === 0) {
-    alert('No hay marcaciones en este rango para generar el reporte.');
+function reportBranchFilterText() {
+  return wrBranch.value ? (wrBranch.options[wrBranch.selectedIndex]?.textContent ?? '') : 'Todas las sucursales';
+}
+
+/// Insignia de un día, como la de la PC: color del semáforo con las horas del día (o Descanso /
+/// Falta / —) y, debajo, la hora de entrada y de salida.
+function dayBadgeHtml(day) {
+  const sub = day.status === 'worked' ? `${day.entry}–${day.exit ?? '…'}` : '';
+  const title = day.status === 'worked'
+    ? `${dayLabel(day.date)} ${shortDate(day.date)} — marcaciones: ${day.allPunches.join(', ')}`
+    : `${dayLabel(day.date)} ${shortDate(day.date)}`;
+  return `<div class="wr-day wr-day--${day.color}" title="${escapeHtml(title)}">` +
+    `<div class="wr-day-head"><b>${dayLabel(day.date)}</b> ${escapeHtml(dayBadgeText(day))}</div>` +
+    `<div class="wr-day-sub">${escapeHtml(sub)}</div></div>`;
+}
+
+function salaryText(week) {
+  return week.weeklySalary === null ? 'Pendiente' : formatMoney(week.weeklySalary);
+}
+
+function renderWeeklyReport() {
+  const admin = reportCanSeePay;
+  wrThead.innerHTML = `<tr>
+    <th>Empleado</th><th>Sucursal / Depto.</th><th>Checadas de la semana</th>
+    <th class="ctr">Faltas</th><th>Horas normales</th><th>Horas extra</th>
+    ${admin ? '<th class="num">Sueldo semanal</th><th class="num">Pago horas extra</th><th class="num">Total a pagar</th><th class="num">Deducciones</th><th class="num">Neto a pagar</th>' : ''}
+    <th>Advertencias</th></tr>`;
+
+  const withWarnings = reportVisibleRows.filter(r => r.week.warnings.length > 0).length;
+  const hidden = reportAllRows.length - reportVisibleRows.length;
+  let status = `<strong>${reportVisibleRows.length}</strong> empleado(s)` +
+    (hidden > 0 ? ` de ${reportAllRows.length} (${hidden} oculto(s) por los filtros)` : '') +
+    ` — ${withWarnings} con advertencias en su cálculo de horas (ver columna "Advertencias").`;
+  if (reportUnlinkedCount > 0) {
+    status += ` ⚠ ${reportUnlinkedCount} marcación(es) de esta semana con PIN sin vincular a un empleado vigente (no se cuentan).`;
+  }
+  wrStatus.innerHTML = status;
+
+  if (reportVisibleRows.length === 0) {
+    wrTbody.innerHTML = `<tr><td colspan="${admin ? 12 : 7}" class="weekly-report-empty">Sin empleados para estos filtros.</td></tr>`;
     return;
   }
 
-  previewSearchInput.value = '';
-  previewFromInput.value = fromInput.value;
-  previewToInput.value = toInput.value;
-  populatePreviewDepartmentOptions(lastReportRows);
-  previewRangeText.textContent = reportRangeLabel();
+  wrTbody.innerHTML = reportVisibleRows.map(r => {
+    const week = r.week;
+    const deductionTotal = r.deductions.isr + r.deductions.imss + r.deductions.other;
+    const deductionTitle = `ISR ${formatMoney(r.deductions.isr)} · IMSS ${formatMoney(r.deductions.imss)} · Otro ${formatMoney(r.deductions.other)}` +
+      (r.deductions.label ? ` (${r.deductions.label})` : '');
+    return `<tr>
+      <td><div class="wr-emp-name">${escapeHtml(r.name)}</div><div class="wr-emp-number">${escapeHtml(r.number)}</div></td>
+      <td><div class="wr-branch">${escapeHtml(r.branchName)}</div><div class="wr-dept">${escapeHtml(r.department)}</div></td>
+      <td><div class="wr-days">${week.days.map(dayBadgeHtml).join('')}</div></td>
+      <td class="ctr">${week.absenceCount}</td>
+      <td>${formatHoursAndMinutes(week.totalRegularMs)}</td>
+      <td>${formatHoursAndMinutes(week.totalOvertimeMs)}</td>
+      ${admin ? `<td class="num">${salaryText(week)}</td>
+      <td class="num">${formatMoney(week.overtimePay)}</td>
+      <td class="num">${formatMoney(week.totalPay)}</td>
+      <td class="num" title="${escapeHtml(deductionTitle)}">${formatMoney(deductionTotal)}</td>
+      <td class="num">${formatMoney(r.net)}</td>` : ''}
+      <td><div class="wr-warn" title="${escapeHtml(week.warnings.join('\n'))}">${escapeHtml(week.warnings.join(' | '))}</div></td>
+    </tr>`;
+  }).join('');
+}
+
+// ---------------------------------------------------------------- columnas de nómina (hoja / Excel)
+
+/// Las mismas columnas que la "Vista previa e imprimir" y el Excel de la PC (PayrollReportDocumentBuilder
+/// y PayrollExcelExporter) más Faltas. `width` es el % de ancho en la hoja Carta horizontal;
+/// `money` marca las columnas de importe (número real en Excel, alineadas a la derecha).
+function payrollColumns() {
+  const base = [
+    { header: 'Empleado', width: 13, text: r => r.name, value: r => r.name },
+    { header: 'Sucursal', width: 8, text: r => r.branchName, value: r => r.branchName },
+    { header: 'Departamento', width: 9, text: r => r.department || '—', value: r => r.department },
+    { header: 'Faltas', width: 5, num: true, text: r => String(r.week.absenceCount), value: r => r.week.absenceCount },
+    { header: 'Horas normales', width: 8, text: r => formatHoursAndMinutes(r.week.totalRegularMs), value: r => formatHoursAndMinutes(r.week.totalRegularMs) },
+    { header: 'Horas extra', width: 7, text: r => formatHoursAndMinutes(r.week.totalOvertimeMs), value: r => formatHoursAndMinutes(r.week.totalOvertimeMs) },
+  ];
+  if (!reportCanSeePay) {
+    // Sin montos: se reparte el ancho entre las 6 columnas.
+    const widths = [30, 18, 20, 8, 12, 12];
+    return base.map((c, i) => ({ ...c, width: widths[i] }));
+  }
+  return [
+    ...base,
+    { header: 'Sueldo semanal', width: 9, money: true, text: r => salaryText(r.week), value: r => r.week.weeklySalary === null ? 'Pendiente' : r.week.weeklySalary },
+    { header: 'Pago horas extra', width: 8, money: true, text: r => formatMoney(r.week.overtimePay), value: r => r.week.overtimePay },
+    { header: 'Total a pagar', width: 9, money: true, text: r => formatMoney(r.week.totalPay), value: r => r.week.totalPay },
+    { header: 'ISR', width: 6, money: true, text: r => formatMoney(r.deductions.isr), value: r => r.deductions.isr },
+    { header: 'IMSS', width: 6, money: true, text: r => formatMoney(r.deductions.imss), value: r => r.deductions.imss },
+    { header: 'Otro', width: 6, money: true, text: r => formatMoney(r.deductions.other), value: r => r.deductions.other },
+    { header: 'Neto a pagar', width: 9, money: true, text: r => formatMoney(r.net), value: r => r.net },
+  ];
+}
+
+/// "Vista previa e imprimir": abre la hoja Carta horizontal con lo que esté filtrado.
+function openReportSheet() {
+  if (reportVisibleRows.length === 0) {
+    alert('No hay empleados en este reporte para mostrar.');
+    return;
+  }
+
+  const columns = payrollColumns();
+  previewRangeText.textContent = `Semana ${reportWeekRangeText()} — ${reportBranchFilterText()}`;
   previewGeneratedText.textContent = `Generado el ${formatDateTime(new Date().toISOString())}`;
-  applyPreviewFilters();
+  previewThead.innerHTML = `<tr>${columns.map(c =>
+    `<th class="${c.money || c.num ? 'num' : ''}" style="width:${c.width}%">${escapeHtml(c.header)}</th>`).join('')}</tr>`;
+  previewTbody.innerHTML = reportVisibleRows.map(r =>
+    `<tr>${columns.map(c => `<td class="${c.money || c.num ? 'num' : ''}">${escapeHtml(c.text(r))}</td>`).join('')}</tr>`).join('');
+  previewEmptyText.hidden = true;
 
   reportPreviewModal.hidden = false;
   fitReportPreviewToViewport();
-  ensureExportLibrariesLoaded(); // en segundo plano — Excel/PDF no bloquean la vista previa
+  ensureExportLibrariesLoaded();
 }
 
 /// Optimización móvil/tablet — pedido explícito del usuario: "evitar scroll horizontal
@@ -1686,95 +1709,6 @@ function restoreReportPreviewScale(previous) {
   reportPreviewPageFrame.style.height = previous.height;
 }
 
-/// Cambiar Desde/Hasta DENTRO de la previsualización — pedido explícito del usuario:
-/// "agrégale un filtro para poder buscar por fecha". Mantiene sincronizados from-input/
-/// to-input de arriba (así el resto del Dashboard, y el nombre de archivo de las
-/// exportaciones, quedan con el mismo rango) y vuelve a consultar Supabase, porque el
-/// reporte se calcula sobre lastLoadedRows, que solo trae lo que ya se pidió con el rango
-/// ANTERIOR — un rango más amplio necesita datos que todavía no se cargaron.
-async function onPreviewDateRangeChange() {
-  fromInput.value = previewFromInput.value;
-  toInput.value = previewToInput.value;
-
-  await loadReport();
-
-  lastReportRows = buildAttendanceReportRows();
-  populatePreviewDepartmentOptions(lastReportRows);
-  previewRangeText.textContent = reportRangeLabel();
-  applyPreviewFilters();
-}
-
-/// Dibuja la hoja con EXACTAMENTE estas filas (ya filtradas o no) — currentPreviewRows
-/// guarda lo último dibujado, así Imprimir/Exportar Excel/Exportar PDF siempre reflejan lo
-/// que se está viendo, sea el reporte completo o una búsqueda en curso.
-function renderPreviewTable(rows) {
-  currentPreviewRows = rows;
-
-  previewWeeks.innerHTML = '';
-  previewEmptyText.hidden = rows.length > 0;
-  if (rows.length === 0) {
-    return;
-  }
-
-  // Una tabla por semana (lunes a domingo, recortada al rango elegido), con una columna por
-  // día: Entrada/Salida de cada empleado — ver buildEmployeeWeekView.
-  const fragment = document.createDocumentFragment();
-  for (const block of reportWeekBlocks(fromInput.value, toInput.value)) {
-    const days = listDaysIso(block.fromIso, block.toIso);
-    const dayHeaders = days.map(dayIso => {
-      const { weekday, date } = dayHeaderParts(dayIso);
-      return `<th class="col-day">${weekday}<small>${date}</small></th>`;
-    }).join('');
-
-    const bodyHtml = rows.map(row => {
-      const view = buildEmployeeWeekView(row, block.fromIso, block.toIso);
-      return `<tr>
-        <td>${escapeHtml(row.number ?? '—')}</td>
-        <td>${escapeHtml(row.name)}</td>
-        <td>${escapeHtml(row.department)}</td>
-        ${view.cells.map(cell => `<td class="cell-day">${dayCellHtml(cell)}</td>`).join('')}
-        <td class="cell-faltas">${view.absenceCount}</td>
-        <td>${attendanceColorBadgeHtml(view.attendanceColor)}</td>
-      </tr>`;
-    }).join('');
-
-    const section = document.createElement('section');
-    section.className = 'report-week';
-    section.innerHTML = `
-      <h3 class="report-week-title">Semana del ${escapeHtml(dayHeaderParts(block.fromIso).date)} al ${escapeHtml(dayHeaderParts(block.toIso).date)}</h3>
-      <table class="report-preview-table report-preview-table--week">
-        <thead>
-          <tr>
-            <th class="col-number">Número</th>
-            <th class="col-name">Empleado</th>
-            <th class="col-dept">Departamento</th>
-            ${dayHeaders}
-            <th class="col-faltas">Faltas</th>
-            <!-- Verde=puntual, amarillo=retardo (tolerancia 10 min), rojo=falta — ver
-                 PunctualityClassifier del repo principal. -->
-            <th class="col-punct">Puntualidad</th>
-          </tr>
-        </thead>
-        <tbody>${bodyHtml}</tbody>
-      </table>`;
-    fragment.appendChild(section);
-  }
-  previewWeeks.appendChild(fragment);
-}
-
-const ATTENDANCE_COLOR_LABELS = { green: 'Puntual', yellow: 'Retardo', red: 'Falta', neutral: '—' };
-
-function attendanceColorLabel(color) {
-  return ATTENDANCE_COLOR_LABELS[color] ?? '—';
-}
-
-/// Verde=puntual, amarillo=retardo, rojo=falta, gris=sin juicio (ver attendanceColorFor) —
-/// mismo punto/etiqueta que .device-status-dot ya usa en esta misma hoja para
-/// online/offline, así el semáforo se ve consistente con el resto del Dashboard.
-function attendanceColorBadgeHtml(color) {
-  return `<span class="attendance-dot attendance-dot--${color}"></span>${attendanceColorLabel(color)}`;
-}
-
 function closeReportPreview() {
   reportPreviewModal.hidden = true;
 }
@@ -1843,6 +1777,27 @@ async function saveBlobWithPicker(blob, suggestedName, description, mimeType, ex
   URL.revokeObjectURL(url);
 }
 
+/// "Actualizar" dentro del reporte: recarga los datos y, a la vez, le pide a la PC del negocio que
+/// baje las marcaciones del reloj físico (el MISMO pedido del botón "🔄 Actualizar asistencias" —
+/// ver onSyncRequestClick). Cuando la PC termina, pollSyncRequest vuelve a cargar esta tabla.
+async function onWeeklyReportRefreshClick() {
+  loadWeeklyReport();
+  try {
+    await onSyncRequestClick();
+  } catch (error) {
+    wrSyncNote.textContent = 'No se pudo pedir la actualización al reloj: ' + error.message;
+  }
+}
+
+/// CSV de lo que se ve (ver buildAttendanceReportCsv en payroll-calc.js).
+function onExportReportCsvClick() {
+  if (reportVisibleRows.length === 0) return;
+  const csv = buildAttendanceReportCsv(reportVisibleRows, reportCanSeePay);
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+  saveBlobWithPicker(blob, `reporte-asistencia-semana-${reportWeekStart}.csv`, 'Archivo CSV', 'text/csv', '.csv');
+}
+
+/// Excel de lo que se ve — mismas columnas que la hoja y que el Excel de la PC (PayrollExcelExporter).
 async function onExportReportExcelClick() {
   const originalLabel = previewExcelButton.textContent;
   previewExcelButton.disabled = true;
@@ -1850,43 +1805,26 @@ async function onExportReportExcelClick() {
   try {
     await ensureExportLibrariesLoaded();
 
-    // Una sola hoja con TODO el rango: dos columnas por día (Entrada y Salida) — así se
-    // puede seguir editando/sumando en Excel. En los días sin marcación, la columna Entrada
-    // dice "Descanso" o "Falta" y Salida queda vacía.
-    const days = listDaysIso(fromInput.value, toInput.value);
-    const dayHeaders = days.flatMap(dayIso => {
-      const { weekday, date } = dayHeaderParts(dayIso);
-      return [`${weekday} ${date} Entrada`, `${weekday} ${date} Salida`];
-    });
+    const columns = payrollColumns();
     const sheetRows = [
       ['Drive In Car Wash — Reporte de Asistencia'],
-      [reportRangeLabel()],
+      [`Semana ${reportWeekRangeText()} — ${reportBranchFilterText()}`],
       [],
-      ['Número', 'Empleado', 'Departamento', ...dayHeaders, 'Faltas', 'Puntualidad'],
-      // currentPreviewRows, NO lastReportRows — exporta exactamente lo que está en pantalla
-      // (respeta el buscador si hay uno en curso).
-      ...currentPreviewRows.map(r => {
-        const view = buildEmployeeWeekView(r, fromInput.value, toInput.value);
-        const dayValues = view.cells.flatMap(cell => {
-          if (cell.status === 'worked') return [cell.entry, cell.exit ?? ''];
-          if (cell.status === 'rest') return ['Descanso', ''];
-          if (cell.status === 'absent') return ['Falta', ''];
-          return ['', ''];
-        });
-        return [r.number ?? '', r.name, r.department, ...dayValues, view.absenceCount, attendanceColorLabel(view.attendanceColor)];
-      }),
+      columns.map(c => c.header),
+      ...reportVisibleRows.map(r => columns.map(c => {
+        const value = c.value(r);
+        return typeof value === 'number' && c.money ? Number(value.toFixed(2)) : value;
+      })),
     ];
     const worksheet = XLSX.utils.aoa_to_sheet(sheetRows);
-    worksheet['!cols'] = [
-      { wch: 10 }, { wch: 32 }, { wch: 18 }, ...days.flatMap(() => [{ wch: 9 }, { wch: 9 }]), { wch: 8 }, { wch: 14 },
-    ];
+    worksheet['!cols'] = columns.map(c => ({ wch: Math.max(12, Math.round(c.width * 1.6)) }));
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Asistencia');
 
     const xlsxBytes = XLSX.write(workbook, { type: 'array', bookType: 'xlsx' });
     const blob = new Blob([xlsxBytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     await saveBlobWithPicker(
-      blob, `reporte-asistencia-${fromInput.value}-a-${toInput.value}.xlsx`,
+      blob, `reporte-asistencia-semana-${reportWeekStart}.xlsx`,
       'Libro de Excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', '.xlsx');
   } catch (error) {
     alert('No se pudo exportar a Excel: ' + error.message);

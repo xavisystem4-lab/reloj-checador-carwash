@@ -787,30 +787,12 @@ select.preview-date-input { max-width: 190px; cursor: pointer; }
 .report-preview-table td { padding: 6px 8px; border-bottom: 1px solid #E1E7F0; }
 .report-preview-table tfoot td { font-weight: 800; border-top: 2px solid #0B62A7; }
 
-/* Una tabla por semana (ver renderPreviewTable en app.js): ancho fijo por columna para que
-   los 7 días midan lo mismo y las horas queden alineadas de un empleado a otro. */
-.report-week { margin-bottom: 18px; break-inside: avoid; }
-.report-week-title { font-size: 12px; font-weight: 800; color: #095183; margin: 0 0 6px; }
-.report-preview-table--week { table-layout: fixed; }
-.report-preview-table--week th, .report-preview-table--week td { padding: 5px 4px; }
-/* Los th globales van en mayúsculas y con espaciado de letras (pensados para las tablas del
-   Dashboard) — aquí se anulan: en columnas angostas se encimaban unos con otros. */
-.report-preview-table--week th { text-transform: none; letter-spacing: 0; font-size: 10.5px; }
-.report-preview-table--week .col-number { width: 54px; }
-.report-preview-table--week .col-name { width: 150px; }
-.report-preview-table--week .col-dept { width: 92px; }
-.report-preview-table--week .col-faltas { width: 48px; text-align: center; }
-.report-preview-table--week .col-punct { width: 92px; }
-.report-preview-table--week th.col-day { text-align: center; line-height: 1.25; }
-.report-preview-table--week th.col-day small { display: block; font-weight: 600; color: #5B6472; }
-.report-preview-table--week td.cell-day { text-align: center; line-height: 1.35; white-space: nowrap; }
-.report-preview-table--week td.cell-faltas { text-align: center; }
-/* Entrada / Salida de un día: dos líneas cortas ("E 08:02" / "S 17:15"). Salida en gris
-   claro si no hay (todavía no checa o falta la marcación de salida). */
-.punch-line b { display: inline-block; width: 11px; font-weight: 800; color: #095183; }
-.punch-line--missing { color: #96A0AC; }
-.day-note { font-size: 10px; color: #96A0AC; }
-.day-note--absent { color: #C62828; font-weight: 700; }
+/* Hoja de nómina (misma que la "Vista previa e imprimir" de la PC): columnas de ancho fijo para
+   que quepan todas en Carta horizontal. Los anchos los pone app.js en cada <th>. */
+.report-preview-table--payroll { table-layout: fixed; }
+.report-preview-table--payroll th, .report-preview-table--payroll td { padding: 5px 4px; font-size: 9.5px; word-break: break-word; }
+.report-preview-table--payroll th { text-transform: none; letter-spacing: 0; }
+.report-preview-table--payroll .num { text-align: right; white-space: nowrap; }
 /* La tabla del reporte SIEMPRE es blanca (para imprimir/exportar igual sin importar el
    tema del Dashboard) — pero la regla global "tbody tr:hover" (pensada para las tablas
    oscuras del Dashboard, usa var(--brand-soft)) se colaba aquí y en modo oscuro pintaba la
@@ -822,6 +804,90 @@ select.preview-date-input { max-width: 190px; cursor: pointer; }
   .report-preview-table tbody tr:hover td { border-bottom-color: #0B62A7; }
 }
 .report-preview-footer { margin-top: 20px; font-size: 10.5px; color: #96A0AC; text-align: right; }
+
+/* =====================================================================
+   Ventana "Reporte de asistencia" — replica la pantalla Reportes de la PC
+   (PayrollView): navegación por semana, filtros, una fila por empleado con sus 7
+   días y las columnas de nómina. Usa las variables de tema del Dashboard, así que
+   sigue el modo claro/oscuro. La tabla scrollea dentro de su propio contenedor con
+   el encabezado y la columna del empleado fijos.
+   ===================================================================== */
+.weekly-report-shell {
+  width: 100%;
+  max-width: 1600px;
+  max-height: 94vh;
+  max-height: 94dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  box-shadow: var(--shadow-lg);
+  padding: 18px 20px;
+  overflow: hidden;
+}
+.weekly-report-head { display: flex; align-items: center; gap: 10px; }
+.weekly-report-head h2 { flex: 1; margin: 0; font-size: 24px; font-weight: 800; color: var(--brand); }
+.weekly-report-help { font-size: 12.5px; color: var(--muted); margin: 6px 0 12px; line-height: 1.45; }
+.weekly-report-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-bottom: 10px; }
+.weekly-report-range { font-weight: 700; color: var(--brand); min-width: 190px; text-align: center; }
+.weekly-report-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; margin-bottom: 8px; }
+.weekly-report-filter { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+.weekly-report-status { font-size: 13px; color: var(--muted); margin: 2px 0 8px; min-height: 18px; line-height: 1.4; }
+.weekly-report-status strong { color: var(--text); }
+.weekly-report-table-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+}
+.weekly-report-table { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 12.5px; }
+.weekly-report-table th {
+  position: sticky; top: 0; z-index: 3;
+  background: var(--brand-soft); color: var(--brand-dark);
+  text-align: left; font-weight: 700; padding: 8px 8px; line-height: 1.25;
+  border-bottom: 2px solid var(--brand);
+  text-transform: none; letter-spacing: 0;
+}
+.weekly-report-table td { padding: 6px 8px; border-bottom: 1px solid var(--card-border); vertical-align: middle; }
+.weekly-report-table .num { text-align: right; white-space: nowrap; min-width: 84px; }
+.weekly-report-table .ctr { text-align: center; }
+/* Primera columna (empleado) fija al desplazar horizontalmente. */
+.weekly-report-table th:first-child, .weekly-report-table td:first-child {
+  position: sticky; left: 0; background: var(--card); z-index: 2; min-width: 150px;
+  box-shadow: 1px 0 0 var(--card-border);
+}
+.weekly-report-table th:first-child { z-index: 4; background: var(--brand-soft); }
+.wr-emp-name { font-weight: 700; }
+.wr-emp-number { font-size: 11px; color: var(--dim); }
+.wr-branch { font-weight: 600; white-space: nowrap; }
+.wr-dept { font-size: 11px; color: var(--muted); white-space: nowrap; }
+/* Los 7 días: una insignia por día, del color del semáforo de puntualidad (verde puntual,
+   amarillo retardo, rojo falta, gris descanso/pendiente) — igual que la pantalla de la PC. */
+.wr-days { display: flex; gap: 4px; }
+.wr-day {
+  min-width: 68px; padding: 3px 4px; border: 1px solid var(--card-border); border-radius: 7px;
+  text-align: center; line-height: 1.25; color: var(--muted);
+}
+.wr-day-head { font-size: 10.5px; white-space: nowrap; }
+.wr-day-head b { font-weight: 700; }
+.wr-day-sub { font-size: 9.5px; white-space: nowrap; opacity: 0.9; min-height: 12px; }
+.wr-day--green { background: var(--green-soft); border-color: var(--green); color: var(--green); }
+.wr-day--yellow { background: var(--yellow-soft); border-color: var(--yellow); color: var(--yellow); }
+.wr-day--red { background: var(--red-soft); border-color: var(--red); color: var(--red); }
+.wr-warn {
+  max-width: 300px; min-width: 150px; font-size: 11px; color: var(--muted); line-height: 1.35;
+  display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.weekly-report-empty { padding: 26px; text-align: center; color: var(--dim); }
+@media (max-width: 640px) {
+  .weekly-report-shell { max-height: 100vh; max-height: 100dvh; border-radius: 0; padding: 12px; }
+  #weekly-report-modal { padding: 0; }
+  .weekly-report-head h2 { font-size: 19px; }
+  .weekly-report-toolbar .btn { flex: 1 1 45%; text-align: center; }
+  .weekly-report-range { flex: 1 1 100%; order: -1; }
+}
 
 /* Aísla report-preview-page como la ÚNICA cosa visible al imprimir (o "Guardar como PDF"
    desde el propio navegador) — técnica estándar: todo se oculta y solo la hoja (y lo que
