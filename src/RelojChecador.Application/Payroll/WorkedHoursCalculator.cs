@@ -172,8 +172,17 @@ public static class WorkedHoursCalculator
             {
                 if (openAt is not null)
                 {
+                    // DOBLE CHECADA — decisión explícita del usuario (18/09/2026, con el caso real
+                    // de Adali: 07:53 Entrada, 15:29 Entrada, 15:53 Salida): se conserva la PRIMERA
+                    // entrada y se ignora la repetida. Antes se conservaba la más reciente y ese
+                    // día contaba 0:24 h en vez de 8:00 (y otros días 1:53 h) — la primera checada
+                    // es la llegada real; la segunda suele ser un toque repetido cerca de la
+                    // salida (el reloj F22/ID no tiene botones Entrada/Salida, el tipo lo asigna
+                    // ShiftPunchTypeClassifier con reglas de tiempo y no puede saberlo). Igual que
+                    // el reporte web: primera checada del día = entrada.
                     warnings.Add(
-                        $"Dos marcaciones de inicio de {label} seguidas sin su cierre (la de las {openAt:HH:mm} se ignoró).");
+                        $"Dos marcaciones de inicio de {label} seguidas sin su cierre (se tomó la de las {openAt:HH:mm} y se ignoró la de las {attendance.TimestampUtc:HH:mm}).");
+                    continue;
                 }
                 openAt = attendance.TimestampUtc;
             }

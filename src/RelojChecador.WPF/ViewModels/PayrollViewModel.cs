@@ -46,6 +46,10 @@ public sealed record PayrollRow(
     public bool HasWarnings => Summary.Warnings.Count > 0;
     public string WarningsText => string.Join(" | ", Summary.Warnings);
 
+    /// <summary>Una advertencia por línea, para el tooltip de la grilla (la celda solo muestra 2
+    /// líneas — ver PayrollView.xaml). null si no hay ninguna, para que no salga un tooltip vacío.</summary>
+    public string? WarningsTooltip => HasWarnings ? string.Join(Environment.NewLine, Summary.Warnings) : null;
+
     // Texto propio en vez del StringFormat nativo de TimeSpan ("hh") — ese trunca a
     // 0-23 y separa los días aparte, y aquí puede haber más de 24h sumadas en la semana.
     public string RegularTimeText => FormatHoursAndMinutes(Summary.TotalRegularTime);

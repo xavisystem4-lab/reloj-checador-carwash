@@ -164,8 +164,18 @@
                                     ElementStyle="{StaticResource PayrollCellText}" />
                 <DataGridTextColumn Header="Neto a pagar" Binding="{Binding NetPay, StringFormat='{}{0:C}'}" Width="90" MinWidth="90"
                                     ElementStyle="{StaticResource PayrollCellText}" />
-                <DataGridTextColumn Header="Advertencias" Binding="{Binding WarningsText}" Width="124" MinWidth="124"
-                                    ElementStyle="{StaticResource PayrollCellTextWrapped}" />
+                <!-- Advertencias: máximo 2 líneas con "…"; el detalle completo (una advertencia por línea)
+                     sale al pasar el ratón. Antes envolvía TODO el texto y una fila con varias
+                     advertencias (dobles checadas, turnos sin cerrar) medía cientos de píxeles. -->
+                <DataGridTemplateColumn Header="Advertencias" Width="2*" MinWidth="170">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding WarningsText}" FontSize="11" TextWrapping="Wrap"
+                                       TextTrimming="CharacterEllipsis" MaxHeight="30" VerticalAlignment="Center"
+                                       ToolTip="{Binding WarningsTooltip}" ToolTipService.ShowDuration="60000" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
                 <DataGridTemplateColumn Header="" Width="98" MinWidth="98">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
