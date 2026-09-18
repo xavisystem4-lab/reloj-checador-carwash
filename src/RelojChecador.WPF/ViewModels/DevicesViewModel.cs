@@ -1189,17 +1189,30 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
     /// <see cref="DownloadAttendanceCoreAsync"/> (deduplica y respeta su guardia de
     /// reentrancia) y sube a Supabase lo nuevo igual que el botón "Descargar asistencias".
     /// Debe llamarse desde el hilo de UI (esa descarga refresca AttendanceRecords).</summary>
-    public async Task<(bool Attempted, string? Error, int TotalRead, int SavedCount)> DownloadForReportAsync()
+    public async Task<ReportDownloadOutcome> DownloadForReportAsync()
     {
         if (!IsConnected || SelectedDevice is null)
         {
-            return (false, null, 0, 0);
+            return new ReportDownloadOutcome(false, null, 0, 0, null);
+        }
+
+        // Primero los vínculos PIN↔empleado, luego las marcaciones: así lo que se descargue
+        // ya nace vinculado, y lo que llegó antes sin vínculo se concilia de inmediato (sin
+        // vínculo el reporte descarta la marcación y el empleado sale con "Falta").
+        AutoLinkOutcome? link = null;
+        try
+        {
+            link = await AutoLinkDeviceUsersAsync();
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "No se pudieron vincular automáticamente los usuarios del reloj.");
         }
 
         var (success, error, totalRead, savedCount) = await DownloadAttendanceCoreAsync();
         if (!success)
         {
-            return (true, error, 0, 0);
+            return new ReportDownloadOutcome(true, error, 0, 0, link);
         }
 
         if (savedCount > 0)
@@ -1207,7 +1220,110 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
             await _syncService.TriggerSyncNowAsync();
         }
 
-        return (true, null, totalRead, savedCount);
+        return new ReportDownloadOutcome(true, null, totalRead, savedCount, link);
+    }
+
+    /// <summary>Resultado de <see cref="DownloadForReportAsync"/>. <c>Attempted</c> = false si
+    /// no había un reloj conectado (no se intentó nada).</summary>
+    public sealed record ReportDownloadOutcome(
+        bool Attempted, string? Error, int TotalRead, int SavedCount, AutoLinkOutcome? Link);
+
+    /// <param name="Error">Por qué no se pudo leer/vincular (null si todo bien).</param>
+    /// <param name="Linked">Vínculos PIN↔empleado creados en esta pasada.</param>
+    /// <param name="AlreadyLinked">Usuarios del reloj que ya tenían vínculo.</param>
+    /// <param name="ReconciledPunches">Marcaciones que estaban "pendientes de asignación" y
+    /// ahora quedaron atribuidas a su empleado.</param>
+    /// <param name="Unmatched">Usuarios del reloj sin empleado único al que vincularlos
+    /// (nombre sin coincidencia, ambiguo, o el empleado ya tenía otro PIN) — se vinculan a
+    /// mano desde Empleados → Vincular pendientes.</param>
+    public sealed record AutoLinkOutcome(
+        string? Error, int Linked, int AlreadyLinked, int ReconciledPunches, IReadOnlyList<DeviceUserMatchResult> Unmatched);
+
+    /// <summary>Lee TODOS los usuarios (PIN + nombre) de la memoria física del reloj
+    /// conectado y crea el <see cref="EmployeeDeviceMapping"/> de cada uno que se pueda
+    /// emparejar con un empleado (ver <see cref="DeviceUserEmployeeMatcher"/>: nombre, nombre
+    /// truncado por el reloj, o número = PIN). Concilia además las marcaciones que ya estaban
+    /// guardadas sin vincular (Attendance.ReconcileEmployee). Pedido explícito del usuario:
+    /// "que se comunique con el reloj checador físico y me traiga todos los PINes
+    /// automáticamente" — es la causa real de que el reporte semanal saliera todo en rojo:
+    /// las marcaciones existían pero ningún PIN estaba vinculado a un empleado.
+    ///
+    /// Idempotente: lo ya vinculado no se toca, así que se puede correr cuantas veces haga
+    /// falta. Cada vínculo se guarda por separado (un fallo no tumba a los demás) y solo se
+    /// sube a Supabase lo nuevo. Debe llamarse desde el hilo de UI y con el reloj conectado.</summary>
+    public async Task<AutoLinkOutcome> AutoLinkDeviceUsersAsync()
+    {
+        var device = SelectedDevice;
+        if (device is null || !IsConnected)
+        {
+            return new AutoLinkOutcome("Conecta primero con el dispositivo.", 0, 0, 0, []);
+        }
+
+        var usersResult = await _deviceAdapter.DownloadUsersAsync();
+        if (usersResult.IsFailure)
+        {
+            AppendLog($"⚠️ No se pudo leer la lista de usuarios del reloj: {usersResult.Error.Message}");
+            return new AutoLinkOutcome(usersResult.Error.Message, 0, 0, 0, []);
+        }
+
+        var employees = await _employeeRepository.ListAsync();
+        var deviceMappings = (await _mappingRepository.ListAsync()).Where(m => m.DeviceId == device.Id).ToList();
+        var matches = DeviceUserEmployeeMatcher.Match(
+            usersResult.Value,
+            employees,
+            deviceMappings.Select(m => m.DeviceUserPin).ToHashSet(),
+            deviceMappings.Select(m => m.EmployeeId).ToHashSet());
+
+        var linked = 0;
+        var reconciled = 0;
+        var unmatched = new List<DeviceUserMatchResult>();
+        foreach (var match in matches)
+        {
+            if (match.Kind == DeviceUserMatchKind.AlreadyLinked)
+            {
+                continue;
+            }
+
+            if (!match.ShouldLink)
+            {
+                unmatched.Add(match);
+                continue;
+            }
+
+            try
+            {
+                var employee = match.Employee!;
+                var pin = match.User.DeviceUserPin.Trim();
+                await _mappingRepository.AddAsync(EmployeeDeviceMapping.Create(employee.Id, device.Id, pin));
+
+                var pending = await _attendanceRepository.ListUnresolvedByDeviceAndPinAsync(device.Id, pin);
+                foreach (var attendance in pending)
+                {
+                    attendance.ReconcileEmployee(employee.Id, employee.BranchId);
+                }
+
+                await _unitOfWork.SaveChangesAsync();
+                linked++;
+                reconciled += pending.Count;
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "No se pudo vincular el PIN {Pin} ({Name}) al empleado {EmployeeId}.",
+                    match.User.DeviceUserPin, match.User.Name, match.Employee?.Id);
+                unmatched.Add(match with { Kind = DeviceUserMatchKind.NoMatch });
+            }
+        }
+
+        var alreadyLinked = matches.Count(m => m.Kind == DeviceUserMatchKind.AlreadyLinked);
+        AppendLog($"🔗 Vinculación automática de PINs: {linked} nuevo(s), {alreadyLinked} ya vinculado(s), " +
+                  $"{unmatched.Count} sin coincidencia; {reconciled} marcación(es) pendiente(s) atribuida(s).");
+
+        if (linked > 0)
+        {
+            await _syncService.TriggerSyncNowAsync();
+        }
+
+        return new AutoLinkOutcome(null, linked, alreadyLinked, reconciled, unmatched);
     }
 
     /// <summary>Núcleo reutilizable de "Descargar asistencias": lee del dispositivo,

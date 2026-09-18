@@ -159,6 +159,10 @@ public sealed partial class PayrollViewModel : ObservableObject
     /// usuario vea por qué una semana sigue vacía (reloj desconectado, sin nube, etc.).</summary>
     private string _punchSourcesNote = "";
 
+    /// <summary>Marcaciones de la semana mostrada cuyo PIN no está vinculado a ningún
+    /// empleado — ver LoadAsync.</summary>
+    private int _unlinkedPunchCount;
+
     private DateOnly _weekStart;
 
     /// <summary>Todas las filas calculadas para la semana actual, antes de aplicar
@@ -295,6 +299,12 @@ public sealed partial class PayrollViewModel : ObservableObject
             var branchNamesById = branches.ToDictionary(b => b.Id, b => b.Name);
             var employeeIdByDeviceAndPin = mappings.ToDictionary(m => (m.DeviceId, m.DeviceUserPin), m => m.EmployeeId);
             var attendancesByEmployeeId = GroupByResolvedEmployee(attendances, employeeIdByDeviceAndPin);
+
+            // Marcaciones de la semana que NO se pudieron atribuir a ningún empleado (su PIN
+            // no está vinculado): el cálculo las descarta y el empleado sale con "Falta" aunque
+            // sí haya checado. Se avisa en la barra de estado para que no parezca que no hay
+            // marcaciones (ver ApplyFilter).
+            _unlinkedPunchCount = attendances.Count - attendancesByEmployeeId.Values.Sum(list => list.Count);
             var deductionsByEmployeeId = deductions.ToDictionary(d => d.EmployeeId, PayrollDeductionValues.FromDomain);
 
             var rows = new List<PayrollRow>();
@@ -348,18 +358,21 @@ public sealed partial class PayrollViewModel : ObservableObject
 
         try
         {
-            var (attempted, error, totalRead, savedCount) = await _devicesViewModel.DownloadForReportAsync();
-            if (!attempted)
+            var outcome = await _devicesViewModel.DownloadForReportAsync();
+            if (!outcome.Attempted)
             {
                 parts.Add("reloj no conectado");
             }
-            else if (error is not null)
-            {
-                parts.Add($"no se pudo leer el reloj ({error})");
-            }
             else
             {
-                parts.Add($"reloj: {savedCount} nueva(s) de {totalRead} leída(s)");
+                if (outcome.Link is { Error: null } link)
+                {
+                    parts.Add($"PINs: {link.Linked} vinculado(s) ahora, {link.AlreadyLinked} ya estaban, {link.Unmatched.Count} sin coincidencia");
+                }
+
+                parts.Add(outcome.Error is not null
+                    ? $"no se pudo leer el reloj ({outcome.Error})"
+                    : $"reloj: {outcome.SavedCount} nueva(s) de {outcome.TotalRead} leída(s)");
             }
         }
         catch (Exception ex)
@@ -519,6 +532,12 @@ public sealed partial class PayrollViewModel : ObservableObject
         if (_punchSourcesNote.Length > 0)
         {
             StatusMessage += $" Marcaciones — {_punchSourcesNote}.";
+        }
+
+        if (_unlinkedPunchCount > 0)
+        {
+            StatusMessage += $" ⚠ {_unlinkedPunchCount} marcación(es) de esta semana con PIN sin vincular a un empleado " +
+                             "(no se cuentan): conecta el reloj y pulsa Actualizar, o usa Empleados → Vincular pendientes.";
         }
     }
 

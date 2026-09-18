@@ -17,6 +17,10 @@
 
         <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,10">
             <Button Content="Actualizar" Click="OnRefreshClick" Margin="0,0,8,0" />
+            <!-- Vincula cada usuario del reloj con su empleado por nombre (o Número = PIN) —
+                 sin ese vínculo las marcaciones quedan "pendientes de asignación" y el
+                 reporte semanal marca "Falta" (ver DevicesViewModel.AutoLinkDeviceUsersAsync). -->
+            <Button Content="🔗 Vincular con empleados" Click="OnAutoLinkClick" Margin="0,0,8,0" />
             <CheckBox x:Name="SelectAllCheckBox" Content="Seleccionar todos" VerticalAlignment="Center" Margin="0,0,16,0"
                       Click="OnSelectAllClick" />
             <Button Content="🗑 Eliminar seleccionados" Click="OnDeleteSelectedClick" Margin="0,0,8,0" />

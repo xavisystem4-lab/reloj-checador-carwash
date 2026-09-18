@@ -494,6 +494,23 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   la sincronización no las duplique. Se omiten las de un dispositivo no registrado en esa PC.
   Ninguna fuente puede romper el reporte: cada falla se resume en la barra de estado
   ("Marcaciones — reloj no conectado · nube: N nueva(s) de M").
+- **v1.62.0 — vinculación automática de PINs leyendo los usuarios del reloj físico.** Causa
+  real de que el reporte siguiera "todo en rojo" tras v1.61.0: las marcaciones sí existían,
+  pero ningún PIN estaba vinculado a un empleado (`EmployeeDeviceMapping`); una marcación sin
+  vínculo queda "pendiente de asignación" y `PayrollViewModel.GroupByResolvedEmployee` la
+  descarta, así que el empleado sale con "Falta" toda la semana. Antes solo se podía vincular a
+  mano (Empleados → Vincular pendientes, que además solo cubría PINs con marcaciones y sugería
+  únicamente por Número = PIN). Ahora `DevicesViewModel.AutoLinkDeviceUsersAsync` lee TODOS los
+  usuarios (PIN + nombre) de la memoria del reloj conectado (`DownloadUsersAsync`) y
+  `DeviceUserEmployeeMatcher` (lógica pura, con pruebas) los empareja con los empleados: nombre
+  igual (sin distinguir mayúsculas/acentos/espacios), nombre truncado por el reloj (~24
+  caracteres, mín. 15, único candidato) y, como respaldo, Número = PIN. Solo vincula con
+  EXACTAMENTE un candidato; homónimos, ambiguos o empleados que ya tienen otro PIN se reportan
+  para vincular a mano. Crea los vínculos, concilia las marcaciones pendientes de ese PIN
+  (`Attendance.ReconcileEmployee`) y sube lo nuevo a Supabase. Se ejecuta solo al pulsar
+  Actualizar en Reportes con el reloj conectado (antes de descargar las marcaciones) y también
+  con el botón "🔗 Vincular con empleados" del diálogo "Usuarios del reloj". La barra de estado
+  de Reportes avisa además cuántas marcaciones de la semana siguen con PIN sin vincular.
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Navegación completa de la UI (Fase 3 del diseño visual — Sucursales, Empleados,
