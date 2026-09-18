@@ -482,6 +482,18 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   (subclase de `HttpRequestException` con el código SQLSTATE). El comando
   `fix-branch-id` del CLI queda como respaldo manual y usa el mismo reconciliador (además
   ahora repara `Users.BranchIds`, que antes omitía).
+- **v1.61.0 — el reporte semanal trae las marcaciones que faltan antes de calcular.** Caso
+  real: en Reportes toda la semana salía en rojo ("Descanso"/"Falta") porque
+  `PayrollViewModel` solo leía la base local, y las marcaciones solo llegaban ahí por la
+  descarga de la pestaña Dispositivos (en una instalación nueva, o con el reloj sin conectar,
+  la semana quedaba vacía aunque Supabase ya tuviera las marcaciones). Ahora Actualizar,
+  cambiar de semana y abrir Reportes primero (1) descargan del reloj si está conectado
+  (`DevicesViewModel.DownloadForReportAsync`, reutiliza la descarga con dedupe y sube lo
+  nuevo) y (2) traen de Supabase lo que falte (`SupabaseAttendancePullService`, paginado de
+  1000 en 1000, tope de 20 s) conservando el `Id` de la nube (`Attendance.Restore`) para que
+  la sincronización no las duplique. Se omiten las de un dispositivo no registrado en esa PC.
+  Ninguna fuente puede romper el reporte: cada falla se resume en la barra de estado
+  ("Marcaciones — reloj no conectado · nube: N nueva(s) de M").
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Navegación completa de la UI (Fase 3 del diseño visual — Sucursales, Empleados,

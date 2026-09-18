@@ -27,6 +27,37 @@ public class AttendanceTests
     }
 
     [Fact]
+    public void Restore_ConservaIdYCamposDeAuditoriaDeLaNube()
+    {
+        var id = Guid.NewGuid();
+        var token = Guid.NewGuid();
+        var created = new DateTime(2026, 9, 15, 15, 0, 0, DateTimeKind.Utc);
+        var updated = new DateTime(2026, 9, 15, 16, 0, 0, DateTimeKind.Utc);
+
+        var attendance = Attendance.Restore(
+            id, Guid.NewGuid(), null, null, " 12 ", new DateTime(2026, 9, 15, 8, 0, 0, DateTimeKind.Unspecified),
+            AttendanceVerifyMethod.Face, 1, "raw", created, updated, token);
+
+        // El Id de la nube se conserva: la sincronización resuelve por Id y, si cambiara,
+        // subiría la misma marcación otra vez como una fila distinta.
+        Assert.Equal(id, attendance.Id);
+        Assert.Equal(token, attendance.ConcurrencyToken);
+        Assert.Equal(created, attendance.CreatedAtUtc);
+        Assert.Equal(updated, attendance.UpdatedAtUtc);
+        Assert.Equal("12", attendance.DeviceUserPin);
+        Assert.Equal(DateTimeKind.Utc, attendance.TimestampUtc.Kind);
+        Assert.Equal(new DateTime(2026, 9, 15, 8, 0, 0), attendance.TimestampUtc);
+    }
+
+    [Fact]
+    public void Restore_ConDispositivoVacio_Lanza()
+    {
+        Assert.Throws<DomainException>(() => Attendance.Restore(
+            Guid.NewGuid(), Guid.Empty, null, null, "12", DateTime.UtcNow,
+            AttendanceVerifyMethod.Unknown, null, null, DateTime.UtcNow, DateTime.UtcNow, Guid.NewGuid()));
+    }
+
+    [Fact]
     public void Create_NormalizaLaMarcaDeTiempoAUtc()
     {
         var unspecified = new DateTime(2026, 8, 13, 8, 2, 0, DateTimeKind.Unspecified);

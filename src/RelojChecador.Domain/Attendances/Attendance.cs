@@ -94,6 +94,46 @@ public sealed class Attendance : AuditableEntity
         return attendance;
     }
 
+    /// <summary>Reconstruye localmente una marcación que ya existe en Supabase (la trajo el
+    /// reporte semanal, ver PayrollViewModel) conservando su Id y sus campos de auditoría
+    /// tal cual — así el motor de sincronización, que resuelve por Id (upsert), la reconoce
+    /// como la misma fila y nunca la duplica en la nube. Es la única forma de crear una
+    /// Attendance que no viene de un dispositivo o de una captura manual.</summary>
+    public static Attendance Restore(
+        Guid id,
+        Guid deviceId,
+        Guid? branchId,
+        Guid? employeeId,
+        string deviceUserPin,
+        DateTime timestampUtc,
+        AttendanceVerifyMethod verifyMethod,
+        int? punchType,
+        string? rawPayload,
+        DateTime createdAtUtc,
+        DateTime updatedAtUtc,
+        Guid concurrencyToken)
+    {
+        Guard.AgainstEmptyGuid(id, nameof(id));
+        Guard.AgainstEmptyGuid(deviceId, nameof(deviceId));
+        Guard.AgainstNullOrWhiteSpace(deviceUserPin, nameof(deviceUserPin));
+
+        return new Attendance
+        {
+            Id = id,
+            DeviceId = deviceId,
+            BranchId = branchId,
+            EmployeeId = employeeId,
+            DeviceUserPin = deviceUserPin.Trim(),
+            TimestampUtc = DateTime.SpecifyKind(timestampUtc, DateTimeKind.Utc),
+            VerifyMethod = verifyMethod,
+            PunchType = punchType,
+            RawPayload = string.IsNullOrWhiteSpace(rawPayload) ? "{}" : rawPayload,
+            CreatedAtUtc = DateTime.SpecifyKind(createdAtUtc, DateTimeKind.Utc),
+            UpdatedAtUtc = DateTime.SpecifyKind(updatedAtUtc, DateTimeKind.Utc),
+            ConcurrencyToken = concurrencyToken == Guid.Empty ? Guid.NewGuid() : concurrencyToken,
+        };
+    }
+
     /// <summary>Vincula (o desvincula, con null) esta marcación a un Employee ya
     /// identificado — p. ej. al crear tardíamente el EmployeeDeviceMapping que faltaba.
     /// <paramref name="branchId"/> se actualiza EN CONJUNTO con <paramref name="employeeId"/>

@@ -44,6 +44,11 @@ public static class DependencyInjection
         // configurado o no. RemoteSyncRequestPollingService es quien realmente lo llama
         // cada IntervalSeconds — mismo patrón Singleton+AddHostedService de arriba.
         services.AddSingleton<RemoteSyncRequestCoordinator>();
+
+        // Lectura de marcaciones desde Supabase para el reporte semanal — mismo criterio
+        // que el coordinador: se autoprotege con IsConfigured, así que siempre es seguro
+        // inyectarlo.
+        services.AddSingleton<SupabaseAttendancePullService>();
         services.AddSingleton<RemoteSyncRequestPollingService>();
         services.AddHostedService(sp => sp.GetRequiredService<RemoteSyncRequestPollingService>());
         return services;

@@ -1181,6 +1181,35 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>Descarga del reloj las marcaciones que faltan en la base local, para que el
+    /// reporte semanal (PayrollViewModel) las incluya — pedido explícito del usuario: "al
+    /// generar un reporte trame las marcaciones que estoy solicitando". No hace nada si no
+    /// hay un reloj conectado ahora mismo (<c>Attempted</c> = false): conectar sigue siendo
+    /// decisión explícita de la pantalla Dispositivos. Reutiliza
+    /// <see cref="DownloadAttendanceCoreAsync"/> (deduplica y respeta su guardia de
+    /// reentrancia) y sube a Supabase lo nuevo igual que el botón "Descargar asistencias".
+    /// Debe llamarse desde el hilo de UI (esa descarga refresca AttendanceRecords).</summary>
+    public async Task<(bool Attempted, string? Error, int TotalRead, int SavedCount)> DownloadForReportAsync()
+    {
+        if (!IsConnected || SelectedDevice is null)
+        {
+            return (false, null, 0, 0);
+        }
+
+        var (success, error, totalRead, savedCount) = await DownloadAttendanceCoreAsync();
+        if (!success)
+        {
+            return (true, error, 0, 0);
+        }
+
+        if (savedCount > 0)
+        {
+            await _syncService.TriggerSyncNowAsync();
+        }
+
+        return (true, null, totalRead, savedCount);
+    }
+
     /// <summary>Núcleo reutilizable de "Descargar asistencias": lee del dispositivo,
     /// refresca <see cref="AttendanceRecords"/> y persiste cada registro nuevo en la base
     /// local. Reutilizado por tres llamadores — el <c>[RelayCommand]</c> de arriba (botón

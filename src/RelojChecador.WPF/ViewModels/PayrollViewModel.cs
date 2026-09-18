@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.Input;
 using RelojChecador.Application.Attendances;
 using RelojChecador.Application.Branches;
 using RelojChecador.Application.Common;
+using RelojChecador.Application.Devices;
 using RelojChecador.Application.EmployeeDeviceMappings;
 using RelojChecador.Application.Employees;
 using RelojChecador.Application.Payroll;
@@ -12,6 +13,8 @@ using RelojChecador.Domain.Attendances;
 using RelojChecador.Domain.Common;
 using RelojChecador.Domain.Employees;
 using RelojChecador.Domain.Payroll;
+using RelojChecador.Infrastructure.Cloud;
+using RelojChecador.Infrastructure.Cloud.Dtos;
 using Serilog;
 
 namespace RelojChecador.WPF.ViewModels;
@@ -140,8 +143,21 @@ public sealed partial class PayrollViewModel : ObservableObject
     private readonly IAttendanceRepository _attendanceRepository;
     private readonly IPayrollDeductionRepository _deductionRepository;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IDeviceRepository _deviceRepository;
+    private readonly DevicesViewModel _devicesViewModel;
+    private readonly SupabaseAttendancePullService _cloudAttendancePull;
+
+    /// <summary>Tope de espera de la consulta a Supabase al generar el reporte — sin esto,
+    /// una red lenta dejaría la pantalla en "Calculando..." indefinidamente; si vence, se
+    /// muestra lo que ya hay local y se avisa.</summary>
+    private static readonly TimeSpan CloudPullTimeout = TimeSpan.FromSeconds(20);
 
     private const string AllBranchesOption = "Todas las sucursales";
+
+    /// <summary>Resumen de qué se trajo del reloj/nube en la última carga (vacío si no se
+    /// intentó traer nada) — se agrega al mensaje de estado en ApplyFilter para que el
+    /// usuario vea por qué una semana sigue vacía (reloj desconectado, sin nube, etc.).</summary>
+    private string _punchSourcesNote = "";
 
     private DateOnly _weekStart;
 
@@ -175,8 +191,13 @@ public sealed partial class PayrollViewModel : ObservableObject
     public PayrollViewModel(
         IEmployeeRepository employeeRepository, IBranchRepository branchRepository,
         IEmployeeDeviceMappingRepository mappingRepository, IAttendanceRepository attendanceRepository,
-        IPayrollDeductionRepository deductionRepository, IUnitOfWork unitOfWork)
+        IPayrollDeductionRepository deductionRepository, IUnitOfWork unitOfWork,
+        IDeviceRepository deviceRepository, DevicesViewModel devicesViewModel,
+        SupabaseAttendancePullService cloudAttendancePull)
     {
+        _deviceRepository = deviceRepository;
+        _devicesViewModel = devicesViewModel;
+        _cloudAttendancePull = cloudAttendancePull;
         _employeeRepository = employeeRepository;
         _branchRepository = branchRepository;
         _mappingRepository = mappingRepository;
@@ -186,24 +207,24 @@ public sealed partial class PayrollViewModel : ObservableObject
         _weekStart = WeekBoundary.GetWeekStart(DateOnly.FromDateTime(DateTime.Now));
     }
 
-    public async Task InitializeAsync() => await LoadAsync();
+    public async Task InitializeAsync() => await LoadAsync(pullPunches: true);
 
     [RelayCommand]
     private async Task PreviousWeekAsync()
     {
         _weekStart = _weekStart.AddDays(-7);
-        await LoadAsync();
+        await LoadAsync(pullPunches: true);
     }
 
     [RelayCommand]
     private async Task NextWeekAsync()
     {
         _weekStart = _weekStart.AddDays(7);
-        await LoadAsync();
+        await LoadAsync(pullPunches: true);
     }
 
     [RelayCommand]
-    private async Task RefreshAsync() => await LoadAsync();
+    private async Task RefreshAsync() => await LoadAsync(pullPunches: true);
 
     /// <summary>Guarda las deducciones (ISR/IMSS/Otro) de un empleado para la semana
     /// actualmente mostrada — busca-o-crea la fila de esa semana (nunca crea una segunda
@@ -240,11 +261,16 @@ public sealed partial class PayrollViewModel : ObservableObject
         }
     }
 
-    private async Task LoadAsync()
+    /// <param name="pullPunches">true al generar/actualizar el reporte (Actualizar, cambiar de
+    /// semana, abrir la pantalla): antes de calcular, trae las marcaciones de la semana del
+    /// reloj (si está conectado) y de Supabase (si hay nube configurada) — pedido explícito
+    /// del usuario: "al generar un reporte trame las marcaciones que estoy solicitando". false
+    /// al recargar solo por guardar deducciones (no hay motivo para volver a consultar).</param>
+    private async Task LoadAsync(bool pullPunches = false)
     {
         var weekEnd = WeekBoundary.GetWeekEnd(_weekStart);
         WeekRangeText = $"{_weekStart:dd/MM/yyyy} – {weekEnd:dd/MM/yyyy}";
-        StatusMessage = "Calculando...";
+        StatusMessage = pullPunches ? "Trayendo marcaciones..." : "Calculando...";
 
         try
         {
@@ -252,6 +278,12 @@ public sealed partial class PayrollViewModel : ObservableObject
             // conversión real de zona horaria, se asume que el negocio opera en una sola.
             var fromUtc = DateTime.SpecifyKind(_weekStart.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
             var toUtc = DateTime.SpecifyKind(weekEnd.ToDateTime(TimeOnly.MaxValue), DateTimeKind.Utc);
+
+            if (pullPunches)
+            {
+                _punchSourcesNote = await PullMissingPunchesAsync(fromUtc, toUtc);
+                StatusMessage = "Calculando...";
+            }
 
             var employees = await _employeeRepository.ListAsync();
             var activeEmployees = employees.Where(e => e.Status != EmploymentStatus.Terminated).OrderBy(e => e.FullName).ToList();
@@ -305,6 +337,143 @@ public sealed partial class PayrollViewModel : ObservableObject
         }
     }
 
+    /// <summary>Completa la base local con las marcaciones del rango antes de calcular:
+    /// primero el reloj (si hay uno conectado, ver DevicesViewModel.DownloadForReportAsync) y
+    /// luego Supabase (lo que otra PC ya subió). Ninguna de las dos fuentes puede romper el
+    /// reporte — cada falla se captura, se registra y se resume en la nota de estado; el
+    /// cálculo siempre corre con lo que haya quedado en la base local.</summary>
+    private async Task<string> PullMissingPunchesAsync(DateTime fromUtc, DateTime toUtc)
+    {
+        var parts = new List<string>();
+
+        try
+        {
+            var (attempted, error, totalRead, savedCount) = await _devicesViewModel.DownloadForReportAsync();
+            if (!attempted)
+            {
+                parts.Add("reloj no conectado");
+            }
+            else if (error is not null)
+            {
+                parts.Add($"no se pudo leer el reloj ({error})");
+            }
+            else
+            {
+                parts.Add($"reloj: {savedCount} nueva(s) de {totalRead} leída(s)");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "No se pudieron traer marcaciones del reloj para el reporte de la semana ({WeekStart}).", _weekStart);
+            parts.Add("no se pudo leer el reloj");
+        }
+
+        if (!_cloudAttendancePull.IsConfigured)
+        {
+            parts.Add("nube sin configurar");
+        }
+        else
+        {
+            try
+            {
+                using var timeout = new CancellationTokenSource(CloudPullTimeout);
+                var remote = await _cloudAttendancePull.FetchAsync(fromUtc, toUtc, timeout.Token);
+                var (imported, skippedUnknownDevice) = await ImportCloudAttendancesAsync(remote, fromUtc, toUtc);
+                var cloudNote = $"nube: {imported} nueva(s) de {remote.Count}";
+                if (skippedUnknownDevice > 0)
+                {
+                    cloudNote += $", {skippedUnknownDevice} de un reloj no registrado en esta PC";
+                }
+                parts.Add(cloudNote);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "No se pudieron traer marcaciones de Supabase para el reporte de la semana ({WeekStart}).", _weekStart);
+                parts.Add("no se pudo consultar la nube");
+            }
+        }
+
+        return string.Join(" · ", parts);
+    }
+
+    /// <summary>Guarda en la base local las marcaciones de Supabase que todavía no existen
+    /// aquí. Conserva el Id de la nube (ver Attendance.Restore) para que la sincronización no
+    /// las duplique al subir. Se omiten las de un dispositivo que esta PC no conoce (la
+    /// marcación exige un DeviceId local válido); EmployeeId/BranchId se dejan en null si
+    /// ese empleado/sucursal no existe localmente — el reporte igual las resuelve por
+    /// DeviceId+PIN vía EmployeeDeviceMapping.</summary>
+    private async Task<(int Imported, int SkippedUnknownDevice)> ImportCloudAttendancesAsync(
+        IReadOnlyList<AttendanceDto> remote, DateTime fromUtc, DateTime toUtc)
+    {
+        if (remote.Count == 0)
+        {
+            return (0, 0);
+        }
+
+        var deviceIds = (await _deviceRepository.ListAsync()).Select(d => d.Id).ToHashSet();
+        var branchIds = (await _branchRepository.ListAsync()).Select(b => b.Id).ToHashSet();
+        var employeeIds = (await _employeeRepository.ListAsync()).Select(e => e.Id).ToHashSet();
+
+        var local = await _attendanceRepository.ListAsync(fromUtc, toUtc, int.MaxValue);
+        var knownIds = local.Select(a => a.Id).ToHashSet();
+        var knownKeys = local.Select(a => (a.DeviceId, a.DeviceUserPin, a.TimestampUtc)).ToHashSet();
+
+        var imported = 0;
+        var skippedUnknownDevice = 0;
+        foreach (var dto in remote)
+        {
+            if (!deviceIds.Contains(dto.DeviceId))
+            {
+                skippedUnknownDevice++;
+                continue;
+            }
+
+            var timestamp = ToUtc(dto.TimestampUtc);
+            var pin = dto.DeviceUserPin.Trim();
+            if (knownIds.Contains(dto.Id) || knownKeys.Contains((dto.DeviceId, pin, timestamp)))
+            {
+                continue;
+            }
+
+            try
+            {
+                var attendance = Attendance.Restore(
+                    dto.Id, dto.DeviceId,
+                    dto.BranchId is { } branchId && branchIds.Contains(branchId) ? branchId : null,
+                    dto.EmployeeId is { } employeeId && employeeIds.Contains(employeeId) ? employeeId : null,
+                    pin, timestamp,
+                    Enum.TryParse<AttendanceVerifyMethod>(dto.VerifyMethod, out var verifyMethod) ? verifyMethod : AttendanceVerifyMethod.Unknown,
+                    dto.PunchType, dto.RawPayload,
+                    ToUtc(dto.CreatedAtUtc), ToUtc(dto.UpdatedAtUtc), dto.ConcurrencyToken);
+                await _attendanceRepository.AddAsync(attendance);
+                knownIds.Add(attendance.Id);
+                knownKeys.Add((attendance.DeviceId, attendance.DeviceUserPin, attendance.TimestampUtc));
+                imported++;
+            }
+            catch (DomainException ex)
+            {
+                Log.Warning(ex, "Marcación de Supabase omitida por datos inválidos (Id={AttendanceId}).", dto.Id);
+            }
+        }
+
+        if (imported > 0)
+        {
+            await _unitOfWork.SaveChangesAsync();
+        }
+
+        return (imported, skippedUnknownDevice);
+    }
+
+    /// <summary>System.Text.Json convierte a hora local cualquier fecha con offset que no
+    /// sea "Z" (Supabase devuelve "+00:00") — como la app guarda "hora de pared etiquetada
+    /// como UTC" (ver LoadAsync), hay que volver a UTC para no desplazar la marcación por la
+    /// zona horaria de esta PC.</summary>
+    private static DateTime ToUtc(DateTime value) => value.Kind switch
+    {
+        DateTimeKind.Local => value.ToUniversalTime(),
+        _ => DateTime.SpecifyKind(value, DateTimeKind.Utc),
+    };
+
     partial void OnSearchTextChanged(string value) => ApplyFilter();
     partial void OnSelectedBranchFilterChanged(string value) => ApplyFilter();
 
@@ -346,6 +515,11 @@ public sealed partial class PayrollViewModel : ObservableObject
             (false, true) => $"{visibleList.Count} de {_allRows.Count} empleado(s) — {hiddenCount} oculto(s) por los filtros aplicados.",
             (false, false) => $"{visibleList.Count} empleado(s).",
         };
+
+        if (_punchSourcesNote.Length > 0)
+        {
+            StatusMessage += $" Marcaciones — {_punchSourcesNote}.";
+        }
     }
 
     private static Dictionary<Guid, List<Attendance>> GroupByResolvedEmployee(
