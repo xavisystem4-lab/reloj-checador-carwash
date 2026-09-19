@@ -510,6 +510,26 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
     private async Task<bool> PersistAttendanceAsync(
         RawAttendanceRecord record, string source, IReadOnlyDictionary<string, Employee>? employeeByPin = null)
     {
+        // Este ViewModel comparte UN solo DbContext durante toda la vida de la app (scope único,
+        // ver App.xaml.cs) y el tiempo real (cada 3 s) y la descarga (cada 10 s) llegan a este
+        // método al mismo tiempo, intercalando sus await sobre ese contexto — un DbContext no
+        // admite eso. Se serializa para que solo una marcación se guarde a la vez.
+        await _persistLock.WaitAsync();
+        try
+        {
+            return await PersistAttendanceCoreAsync(record, source, employeeByPin);
+        }
+        finally
+        {
+            _persistLock.Release();
+        }
+    }
+
+    private readonly SemaphoreSlim _persistLock = new(1, 1);
+
+    private async Task<bool> PersistAttendanceCoreAsync(
+        RawAttendanceRecord record, string source, IReadOnlyDictionary<string, Employee>? employeeByPin)
+    {
         var device = SelectedDevice;
         if (device is null)
         {
@@ -517,6 +537,9 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
             return false;
         }
 
+        // La marcación que se está intentando guardar, para poder sacarla del contexto si el
+        // guardado falla (ver los catch de abajo).
+        Attendance? pending = null;
         try
         {
             var alreadyExists = await _attendanceRepository.ExistsAsync(
@@ -606,6 +629,7 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
                 employeeId: employeeId);
 
             await _attendanceRepository.AddAsync(attendance);
+            pending = attendance;
             await _unitOfWork.SaveChangesAsync();
             return true;
         }
@@ -617,6 +641,7 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
             // que evita la mayoría de los intentos, no la única defensa.
             Log.Warning(ex, "No se pudo guardar la marcación (posible duplicado): PIN={Pin}, DeviceId={DeviceId}",
                 record.DeviceUserPin, device.Id);
+            await DiscardPendingAsync(pending);
             return false;
         }
         catch (Exception ex)
@@ -624,7 +649,31 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
             Log.Error(ex, "Error inesperado al guardar una marcación: PIN={Pin}, DeviceId={DeviceId}",
                 record.DeviceUserPin, device.Id);
             AppendLog($"⚠️ No se pudo guardar la marcación de PIN {record.DeviceUserPin}: {ex.Message}");
+            await DiscardPendingAsync(pending);
             return false;
+        }
+    }
+
+    /// <summary>Saca del contexto la marcación cuyo guardado falló. BUG REAL: EF deja la
+    /// entidad fallida como "Added" y, como el DbContext es compartido por toda la app, CADA
+    /// SaveChanges posterior la reintentaba y fallaba igual — todas las marcaciones nuevas del
+    /// reloj dejaban de guardarse en silencio (la descarga decía "0 nueva(s) de N leída(s)" y
+    /// el reporte de Asistencia no mostraba nada de lo que el reloj sí tenía) hasta reiniciar
+    /// la app. Quitar una entidad "Added" solo la deja de rastrear, no toca la base.</summary>
+    private async Task DiscardPendingAsync(Attendance? pending)
+    {
+        if (pending is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _attendanceRepository.RemoveAsync(pending);
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "No se pudo descartar la marcación fallida del contexto.");
         }
     }
 
