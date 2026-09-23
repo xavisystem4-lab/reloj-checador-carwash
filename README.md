@@ -619,6 +619,25 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   cualquier cuenta aprobada leer `employees` completo (incluye sueldo) y a cualquier autenticado
   `payroll_deductions` — la web ya no muestra montos a cuentas 'user', pero la API sí los entrega;
   conviene cerrar el registro o restringir esas políticas.
+- **v1.69.0 — "Traer marcaciones del reloj" y "Coincidir PIN con número" en Empleados.**
+  (1) 📥 Traer marcaciones del reloj: conecta, descarga todo lo del reloj (igual que Actualizar en
+  Reportes) y lista los PINs cuyas marcaciones no ve nadie — sin empleado, o de un empleado DADO DE
+  BAJA. Causa real (Supabase, 23/09/2026): "Reemplazar catálogo" dio de baja a 11 personas que siguen
+  checando a diario (PINs 12, 19, 21, 39, 48, 52, 53, 55, 57, 58, 59; ~360 marcaciones) — sí se
+  descargaban, pero ninguna pantalla las mostraba y "Vincular pendientes" tampoco (sí tienen dueño).
+  Por fila: reactivar al empleado dado de baja con el siguiente número libre (EMP-055…, decisión del
+  usuario; conserva historial), dar de alta uno nuevo, o atribuirlo a un empleado vigente
+  (`DevicesViewModel.GetOrphanClockPinsAsync`/`ResolveOrphanClockPinAsync`). (2) 🔢 Coincidir PIN con
+  número: abre el mismo "Renumerar PINs" de Usuarios del reloj con PIN destino = dígitos del número
+  (EMP-012 → 12, `EmployeeNumberPinRules`; antes solo sugería si el número era todo dígitos, así que
+  con el catálogo EMP-xxx no sugería nada). Correcciones del renumerado: un PIN destino ocupado por
+  alguien que NO está en la lista caía en "ciclo" y dejaba a la persona para siempre en un PIN
+  temporal 9001+ (ahora se reporta sin tocarla); dos personas al mismo PIN se rechazan; un aparcado que
+  no llega a su destino regresa a su PIN original; un vínculo viejo en el PIN destino se quita ANTES de
+  mover la huella (antes el índice único fallaba DESPUÉS de moverla); y cada vínculo cambiado sube a
+  Supabase en el momento (el lote completo con una cadena A→B fallaba por el índice único).
+  `IUnitOfWork.DiscardPendingChanges` deshace un guardado fallido en el contexto compartido. Compilar
+  en Windows desde una copia hecha en macOS: `Directory.Build.props` excluye los `._*`.
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Navegación completa de la UI (Fase 3 del diseño visual — Sucursales, Empleados,

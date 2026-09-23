@@ -31,6 +31,24 @@ public sealed class RelojChecadorDbContext : DbContext, IUnitOfWork
     public DbSet<PayrollDeduction> PayrollDeductions => Set<PayrollDeduction>();
     public DbSet<SyncCursorRecord> SyncCursors => Set<SyncCursorRecord>();
 
+    public void DiscardPendingChanges()
+    {
+        foreach (var entry in ChangeTracker.Entries().ToList())
+        {
+            switch (entry.State)
+            {
+                case EntityState.Added:
+                    entry.State = EntityState.Detached;
+                    break;
+                case EntityState.Modified:
+                case EntityState.Deleted:
+                    entry.CurrentValues.SetValues(entry.OriginalValues);
+                    entry.State = EntityState.Unchanged;
+                    break;
+            }
+        }
+    }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(RelojChecadorDbContext).Assembly);

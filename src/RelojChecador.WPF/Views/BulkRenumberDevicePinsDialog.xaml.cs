@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using CommunityToolkit.Mvvm.ComponentModel;
 using RelojChecador.Application.Devices;
+using RelojChecador.Application.Employees;
 using RelojChecador.WPF.ViewModels;
 
 namespace RelojChecador.WPF.Views;
@@ -39,10 +40,10 @@ public sealed partial class SelectableRepinRow : ObservableObject
     public SelectableRepinRow(DeviceUserRow row)
     {
         Row = row;
-        var suggested = row.LinkedEmployeeNumber;
-        _targetPin = !string.IsNullOrWhiteSpace(suggested) && suggested.All(char.IsDigit) && suggested != row.DeviceUserPin
-            ? suggested
-            : null;
+        // "EMP-012" → "12" (ver EmployeeNumberPinRules) — el catálogo vigente usa ese formato
+        // y el usuario eligió PIN = solo los dígitos. Nunca para un empleado dado de baja.
+        var suggested = row.LinkedEmployeeIsActive ? EmployeeNumberPinRules.ToDevicePin(row.LinkedEmployeeNumber) : null;
+        _targetPin = suggested is not null && suggested != row.DeviceUserPin ? suggested : null;
     }
 }
 
@@ -159,6 +160,16 @@ public partial class BulkRenumberDevicePinsDialog : Window
         SelectAllCheckBox.IsEnabled = false;
 
         var pending = selected.ToList();
+        var failed = 0;
+
+        // Dos personas no pueden terminar en el mismo PIN — no se adivina cuál de las dos es.
+        foreach (var duplicated in pending.GroupBy(r => r.TargetPin).Where(g => g.Count() > 1).SelectMany(g => g).ToList())
+        {
+            duplicated.StatusText = $"❌ Otra persona de la lista también va al PIN {duplicated.TargetPin} — corrige uno de los dos.";
+            pending.Remove(duplicated);
+            failed++;
+        }
+
         // Ciclos reales (A necesita el PIN de B, B necesita el de A, ninguno está libre desde
         // el inicio) se resuelven "aparcando" a uno del ciclo en un PIN temporal fuera de
         // rango — eso libera su PIN viejo, destraba al resto por el camino normal, y al final
@@ -169,7 +180,6 @@ public partial class BulkRenumberDevicePinsDialog : Window
         var parked = new List<(SelectableRepinRow Row, DeviceUserRow CurrentDeviceRow, string RealTarget)>();
         var nextTempPin = 9001;
         var moved = 0;
-        var failed = 0;
         var consecutiveFailures = 0;
         var stopped = false;
 
@@ -183,10 +193,22 @@ public partial class BulkRenumberDevicePinsDialog : Window
                 // se recarga solo después de cada movimiento exitoso) — no una foto vieja de
                 // cuando se abrió este diálogo. Mover a alguien libera su PIN viejo, lo que
                 // puede destrabar a otra persona en esta misma vuelta.
-                var targetOccupied = _viewModel.DeviceUsers.Any(u => u.DeviceUserPin == row.TargetPin);
-                if (targetOccupied)
+                var occupant = _viewModel.DeviceUsers.FirstOrDefault(u => u.DeviceUserPin == row.TargetPin);
+                if (occupant is not null)
                 {
-                    continue; // seguimos con el siguiente, quizás se libere en esta misma vuelta
+                    if (pending.Any(p => p.Row.DeviceUserPin == row.TargetPin))
+                    {
+                        continue; // lo tiene alguien de la lista que todavía se va a mover — quizás en esta misma vuelta
+                    }
+
+                    // Lo ocupa alguien que NO se va a mover: esperar no lo libera nunca. Antes esto
+                    // caía en "ciclo" y la persona se quedaba para siempre en un PIN temporal 9001+.
+                    row.StatusText = $"❌ El PIN {row.TargetPin} lo tiene \"{occupant.Name}\" en el reloj y no está en esta lista. " +
+                                     "Muévelo o bórralo desde Usuarios del reloj y vuelve a intentar.";
+                    failed++;
+                    pending.Remove(row);
+                    progressMade = true;
+                    continue;
                 }
 
                 row.StatusText = "Moviendo huella...";
@@ -280,7 +302,12 @@ public partial class BulkRenumberDevicePinsDialog : Window
             }
             else
             {
-                row.StatusText = $"❌ Quedó en el PIN temporal ({currentDeviceRow.DeviceUserPin}), no se pudo terminar el movimiento a {realTarget}: {error}";
+                // Su destino no se liberó (quien lo tenía falló al moverse): se regresa a su PIN
+                // original, que sí quedó libre al aparcarla, en vez de dejarla en el temporal.
+                var backError = await _viewModel.ChangeDeviceUserPinAsync(currentDeviceRow, row.Row.DeviceUserPin);
+                row.StatusText = backError is null
+                    ? $"❌ No se pudo mover a {realTarget} ({error}); se regresó a su PIN original {row.Row.DeviceUserPin}."
+                    : $"❌ Quedó en el PIN temporal ({currentDeviceRow.DeviceUserPin}), no se pudo terminar el movimiento a {realTarget}: {error}";
                 failed++;
             }
         }

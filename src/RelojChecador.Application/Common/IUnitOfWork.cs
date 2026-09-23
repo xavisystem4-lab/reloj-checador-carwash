@@ -8,4 +8,9 @@ namespace RelojChecador.Application.Common;
 public interface IUnitOfWork
 {
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Deshace lo que todavía no se guardó (altas, cambios y bajas pendientes). La app
+    /// comparte UN solo contexto durante toda la sesión: sin esto, un guardado fallido deja
+    /// sus cambios pendientes y hace fallar todos los SaveChangesAsync siguientes.</summary>
+    void DiscardPendingChanges();
 }

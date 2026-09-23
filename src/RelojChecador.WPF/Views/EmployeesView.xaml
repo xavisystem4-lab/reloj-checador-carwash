@@ -44,7 +44,18 @@
                  masiva que podamos seleccionar todos o de 1 por 1" — lista cada PIN con
                  marcaciones sin vincular a ningún empleado y deja elegir a quién con un
                  combo por fila (ver LinkUnresolvedPinsDialog). -->
-            <Button Content="🔗 Vincular pendientes" Click="OnLinkUnresolvedPinsClick" Margin="0,0,16,0" />
+            <Button Content="🔗 Vincular pendientes" Click="OnLinkUnresolvedPinsClick" Margin="0,0,8,0" />
+            <!-- Pedido explícito del usuario: "TRAER MARCACIONES DEL RELOJ AL SISTEMA por que hay
+                 empleados que no aparecen en el sistema pero sí checaron en el reloj físico" —
+                 descarga del reloj y ofrece reactivar/dar de alta a quien checó sin estar en el
+                 catálogo vigente (ver RecoverClockPunchesDialog). -->
+            <Button Content="📥 Traer marcaciones del reloj" Click="OnRecoverClockPunchesClick" Margin="0,0,8,0"
+                    ToolTip="Descarga las marcaciones del reloj y muestra a quienes checaron pero no aparecen en el sistema (dados de baja o sin empleado), para traerlos de vuelta." />
+            <!-- Pedido explícito del usuario: "Quiero que los PIN coincidan con el número de
+                 Empleado de todos los empleados" (EMP-012 → PIN 12). Abre el mismo
+                 BulkRenumberDevicePinsDialog de Dispositivos → Usuarios del reloj. -->
+            <Button Content="🔢 Coincidir PIN con número" Click="OnMatchPinsToNumbersClick" Margin="0,0,16,0"
+                    ToolTip="Mueve la huella de cada empleado en el reloj al PIN igual a su número (EMP-012 → PIN 12) y actualiza el vínculo en el sistema." />
             <!-- Movido desde Dispositivos a pedido explícito del usuario — antes solo vivía
                  ahí y exigía tener ya un dispositivo seleccionado/conectado a mano. Este
                  botón conecta, envía y desconecta él solo (ver
