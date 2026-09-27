@@ -4,6 +4,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using Microsoft.Win32;
+using RelojChecador.Application.Employees;
 using RelojChecador.Domain.Devices;
 using RelojChecador.WPF.Services;
 using RelojChecador.WPF.ViewModels;
@@ -220,11 +221,12 @@ public partial class EmployeesView : UserControl
         return pickDialog.ShowDialog() == true ? pickDialog.SelectedDevice : null;
     }
 
-    /// <summary>"📥 Traer marcaciones del reloj": conecta, vincula lo que se pueda por nombre y
-    /// descarga todo lo del reloj (igual que "Actualizar" en Reportes, ver
-    /// DevicesViewModel.DownloadForReportAsync), y abre RecoverClockPunchesDialog con quien checó
-    /// sin aparecer en el sistema. Si el reloj no responde se abre igual, con lo ya guardado.</summary>
-    private async void OnRecoverClockPunchesClick(object sender, RoutedEventArgs e)
+    /// <summary>"📋 Traer registros del reloj al sistema" — pedido explícito del usuario: "un botón
+    /// que diga traer registros del reloj al sistema que me traiga en empleados toda la lista
+    /// actual". Conecta, baja las marcaciones nuevas, lee los usuarios del reloj (PIN + nombre) y
+    /// abre "Reemplazar catálogo" con esa lista: el reloj es el catálogo (número = PIN). Nada se
+    /// aplica hasta que la persona revisa la vista previa y confirma.</summary>
+    private async void OnImportFromClockClick(object sender, RoutedEventArgs e)
     {
         if (DevicesViewModel is not { } devicesViewModel || DataContext is not EmployeesViewModel viewModel)
         {
@@ -239,26 +241,46 @@ public partial class EmployeesView : UserControl
         var button = (Button)sender;
         button.IsEnabled = false;
         var previousStatus = viewModel.StatusMessage;
-        viewModel.StatusMessage = $"Trayendo marcaciones de \"{targetDevice.Name}\"...";
+        viewModel.StatusMessage = $"Leyendo la lista de \"{targetDevice.Name}\"...";
         try
         {
             devicesViewModel.SelectedDevice = targetDevice;
-            var outcome = await devicesViewModel.DownloadForReportAsync();
-            var summary = outcome.Error is null
-                ? $"Se leyeron {outcome.TotalRead} marcación(es) de \"{targetDevice.Name}\" ({outcome.SavedCount} nueva(s) guardada(s))."
-                : $"⚠️ No se pudo leer el reloj ({outcome.Error}). Se muestra lo que ya estaba guardado en el sistema.";
+            var connectError = await devicesViewModel.EnsureConnectedAsync();
+            if (connectError is null)
+            {
+                // Primero las marcaciones que falten, para que al unir registros ya estén todas.
+                await devicesViewModel.DownloadAttendanceCommand.ExecuteAsync(null);
+                await devicesViewModel.LoadDeviceUsersAsync();
+            }
             viewModel.StatusMessage = previousStatus;
 
-            var dialog = new RecoverClockPunchesDialog(devicesViewModel, viewModel, summary) { Owner = Window.GetWindow(this) };
-            dialog.ShowDialog();
-            await viewModel.InitializeAsync();
+            if (connectError is not null || devicesViewModel.DeviceUsers.Count == 0)
+            {
+                MessageBox.Show(
+                    Window.GetWindow(this),
+                    "No se pudo leer la lista de usuarios del reloj: " + (connectError ?? devicesViewModel.DeviceUsersStatusMessage),
+                    "Traer registros del reloj", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            var users = devicesViewModel.DeviceUsers.Where(u => !string.IsNullOrWhiteSpace(u.Name)).ToList();
+            var withoutName = devicesViewModel.DeviceUsers.Count - users.Count;
+            var lines = EmployeeCatalogSourceConverter.FromPinList(users.Select(u => (u.DeviceUserPin, u.Name)));
+            var source = $"Reloj \"{targetDevice.Name}\": {users.Count} usuario(s)" +
+                         (withoutName > 0 ? $" ({withoutName} sin nombre se ignoraron)" : "") + ".";
+
+            var dialog = new ReplaceEmployeeCatalogDialog(viewModel, lines, source) { Owner = Window.GetWindow(this) };
+            if (dialog.ShowDialog() == true)
+            {
+                await viewModel.InitializeAsync();
+            }
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "Error inesperado al traer marcaciones del reloj.");
+            Log.Error(ex, "Error inesperado al traer los registros del reloj.");
             viewModel.StatusMessage = previousStatus;
             MessageBox.Show(Window.GetWindow(this), "Ocurrió un error inesperado. Revisa el registro de errores.",
-                "Traer marcaciones", MessageBoxButton.OK, MessageBoxImage.Error);
+                "Traer registros del reloj", MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally
         {

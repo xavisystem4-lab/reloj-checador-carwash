@@ -173,4 +173,35 @@ public class EmployeeCatalogSourceConverterTests
         Assert.Empty(csvLines);
         Assert.NotNull(error);
     }
+
+    /// <summary>Caso real (27/09/2026): "lista_empleados.csv" con solo "ID Empleado,Nombre
+    /// completo" se rechazaba como "no compatible".</summary>
+    [Theory]
+    [InlineData("ID Empleado", "Nombre completo")]
+    [InlineData("PIN", "Nombre")]
+    [InlineData("Número", "Nombre completo")]
+    public void TryConvert_ListaDeDosColumnas_NumeroYPinSonElId(string idHeader, string nameHeader)
+    {
+        IReadOnlyList<string> header = [idHeader, nameHeader, ""];
+        IReadOnlyList<IReadOnlyList<string?>> rows = [["12", "Luis Angel Gonzalez Ramos"], ["", ""], ["59", "Esteban Leon"]];
+
+        Assert.True(EmployeeCatalogSourceConverter.IsRecognizedHeader(header));
+        Assert.True(EmployeeCatalogSourceConverter.TryConvert(header, rows, out var csvLines, out var error));
+        Assert.Null(error);
+
+        var parsed = EmployeeCatalogReplaceParser.Parse(csvLines);
+        Assert.Empty(parsed.Errors);
+        Assert.Collection(parsed.Rows,
+            r =>
+            {
+                Assert.Equal("12", r.Number);
+                Assert.Equal("12", r.Pin);
+                Assert.Equal("Luis Angel Gonzalez Ramos", r.FullName);
+                Assert.Equal("CAR-WASH", r.Area);
+                Assert.Null(r.Position);
+                Assert.Null(r.HireDate);
+                Assert.Null(r.WeeklySalary);
+            },
+            r => Assert.Equal("59", r.Pin));
+    }
 }

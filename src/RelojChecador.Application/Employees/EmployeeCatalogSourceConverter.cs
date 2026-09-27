@@ -70,7 +70,35 @@ public static class EmployeeCatalogSourceConverter
     /// busca la fila de encabezado dentro de un archivo (p. ej. ExcelCatalogReader, que tiene
     /// que saltarse título/instrucciones antes de llegar a la fila real de encabezados).</summary>
     public static bool IsRecognizedHeader(IReadOnlyList<string> header) =>
-        IsCanonicalHeader(header) || IsRegistroEmpleadosHeader(header);
+        IsCanonicalHeader(header) || IsRegistroEmpleadosHeader(header) || IsPinListHeader(header);
+
+    /// <summary>Lista corta "ID Empleado, Nombre completo" — pedido explícito del usuario
+    /// ("tengo un archivo CSV, quiero reemplazar ... pero el sistema dice que no es compatible").
+    /// Es la lista de usuarios del reloj: el ID es a la vez el Número y el PIN.</summary>
+    private static readonly string[] PinListFirstColumnAliases = ["ID Empleado", "ID", "PIN", "Número", "Numero", "No.", "No"];
+    private static readonly string[] PinListNameColumnAliases = ["Nombre completo", "Nombre"];
+
+    /// <summary>Catálogo canónico a partir de pares (PIN, nombre) — lo usan la lista corta de
+    /// arriba y "Traer registros del reloj al sistema" (usuarios leídos del reloj). Número = PIN;
+    /// lo demás vacío, que en el reemplazo significa "no tocar lo ya capturado".</summary>
+    public static IReadOnlyList<string> FromPinList(IEnumerable<(string Pin, string FullName)> users)
+    {
+        var lines = new List<string> { string.Join(",", CanonicalHeader) };
+        foreach (var (pin, fullName) in users)
+        {
+            var trimmedPin = pin.Trim();
+            var trimmedName = fullName.Trim();
+            if (trimmedPin.Length == 0 && trimmedName.Length == 0)
+            {
+                continue;
+            }
+
+            var fields = new[] { trimmedPin, trimmedName, UnifiedAreaName, "", "", "Activo", "", "", "", trimmedPin, "" };
+            lines.Add(string.Join(",", fields.Select(CsvEscape)));
+        }
+
+        return lines;
+    }
 
     /// <summary>Intenta convertir <paramref name="header"/> + <paramref name="rows"/> (ya
     /// separados en celdas de texto, sin importar si vinieron de un CSV o de un .xlsx) al
@@ -89,9 +117,17 @@ public static class EmployeeCatalogSourceConverter
             return true;
         }
 
+        if (IsPinListHeader(header))
+        {
+            csvLines = FromPinList(rows.Select(r => (Cell(r, 0), Cell(r, 1))));
+            error = null;
+            return true;
+        }
+
         csvLines = [];
-        error = "El archivo no coincide con ningún formato reconocido: ni el encabezado del catálogo de " +
-            "reemplazo (Number,FullName,Area,...) ni el de la hoja \"Registro Empleados\" del Excel maestro.";
+        error = $"El archivo no coincide con ningún formato reconocido (su encabezado es: {string.Join(", ", header)}). " +
+            "Formatos aceptados: el catálogo de reemplazo (Number,FullName,Area,...), la hoja \"Registro Empleados\" " +
+            "del Excel maestro, o una lista de dos columnas \"ID Empleado, Nombre completo\".";
         return false;
     }
 
@@ -157,6 +193,20 @@ public static class EmployeeCatalogSourceConverter
         header.Count == RegistroEmpleadosHeaderRest.Length + 1
         && RegistroEmpleadosFirstColumnAliases.Contains(header[0].Trim(), StringComparer.OrdinalIgnoreCase)
         && HeaderMatches(header.Skip(1).ToArray(), RegistroEmpleadosHeaderRest);
+
+    /// <summary>Dos columnas con nombre (las vacías al final, típicas de Excel, no cuentan).</summary>
+    private static bool IsPinListHeader(IReadOnlyList<string> header)
+    {
+        var named = header.Select(h => h.Trim()).ToList();
+        while (named.Count > 0 && named[^1].Length == 0)
+        {
+            named.RemoveAt(named.Count - 1);
+        }
+
+        return named.Count == 2
+            && PinListFirstColumnAliases.Contains(named[0], StringComparer.OrdinalIgnoreCase)
+            && PinListNameColumnAliases.Contains(named[1], StringComparer.OrdinalIgnoreCase);
+    }
 
     private static bool HeaderMatches(IReadOnlyList<string> header, string[] expected) =>
         header.Count == expected.Length

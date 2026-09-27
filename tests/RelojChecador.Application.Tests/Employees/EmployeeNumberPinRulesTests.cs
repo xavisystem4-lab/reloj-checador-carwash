@@ -21,16 +21,4 @@ public class EmployeeNumberPinRulesTests
     [InlineData("12-A")]
     public void ToDevicePin_SinDigitosValidos_DevuelveNull(string? number) =>
         Assert.Null(EmployeeNumberPinRules.ToDevicePin(number));
-
-    [Fact]
-    public void NextNumber_SigueAlMayorEmpIgnorandoNumerosViejos() =>
-        Assert.Equal("EMP-055", EmployeeNumberPinRules.NextNumber(["EMP-001", "EMP-054", "12", "201", "EMP-009"]));
-
-    [Fact]
-    public void NextNumber_SinCatalogoEmp_EmpiezaEnUno() =>
-        Assert.Equal("EMP-001", EmployeeNumberPinRules.NextNumber(["12", "39"]));
-
-    [Fact]
-    public void NextNumber_RespetaAnchoMayorATres() =>
-        Assert.Equal("EMP-1000", EmployeeNumberPinRules.NextNumber(["EMP-999"]));
 }

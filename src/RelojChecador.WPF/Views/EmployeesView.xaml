@@ -45,12 +45,12 @@
                  marcaciones sin vincular a ningún empleado y deja elegir a quién con un
                  combo por fila (ver LinkUnresolvedPinsDialog). -->
             <Button Content="🔗 Vincular pendientes" Click="OnLinkUnresolvedPinsClick" Margin="0,0,8,0" />
-            <!-- Pedido explícito del usuario: "TRAER MARCACIONES DEL RELOJ AL SISTEMA por que hay
-                 empleados que no aparecen en el sistema pero sí checaron en el reloj físico" —
-                 descarga del reloj y ofrece reactivar/dar de alta a quien checó sin estar en el
-                 catálogo vigente (ver RecoverClockPunchesDialog). -->
-            <Button Content="📥 Traer marcaciones del reloj" Click="OnRecoverClockPunchesClick" Margin="0,0,8,0"
-                    ToolTip="Descarga las marcaciones del reloj y muestra a quienes checaron pero no aparecen en el sistema (dados de baja o sin empleado), para traerlos de vuelta." />
+            <!-- Pedido explícito del usuario: "un botón que diga traer registros del reloj al sistema
+                 que me traiga en empleados toda la lista actual". Lee los usuarios del reloj (PIN +
+                 nombre) y abre "Reemplazar catálogo" con esa lista, con vista previa antes de aplicar
+                 (ver EmployeesView.xaml.cs, OnImportFromClockClick). -->
+            <Button Content="📋 Traer registros del reloj al sistema" Click="OnImportFromClockClick" Margin="0,0,8,0"
+                    ToolTip="Lee la lista de personas del reloj (PIN y nombre), baja sus marcaciones y deja Empleados igual a esa lista. Primero muestra una vista previa; nada cambia hasta que confirmes." />
             <!-- Pedido explícito del usuario: "Quiero que los PIN coincidan con el número de
                  Empleado de todos los empleados" (EMP-012 → PIN 12). Abre el mismo
                  BulkRenumberDevicePinsDialog de Dispositivos → Usuarios del reloj. -->

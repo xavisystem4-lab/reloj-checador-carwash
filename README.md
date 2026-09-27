@@ -619,25 +619,31 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   cualquier cuenta aprobada leer `employees` completo (incluye sueldo) y a cualquier autenticado
   `payroll_deductions` — la web ya no muestra montos a cuentas 'user', pero la API sí los entrega;
   conviene cerrar el registro o restringir esas políticas.
-- **v1.69.0 — "Traer marcaciones del reloj" y "Coincidir PIN con número" en Empleados.**
-  (1) 📥 Traer marcaciones del reloj: conecta, descarga todo lo del reloj (igual que Actualizar en
-  Reportes) y lista los PINs cuyas marcaciones no ve nadie — sin empleado, o de un empleado DADO DE
-  BAJA. Causa real (Supabase, 23/09/2026): "Reemplazar catálogo" dio de baja a 11 personas que siguen
-  checando a diario (PINs 12, 19, 21, 39, 48, 52, 53, 55, 57, 58, 59; ~360 marcaciones) — sí se
-  descargaban, pero ninguna pantalla las mostraba y "Vincular pendientes" tampoco (sí tienen dueño).
-  Por fila: reactivar al empleado dado de baja con el siguiente número libre (EMP-055…, decisión del
-  usuario; conserva historial), dar de alta uno nuevo, o atribuirlo a un empleado vigente
-  (`DevicesViewModel.GetOrphanClockPinsAsync`/`ResolveOrphanClockPinAsync`). (2) 🔢 Coincidir PIN con
-  número: abre el mismo "Renumerar PINs" de Usuarios del reloj con PIN destino = dígitos del número
-  (EMP-012 → 12, `EmployeeNumberPinRules`; antes solo sugería si el número era todo dígitos, así que
-  con el catálogo EMP-xxx no sugería nada). Correcciones del renumerado: un PIN destino ocupado por
-  alguien que NO está en la lista caía en "ciclo" y dejaba a la persona para siempre en un PIN
-  temporal 9001+ (ahora se reporta sin tocarla); dos personas al mismo PIN se rechazan; un aparcado que
-  no llega a su destino regresa a su PIN original; un vínculo viejo en el PIN destino se quita ANTES de
-  mover la huella (antes el índice único fallaba DESPUÉS de moverla); y cada vínculo cambiado sube a
-  Supabase en el momento (el lote completo con una cadena A→B fallaba por el índice único).
-  `IUnitOfWork.DiscardPendingChanges` deshace un guardado fallido en el contexto compartido. Compilar
-  en Windows desde una copia hecha en macOS: `Directory.Build.props` excluye los `._*`.
+- **v1.69.0 — Reemplazar catálogo por PIN, "Traer registros del reloj al sistema" y "Coincidir PIN con número".**
+  (1) "Reemplazar catálogo" rechazaba como "no compatible" una lista de dos columnas "ID Empleado,
+  Nombre completo" (la lista de usuarios del reloj): ahora se reconoce (también "PIN"/"Número" y
+  "Nombre", y CSV con ";") y el ID es el número y el PIN. (2) Causa real (Supabase, 27/09/2026) de que
+  aún con el archivo aceptado el resultado fuera malo: cada persona tenía DOS registros — el vigente
+  ("EMP-001 · Adrian Uribe", con el PIN, las checadas y casi todos los sueldos) y uno viejo dado de
+  baja ("1 · Adrian Uribe Garcia", con el horario y la fecha de ingreso) — y el reemplazo emparejaba
+  por nombre EXACTO: reactivaba los 59 viejos y daba de baja a los 54 vigentes, dejando el reporte sin
+  checadas. Ahora las filas con PIN se resuelven con `EmployeeCatalogPinPlanner`: primero quien checa
+  con ese PIN, luego por nombre (`DeviceUserEmployeeMatcher`), y el registro viejo de la misma persona
+  se UNE al vigente (sus marcaciones pasan a él y completa los datos que le falten; queda dado de baja
+  con número "N-baja" y una nota). Las marcaciones de ese PIN sin dueño vigente también pasan a él —
+  eran las ~360 de 11 personas que "checaban pero no aparecían". Simulado con el archivo y los datos
+  reales: 46 se actualizan y unen, 13 se reactivan, 0 se crean, 8 se dan de baja (nunca han checado).
+  Un archivo con solo número y nombre ya no borra puesto ni departamento. Los números se cambian en
+  dos pasos con sincronización entre ellos (Employee.Number es único en Supabase y cada tabla se sube
+  en un solo lote). (3) Ningún PIN de catálogo se vinculaba: se exigía UN solo reloj en la sucursal
+  contando los deshabilitados (CAR-WASH tiene Checador + 5 de prueba). (4) 📋 Traer registros del reloj
+  al sistema (Empleados): conecta, baja marcaciones, lee los usuarios del reloj y abre la misma vista
+  previa con esa lista; un PIN "de relleno" de alguien que ya tiene su PIN real se omite. (5) 🔢
+  Coincidir PIN con número: abre "Renumerar PINs" con destino = dígitos del número (EMP-012 → 12);
+  el renumerado ya no deja a nadie en un PIN temporal 9001+ cuando el destino lo ocupa alguien fuera
+  de la lista, rechaza destinos duplicados, quita un vínculo viejo antes de mover la huella y sube
+  cada vínculo en el momento. `IUnitOfWork.DiscardPendingChanges` deshace un guardado fallido.
+  `Directory.Build.props` excluye los `._*` de macOS para compilar en Windows.
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Navegación completa de la UI (Fase 3 del diseño visual — Sucursales, Empleados,

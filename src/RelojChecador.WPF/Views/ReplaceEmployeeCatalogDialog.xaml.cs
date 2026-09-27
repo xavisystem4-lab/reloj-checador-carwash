@@ -27,11 +27,23 @@ public partial class ReplaceEmployeeCatalogDialog : Window
     private readonly EmployeesViewModel _viewModel;
     private string[]? _csvLines;
     private EmployeesViewModel.EmployeeCatalogReplacePreview? _preview;
+    private string? _sourceDescription;
 
     public ReplaceEmployeeCatalogDialog(EmployeesViewModel viewModel)
     {
         InitializeComponent();
         _viewModel = viewModel;
+    }
+
+    /// <summary>Abre el diálogo ya con un catálogo en la mano (sin elegir archivo) — lo usa "Traer
+    /// registros del reloj al sistema" con la lista de usuarios leída del reloj.</summary>
+    public ReplaceEmployeeCatalogDialog(EmployeesViewModel viewModel, IReadOnlyList<string> csvLines, string sourceDescription)
+        : this(viewModel)
+    {
+        _csvLines = [.. csvLines];
+        _sourceDescription = sourceDescription;
+        Title = "Traer registros del reloj al sistema";
+        Loaded += async (_, _) => await RecalculateAsync();
     }
 
     /// <summary>Genera un CSV de ejemplo con el encabezado exacto que espera este flujo
@@ -79,6 +91,7 @@ public partial class ReplaceEmployeeCatalogDialog : Window
         }
 
         _csvLines = lines;
+        _sourceDescription = $"Archivo: {Path.GetFileName(fileDialog.FileName)}";
         await RecalculateAsync();
     }
 
@@ -122,15 +135,17 @@ public partial class ReplaceEmployeeCatalogDialog : Window
             }
 
             var csvFileLines = File.ReadAllLines(filePath);
-            if (csvFileLines.Length == 0 || EmployeeCatalogSourceConverter.IsCanonicalHeader(CsvLineParser.SplitLine(csvFileLines[0])))
+            // Excel en español guarda los CSV con ";" — mismo criterio que EmployeeCatalogReplaceParser.
+            var delimiter = csvFileLines.Length == 0 ? ',' : CsvLineParser.DetectDelimiter(csvFileLines[0]);
+            if (csvFileLines.Length == 0 || EmployeeCatalogSourceConverter.IsCanonicalHeader(CsvLineParser.SplitLine(csvFileLines[0], delimiter)))
             {
                 lines = csvFileLines;
                 error = null;
                 return true;
             }
 
-            var header = CsvLineParser.SplitLine(csvFileLines[0]);
-            var rows = csvFileLines.Skip(1).Select(l => (IReadOnlyList<string?>)CsvLineParser.SplitLine(l)).ToList();
+            var header = CsvLineParser.SplitLine(csvFileLines[0], delimiter);
+            var rows = csvFileLines.Skip(1).Select(l => (IReadOnlyList<string?>)CsvLineParser.SplitLine(l, delimiter)).ToList();
             if (!EmployeeCatalogSourceConverter.TryConvert(header, rows, out var convertedCsv, out var csvConvertError))
             {
                 lines = null;
@@ -171,8 +186,12 @@ public partial class ReplaceEmployeeCatalogDialog : Window
     private void RenderPreview(EmployeesViewModel.EmployeeCatalogReplacePreview preview)
     {
         SummaryTextBlock.Text =
-            $"{preview.TotalRows} fila(s) leída(s) del archivo · {preview.ToCreate} se crearán · " +
-            $"{preview.ToUpdate} se actualizarán · {preview.ToRemove.Count} se darán de baja";
+            (_sourceDescription is null ? "" : _sourceDescription + "\n") +
+            $"{preview.TotalRows} fila(s) · {preview.ToCreate} se crearán · {preview.ToUpdate} se actualizarán" +
+            (preview.ToReactivate > 0 ? $" (de ellos {preview.ToReactivate} se reactivan)" : "") +
+            (preview.ToMerge > 0 ? $" · {preview.ToMerge} registro(s) viejo(s) se unen a su empleado" : "") +
+            (preview.ToSkip > 0 ? $" · {preview.ToSkip} fila(s) se omiten (repetidas)" : "") +
+            $" · {preview.ToRemove.Count} se darán de baja";
         SummaryTextBlock.Visibility = Visibility.Visible;
 
         if (preview.BranchesToCreate.Count > 0)
@@ -220,7 +239,9 @@ public partial class ReplaceEmployeeCatalogDialog : Window
             this,
             $"¿Aplicar el reemplazo de catálogo?\n\n" +
             $"• {_preview.ToCreate} empleado(s) nuevo(s)\n" +
-            $"• {_preview.ToUpdate} empleado(s) actualizado(s)\n" +
+            $"• {_preview.ToUpdate} empleado(s) actualizado(s)" +
+            (_preview.ToReactivate > 0 ? $", de ellos {_preview.ToReactivate} reactivado(s)" : "") + "\n" +
+            (_preview.ToMerge > 0 ? $"• {_preview.ToMerge} registro(s) viejo(s) unido(s) a su empleado (con sus marcaciones)\n" : "") +
             $"• {_preview.ToRemove.Count} empleado(s) dado(s) de baja\n\n" +
             "Dar de baja es reversible (queda oculto, no se borra — se puede volver a ver marcando " +
             "\"Mostrar dados de baja\"), pero afecta a mucha gente de una sola vez. Revisa la lista de " +
@@ -254,7 +275,10 @@ public partial class ReplaceEmployeeCatalogDialog : Window
             : "";
         MessageBox.Show(
             this,
-            $"Listo: {outcome.Created} nuevo(s), {outcome.Updated} actualizado(s), {outcome.Removed} dado(s) de baja.{branchesMessage}{pinMessage}{pinWarningsMessage}",
+            $"Listo: {outcome.Created} nuevo(s), {outcome.Updated} actualizado(s), {outcome.Removed} dado(s) de baja." +
+            (outcome.Merged > 0 ? $"\n{outcome.Merged} registro(s) viejo(s) unido(s) a su empleado." : "") +
+            (outcome.PunchesRecovered > 0 ? $"\n{outcome.PunchesRecovered} marcación(es) que no se veían ahora aparecen en su empleado." : "") +
+            $"{branchesMessage}{pinMessage}{pinWarningsMessage}",
             "Reemplazo completado", MessageBoxButton.OK, MessageBoxImage.Information);
 
         DialogResult = true;

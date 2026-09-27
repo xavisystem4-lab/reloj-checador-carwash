@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text.RegularExpressions;
 
 namespace RelojChecador.Application.Employees;
@@ -9,13 +8,8 @@ namespace RelojChecador.Application.Employees;
 /// izquierda).</summary>
 public static partial class EmployeeNumberPinRules
 {
-    private const string DefaultPrefix = "EMP-";
-
     [GeneratedRegex(@"^\D*(\d+)$")]
     private static partial Regex TrailingDigits();
-
-    [GeneratedRegex(@"^EMP-(\d+)$", RegexOptions.IgnoreCase)]
-    private static partial Regex PrefixedNumber();
 
     /// <summary>PIN que le corresponde a un Número: "EMP-012" → "12", "7" → "7". Null si el
     /// número no termina en dígitos ("ABC") o sus dígitos valen 0 (el reloj no acepta PIN 0).</summary>
@@ -34,25 +28,5 @@ public static partial class EmployeeNumberPinRules
 
         var pin = match.Groups[1].Value.TrimStart('0');
         return pin.Length == 0 ? null : pin;
-    }
-
-    /// <summary>Siguiente Número libre con el formato del catálogo actual ("EMP-055" si el
-    /// mayor es "EMP-054"). Recibe TODOS los números existentes, dados de baja incluidos —
-    /// el índice único de Employee.Number también los cuenta.</summary>
-    public static string NextNumber(IEnumerable<string> existingNumbers)
-    {
-        var max = 0;
-        var width = 3;
-        foreach (var number in existingNumbers)
-        {
-            var match = PrefixedNumber().Match(number.Trim());
-            if (match.Success && int.TryParse(match.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var value))
-            {
-                max = Math.Max(max, value);
-                width = Math.Max(width, match.Groups[1].Value.Length);
-            }
-        }
-
-        return DefaultPrefix + (max + 1).ToString(CultureInfo.InvariantCulture).PadLeft(width, '0');
     }
 }

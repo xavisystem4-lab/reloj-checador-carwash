@@ -21,10 +21,11 @@
         <TextBlock Grid.Row="0" Text="Reemplazar catálogo de empleados" FontSize="18" FontWeight="Bold" Margin="0,0,0,4" />
         <TextBlock Grid.Row="1" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource BrushTextSecondary}" Margin="0,0,0,10">
             A diferencia de "Importar desde CSV" (que solo agrega gente nueva), esto trata el archivo como
-            el catálogo COMPLETO: actualiza a quien ya existe y coincide por nombre, crea a quien es nuevo,
+            el catálogo COMPLETO: actualiza a quien ya existe, crea a quien es nuevo,
             y da de baja (lógica, nunca borra — conserva historial y vínculos al reloj) a quien ya no
-            aparece. La coincidencia es por NOMBRE EXACTO — revisa con cuidado la lista de "Se dará de baja"
-            antes de aplicar. Acepta un .csv con estas columnas:
+            aparece. Si la fila trae PIN, se empareja primero por el PIN del reloj y luego por nombre, y el registro
+            viejo dado de baja de esa misma persona se une al vigente (sus marcaciones pasan a él); sin PIN, por NOMBRE
+            EXACTO. Revisa la columna "Corresponde a" y la lista de "Se dará de baja" antes de aplicar. Acepta un .csv con estas columnas:
             Number,FullName,Area,Position,HireDate,Status,WeeklySalary,OvertimeHourlyRate,Notes,Pin,Department
             (HireDate en AAAA-MM-DD o DD/MM/AAAA, opcional; Status "Activo"/"Inactivo", opcional = Activo; Pin solo
             dígitos, opcional — si viene, vincula a esa persona con el reloj de su sucursal y, al darle
@@ -33,6 +34,7 @@
             sucursal/ubicación original al fusionar varias en una sola).
             También acepta directo el Excel maestro del negocio (.xlsx, hoja "Registro Empleados") o un .csv
             exportado de esa misma hoja — se convierte automáticamente al formato de arriba antes de procesarlo.
+            O una lista de dos columnas "ID Empleado, Nombre completo" (el ID es el número y el PIN del reloj).
         </TextBlock>
 
         <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,10">
@@ -76,12 +78,19 @@
                         <DataGridTextColumn Header="Acción" Binding="{Binding Action}" Width="80" />
                         <DataGridTextColumn Header="Número" Binding="{Binding Row.Number}" Width="80" />
                         <DataGridTextColumn Header="Nombre" Binding="{Binding Row.FullName}" Width="*" />
+                        <DataGridTextColumn Header="Corresponde a" Binding="{Binding MatchText}" Width="150" />
                         <DataGridTextColumn Header="Sucursal" Binding="{Binding Row.Area}" Width="120" />
                         <DataGridTextColumn Header="Puesto" Binding="{Binding Row.Position}" Width="110" />
                         <DataGridTextColumn Header="Ingreso" Binding="{Binding Row.HireDate, StringFormat='{}{0:dd/MM/yyyy}'}" Width="90" />
                         <DataGridTextColumn Header="Estado" Binding="{Binding Row.Status}" Width="70" />
                         <DataGridTextColumn Header="PIN" Binding="{Binding Row.Pin}" Width="60" />
-                        <DataGridTextColumn Header="Alertas" Binding="{Binding AlertsText}" Width="180" />
+                        <DataGridTextColumn Header="Alertas" Binding="{Binding AlertsText}" Width="240">
+                            <DataGridTextColumn.ElementStyle>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="TextWrapping" Value="Wrap" />
+                                </Style>
+                            </DataGridTextColumn.ElementStyle>
+                        </DataGridTextColumn>
                     </DataGrid.Columns>
                 </DataGrid>
             </DockPanel>

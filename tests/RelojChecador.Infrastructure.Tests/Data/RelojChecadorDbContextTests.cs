@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using RelojChecador.Domain.EmployeeDeviceMappings;
 using RelojChecador.Domain.Employees;
 using RelojChecador.Infrastructure.Data.Repositories;
 
@@ -44,5 +45,38 @@ public class RelojChecadorDbContextTests : IClassFixture<SqliteInMemoryFixture>
         var numbers = (await new EfEmployeeRepository(readContext).ListAsync())
             .Select(e => e.Number.Value).Where(n => n.StartsWith("DPC-")).Order().ToList();
         Assert.Equal(["DPC-1", "DPC-2", "DPC-4"], numbers);
+    }
+
+    /// <summary>Lo que hace "Reemplazar catálogo" al unir registros: en UN solo guardado se quita
+    /// el PIN "de relleno" de alguien y se le pasa el PIN real que era de su registro viejo —
+    /// ambos índices únicos (reloj, empleado) y (reloj, PIN) deben respetarse.</summary>
+    [Fact]
+    public async Task QuitarPinDeRelleno_YReasignarPinReal_EnUnSoloGuardado()
+    {
+        var deviceId = Guid.NewGuid();
+        var current = Emp("MAP-1", "Antony Beltran");
+        var old = Emp("MAP-2", "Antony Salvador Beltran Garcia");
+        var placeholder = EmployeeDeviceMapping.Create(current.Id, deviceId, "69");
+        var real = EmployeeDeviceMapping.Create(old.Id, deviceId, "9");
+
+        using (var setup = _fixture.CreateContext())
+        {
+            setup.AddRange(current, old, placeholder, real);
+            await setup.SaveChangesAsync();
+        }
+
+        using (var context = _fixture.CreateContext())
+        {
+            var repository = new EfEmployeeDeviceMappingRepository(context);
+            await repository.RemoveAsync((await repository.GetByIdAsync(placeholder.Id))!);
+            (await repository.GetByIdAsync(real.Id))!.ReassignEmployee(current.Id);
+            await context.SaveChangesAsync();
+        }
+
+        using var readContext = _fixture.CreateContext();
+        var mappings = (await new EfEmployeeDeviceMappingRepository(readContext).ListAsync()).Where(m => m.DeviceId == deviceId).ToList();
+        var mapping = Assert.Single(mappings);
+        Assert.Equal(current.Id, mapping.EmployeeId);
+        Assert.Equal("9", mapping.DeviceUserPin);
     }
 }
