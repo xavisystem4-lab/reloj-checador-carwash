@@ -83,7 +83,7 @@ public partial class ReplaceEmployeeCatalogDialog : Window
             return;
         }
 
-        if (!TryLoadFile(fileDialog.FileName, out var lines, out var error))
+        if (!TryLoadFile(fileDialog.FileName, out var lines, out var formatDescription, out var error))
         {
             _csvLines = null;
             ShowErrors([error!]);
@@ -91,15 +91,17 @@ public partial class ReplaceEmployeeCatalogDialog : Window
         }
 
         _csvLines = lines;
-        _sourceDescription = $"Archivo: {Path.GetFileName(fileDialog.FileName)}";
+        _sourceDescription = $"Archivo: {Path.GetFileName(fileDialog.FileName)}" +
+            (formatDescription is null ? "" : $"\n{formatDescription}");
         await RecalculateAsync();
     }
 
     /// <summary>Deja el archivo elegido en líneas de CSV con el encabezado canónico, sin
     /// importar si venía ya así, como un .csv con otro encabezado reconocido, o como .xlsx —
     /// ver comentario de clase.</summary>
-    private static bool TryLoadFile(string filePath, out string[]? lines, out string? error)
+    private static bool TryLoadFile(string filePath, out string[]? lines, out string? formatDescription, out string? error)
     {
+        formatDescription = null;
         var isExcel = string.Equals(Path.GetExtension(filePath), ".xlsx", StringComparison.OrdinalIgnoreCase);
 
         try
@@ -122,7 +124,7 @@ public partial class ReplaceEmployeeCatalogDialog : Window
                     return true;
                 }
 
-                if (!EmployeeCatalogSourceConverter.TryConvert(excelHeader, excelRows, out var converted, out var convertError))
+                if (!EmployeeCatalogSourceConverter.TryConvert(excelHeader, excelRows, out var converted, out formatDescription, out var convertError))
                 {
                     lines = null;
                     error = convertError;
@@ -134,7 +136,7 @@ public partial class ReplaceEmployeeCatalogDialog : Window
                 return true;
             }
 
-            var csvFileLines = File.ReadAllLines(filePath);
+            var csvFileLines = ReadAllLinesDetectingEncoding(filePath);
             // Excel en español guarda los CSV con ";" — mismo criterio que EmployeeCatalogReplaceParser.
             var delimiter = csvFileLines.Length == 0 ? ',' : CsvLineParser.DetectDelimiter(csvFileLines[0]);
             if (csvFileLines.Length == 0 || EmployeeCatalogSourceConverter.IsCanonicalHeader(CsvLineParser.SplitLine(csvFileLines[0], delimiter)))
@@ -144,9 +146,30 @@ public partial class ReplaceEmployeeCatalogDialog : Window
                 return true;
             }
 
-            var header = CsvLineParser.SplitLine(csvFileLines[0], delimiter);
-            var rows = csvFileLines.Skip(1).Select(l => (IReadOnlyList<string?>)CsvLineParser.SplitLine(l, delimiter)).ToList();
-            if (!EmployeeCatalogSourceConverter.TryConvert(header, rows, out var convertedCsv, out var csvConvertError))
+            // Igual que en Excel: el encabezado puede no estar en la primera línea (un título o
+            // renglones de instrucciones arriba). Se busca en las primeras 15.
+            var headerLineIndex = 0;
+            for (var i = 0; i < Math.Min(15, csvFileLines.Length); i++)
+            {
+                if (!string.IsNullOrWhiteSpace(csvFileLines[i]) &&
+                    EmployeeCatalogSourceConverter.IsRecognizedHeader(CsvLineParser.SplitLine(csvFileLines[i], CsvLineParser.DetectDelimiter(csvFileLines[i]))))
+                {
+                    headerLineIndex = i;
+                    delimiter = CsvLineParser.DetectDelimiter(csvFileLines[i]);
+                    break;
+                }
+            }
+
+            var header = CsvLineParser.SplitLine(csvFileLines[headerLineIndex], delimiter);
+            if (headerLineIndex > 0 && EmployeeCatalogSourceConverter.IsCanonicalHeader(header))
+            {
+                lines = csvFileLines[headerLineIndex..];
+                error = null;
+                return true;
+            }
+
+            var rows = csvFileLines.Skip(headerLineIndex + 1).Select(l => (IReadOnlyList<string?>)CsvLineParser.SplitLine(l, delimiter)).ToList();
+            if (!EmployeeCatalogSourceConverter.TryConvert(header, rows, out var convertedCsv, out formatDescription, out var csvConvertError))
             {
                 lines = null;
                 error = csvConvertError;
@@ -163,6 +186,25 @@ public partial class ReplaceEmployeeCatalogDialog : Window
             error = $"No se pudo leer el archivo: {ex.Message}";
             return false;
         }
+    }
+
+    /// <summary>Excel en español guarda "CSV (delimitado por comas)" en ANSI (Windows-1252), no
+    /// en UTF-8 — leído como UTF-8, "Peña" o "García" llegarían con "�" y ya no coincidirían con
+    /// nadie. Si el archivo no es UTF-8 válido, se lee como Latin-1 (mismos acentos y ñ).</summary>
+    private static string[] ReadAllLinesDetectingEncoding(string filePath)
+    {
+        var bytes = File.ReadAllBytes(filePath);
+        string text;
+        try
+        {
+            text = new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true).GetString(bytes);
+        }
+        catch (System.Text.DecoderFallbackException)
+        {
+            text = System.Text.Encoding.Latin1.GetString(bytes);
+        }
+
+        return text.TrimStart('\uFEFF').Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
     }
 
     private async void OnRecalculateClick(object sender, RoutedEventArgs e) => await RecalculateAsync();

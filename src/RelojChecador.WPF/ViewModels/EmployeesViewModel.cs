@@ -803,6 +803,141 @@ public sealed partial class EmployeesViewModel : ObservableObject
         }
     }
 
+    /// <summary>"🔍 Buscar repetidos": todos los registros (también los dados de baja) que parecen
+    /// la misma persona — ver <see cref="EmployeeDuplicateFinder"/>.</summary>
+    public async Task<IReadOnlyList<DuplicateGroup>> FindDuplicatesAsync()
+    {
+        var employees = await _employeeRepository.ListAsync();
+        var employeesWithPin = (await _mappingRepository.ListAsync()).Select(m => m.EmployeeId).ToHashSet();
+        var candidates = new List<DuplicateCandidate>(employees.Count);
+        foreach (var employee in employees)
+        {
+            var punches = (await _attendanceRepository.ListByEmployeeAsync(employee.Id)).Count;
+            candidates.Add(new DuplicateCandidate(employee, punches, employeesWithPin.Contains(employee.Id)));
+        }
+
+        return EmployeeDuplicateFinder.Find(candidates);
+    }
+
+    /// <summary>Qué hacer con un grupo de repetidos: conservar <paramref name="KeeperId"/> (con el
+    /// nombre <paramref name="FullName"/>) y eliminar <paramref name="RemoveIds"/>.</summary>
+    public sealed record DuplicateMergeRequest(Guid KeeperId, IReadOnlyList<Guid> RemoveIds, string FullName);
+
+    public sealed record DuplicateMergeOutcome(
+        int Deleted, int PunchesMoved, int PinsMoved, int DeductionsDeleted, bool CloudCleaned, string? Error)
+    {
+        public bool Success => Error is null;
+    }
+
+    /// <summary>Elimina los repetidos SIN perder nada: a quien se queda le pasan las marcaciones de
+    /// los demás, sus PINs (en los relojes donde él no tenga uno) y los datos que le falten
+    /// (horario, sueldo, puesto, teléfono, ...); después el repetido se BORRA de verdad (local y,
+    /// si hay nube, también de Supabase). Sus deducciones de nómina se borran (no se pueden
+    /// traspasar sin chocar con las de la misma semana). Todo en un solo guardado.</summary>
+    public async Task<DuplicateMergeOutcome> MergeDuplicatesAsync(IReadOnlyList<DuplicateMergeRequest> requests)
+    {
+        var deletedIds = new List<Guid>();
+        var removedMappingIds = new List<Guid>();
+        var punchesMoved = 0;
+        var pinsMoved = 0;
+        var deductionsDeleted = 0;
+        try
+        {
+            var allMappings = (await _mappingRepository.ListAsync()).ToList();
+            foreach (var request in requests)
+            {
+                var keeper = await _employeeRepository.GetByIdAsync(request.KeeperId);
+                if (keeper is null)
+                {
+                    continue;
+                }
+
+                var keeperDevices = allMappings.Where(m => m.EmployeeId == keeper.Id).Select(m => m.DeviceId).ToHashSet();
+                foreach (var removeId in request.RemoveIds.Where(id => id != keeper.Id).Distinct())
+                {
+                    var duplicate = await _employeeRepository.GetByIdAsync(removeId);
+                    if (duplicate is null)
+                    {
+                        continue;
+                    }
+
+                    MergeMissingData(keeper, duplicate);
+                    if (keeper.Status == EmploymentStatus.Terminated && duplicate.Status != EmploymentStatus.Terminated)
+                    {
+                        keeper.ChangeStatus(duplicate.Status); // se queda el registro, pero vigente
+                    }
+
+                    foreach (var attendance in await _attendanceRepository.ListByEmployeeAsync(duplicate.Id))
+                    {
+                        attendance.ReconcileEmployee(keeper.Id, keeper.BranchId);
+                        punchesMoved++;
+                    }
+
+                    foreach (var mapping in allMappings.Where(m => m.EmployeeId == duplicate.Id).ToList())
+                    {
+                        var tracked = await _mappingRepository.GetByIdAsync(mapping.Id);
+                        if (tracked is null)
+                        {
+                            continue;
+                        }
+
+                        if (keeperDevices.Add(tracked.DeviceId))
+                        {
+                            tracked.ReassignEmployee(keeper.Id); // su PIN pasa a quien se queda
+                            pinsMoved++;
+                        }
+                        else
+                        {
+                            await _mappingRepository.RemoveAsync(tracked); // quien se queda ya tiene PIN en ese reloj
+                            removedMappingIds.Add(tracked.Id);
+                        }
+                        allMappings.Remove(mapping);
+                    }
+
+                    foreach (var deduction in await _payrollDeductionRepository.ListByEmployeeAsync(duplicate.Id))
+                    {
+                        await _payrollDeductionRepository.RemoveAsync(deduction);
+                        deductionsDeleted++;
+                    }
+
+                    await _employeeRepository.RemoveAsync(duplicate);
+                    deletedIds.Add(duplicate.Id);
+                }
+
+                var fullName = string.Join(' ', (request.FullName ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries));
+                if (fullName.Length > 0 && fullName != keeper.FullName)
+                {
+                    keeper.UpdatePersonalInfo(fullName, keeper.Department, keeper.Position);
+                }
+            }
+
+            await _unitOfWork.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            _unitOfWork.DiscardPendingChanges();
+            Log.Error(ex, "Error al eliminar empleados repetidos.");
+            return new DuplicateMergeOutcome(0, 0, 0, 0, false,
+                ex is DomainException ? ex.Message : "Ocurrió un error inesperado al guardar. No se cambió nada. Revisa el registro de errores.");
+        }
+
+        // Nube: primero se suben las marcaciones y PINs ya traspasados, luego se borran allá los
+        // repetidos (si no, sus checadas en Supabase impedirían borrarlos).
+        var cloudCleaned = true;
+        if (_syncService.IsCloudConfigured && deletedIds.Count > 0)
+        {
+            if (removedMappingIds.Count > 0)
+            {
+                await _syncService.TryDeleteMappingsRemoteAsync(removedMappingIds);
+            }
+            cloudCleaned = await _syncService.TriggerSyncNowAsync()
+                && await _syncService.TryDeleteEmployeesRemoteAsync(deletedIds);
+        }
+
+        await ReloadAsync();
+        return new DuplicateMergeOutcome(deletedIds.Count, punchesMoved, pinsMoved, deductionsDeleted, cloudCleaned, null);
+    }
+
     /// <summary>Una fila ya parseada (EmployeeImportRow) cruzada contra la base local
     /// real: si su sucursal existe o hay que crearla, si su número ya está en uso. Forma
     /// de UI — <see cref="RelojChecador.Application.Employees.EmployeeImportRow"/> es
@@ -1048,11 +1183,12 @@ public sealed partial class EmployeesViewModel : ObservableObject
     public async Task<EmployeeCatalogReplacePreview> PrepareCatalogReplacePreviewAsync(
         IReadOnlyList<string> csvLines, IReadOnlyList<string> protectedNames)
     {
+        var employees = await _employeeRepository.ListAsync();
+        csvLines = FillMissingCatalogNumbers(csvLines, employees);
         var parseResult = EmployeeCatalogReplaceParser.Parse(csvLines);
 
         var branches = await _branchRepository.ListAsync();
         var existingBranchNames = branches.Select(b => b.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var employees = await _employeeRepository.ListAsync();
         var mappings = await _mappingRepository.ListAsync();
         var devices = await _deviceRepository.ListAsync();
 
@@ -1115,6 +1251,16 @@ public sealed partial class EmployeesViewModel : ObservableObject
             {
                 match = null; // ya lo tomó otra fila
             }
+
+            // Sin coincidencia exacta: "Adrian Uribe Garcia" en el archivo ↔ "Adrian Uribe" en el
+            // sistema (o al revés). Solo si hay UN único candidato vigente — si no, se crea y
+            // después "Buscar repetidos" lo resuelve (v1.70.0: antes esto creaba un repetido).
+            if (match is null && FindUniqueLookAlike(row.FullName, employees, matchedEmployeeIds) is { } lookAlike)
+            {
+                matchedEmployeeIds.Add(lookAlike.Id);
+                match = lookAlike;
+                row = row with { Alerts = [.. row.Alerts, $"Nombre parecido: se toma como {lookAlike.Number.Value} · {lookAlike.FullName}."] };
+            }
             previewRows.Add(new EmployeeCatalogPreviewRow(row, match, branchExists));
         }
 
@@ -1148,8 +1294,88 @@ public sealed partial class EmployeesViewModel : ObservableObject
         return enabled.Count == 1 ? enabled[0] : null;
     }
 
-    private static string NormalizeName(string name) =>
-        string.Join(' ', name.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries));
+    /// <summary>Sin mayúsculas, acentos ni espacios de más ("José Peña" = "JOSE PENA") — antes solo
+    /// colapsaba espacios, y un archivo guardado sin acentos no reconocía a nadie (v1.70.0).</summary>
+    private static string NormalizeName(string name) => DeviceUserEmployeeMatcher.NormalizeName(name);
+
+    /// <summary>El único empleado vigente (no dado de baja, no tomado ya) cuyo nombre "se parece"
+    /// al del archivo: todas las palabras del más corto (mínimo dos) están, en orden, en el más
+    /// largo. Si hay cero o más de uno, null — nunca se adivina entre varios.</summary>
+    private static Employee? FindUniqueLookAlike(string fullName, IReadOnlyList<Employee> employees, ISet<Guid> taken)
+    {
+        var words = NormalizeName(fullName).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var candidates = employees
+            .Where(e => e.Status != EmploymentStatus.Terminated && !taken.Contains(e.Id))
+            .Where(e =>
+            {
+                var other = NormalizeName(e.FullName).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                return Math.Min(words.Length, other.Length) >= 2 && DeviceUserEmployeeMatcher.NamesLookAlike(fullName, e.FullName);
+            })
+            .Take(2)
+            .ToList();
+        return candidates.Count == 1 ? candidates[0] : null;
+    }
+
+    /// <summary>Un archivo reconocido automáticamente puede no traer número de empleado (ni PIN):
+    /// el convertidor lo deja vacío y aquí se completa — el número que ya tiene quien existe con
+    /// ese nombre (el vigente primero), o el siguiente "EMP-###" libre para alguien nuevo. Así
+    /// reemplazar el catálogo nunca le cambia el número a nadie por no venir en el archivo.
+    /// Solo aplica al catálogo canónico (Number en la 1.ª columna, FullName en la 2.ª).</summary>
+    private static IReadOnlyList<string> FillMissingCatalogNumbers(IReadOnlyList<string> csvLines, IReadOnlyList<Employee> employees)
+    {
+        if (csvLines.Count < 2 || !csvLines[0].StartsWith("Number,FullName,", StringComparison.Ordinal))
+        {
+            return csvLines;
+        }
+
+        var numberByName = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var employee in employees.OrderBy(e => e.Status == EmploymentStatus.Terminated))
+        {
+            numberByName.TryAdd(NormalizeName(employee.FullName), employee.Number.Value);
+        }
+
+        var used = employees.Select(e => e.Number.Value).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var line in csvLines.Skip(1))
+        {
+            var number = CsvLineParser.SplitLine(line, ',').FirstOrDefault()?.Trim();
+            if (!string.IsNullOrEmpty(number))
+            {
+                used.Add(number);
+            }
+        }
+
+        var next = used
+            .Select(n => n.StartsWith("EMP-", StringComparison.OrdinalIgnoreCase) && int.TryParse(n[4..], out var value) ? value : 0)
+            .DefaultIfEmpty(0).Max() + 1;
+
+        var result = new List<string>(csvLines.Count) { csvLines[0] };
+        foreach (var line in csvLines.Skip(1))
+        {
+            var fields = CsvLineParser.SplitLine(line, ',');
+            if (fields.Length < 2 || fields[0].Trim().Length > 0 || fields[1].Trim().Length == 0)
+            {
+                result.Add(line);
+                continue;
+            }
+
+            var number = numberByName.TryGetValue(NormalizeName(fields[1]), out var existingNumber)
+                ? existingNumber
+                : FindUniqueLookAlike(fields[1], employees, new HashSet<Guid>())?.Number.Value;
+            if (number is null)
+            {
+                do
+                {
+                    number = $"EMP-{next++:000}";
+                }
+                while (!used.Add(number));
+            }
+
+            fields[0] = number;
+            result.Add(string.Join(",", fields.Select(CsvEscape)));
+        }
+
+        return result;
+    }
 
     public sealed record EmployeeCatalogReplaceOutcome(
         int Created, int Updated, int Removed, int Linked, IReadOnlyList<string> BranchesCreated,

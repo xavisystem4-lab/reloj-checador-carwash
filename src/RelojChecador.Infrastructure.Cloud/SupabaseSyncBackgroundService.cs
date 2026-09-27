@@ -159,6 +159,43 @@ public sealed class SupabaseSyncBackgroundService(
         }
     }
 
+    /// <summary>Borra de Supabase empleados ya eliminados en la app ("Buscar repetidos", v1.70.0),
+    /// junto con lo que en la nube todavía los referencie: sus deducciones de nómina y sus
+    /// vínculos de PIN (las llaves foráneas de Supabase impiden borrar un empleado referenciado).
+    /// Sus marcaciones NO se borran: quien llama debe haber sincronizado ANTES
+    /// (<see cref="TriggerSyncNowAsync"/>), para que allá ya apunten al empleado que se quedó. Si
+    /// aun así alguna marcación de la nube lo referencia, el borrado falla y se reporta — el
+    /// empleado queda en la nube, pero nunca se pierde una checada. No lanza.</summary>
+    public async Task<bool> TryDeleteEmployeesRemoteAsync(
+        IReadOnlyList<Guid> employeeIds, CancellationToken cancellationToken = default)
+    {
+        if (employeeIds.Count == 0)
+        {
+            return true;
+        }
+
+        if (!options.IsConfigured)
+        {
+            return false;
+        }
+
+        try
+        {
+            using var scope = scopeFactory.CreateScope();
+            var restClient = scope.ServiceProvider.GetRequiredService<SupabaseRestClient>();
+            var ids = string.Join(",", employeeIds);
+            await restClient.DeleteAsync("payroll_deductions", $"employee_id=in.({ids})", cancellationToken);
+            await restClient.DeleteAsync("employee_device_mappings", $"employee_id=in.({ids})", cancellationToken);
+            await restClient.DeleteAsync("employees", $"id=in.({ids})", cancellationToken);
+            return true;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "No se pudieron borrar en Supabase {Count} empleado(s) eliminados en la app.", employeeIds.Count);
+            return false;
+        }
+    }
+
     /// <summary>Borra directamente en Supabase las filas de asistencia con estos ids — pedido
     /// explícito del usuario: "podemos borrar en el sistema y que también mande la señal al
     /// sitio web". Única excepción DELIBERADA al resto de este motor (push-only, nunca

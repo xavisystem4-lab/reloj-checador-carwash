@@ -344,6 +344,24 @@ public partial class EmployeesView : UserControl
         }
     }
 
+    private async void OnFindDuplicatesClick(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not EmployeesViewModel viewModel)
+        {
+            return;
+        }
+
+        var groups = await viewModel.FindDuplicatesAsync();
+        if (groups.Count == 0)
+        {
+            MessageBox.Show(Window.GetWindow(this), "No hay empleados repetidos. ✅", "Buscar repetidos",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        new DuplicateEmployeesDialog(viewModel, groups) { Owner = Window.GetWindow(this) }.ShowDialog();
+    }
+
     private void OnDeleteEmployeesClick(object sender, RoutedEventArgs e)
     {
         if (DataContext is not EmployeesViewModel viewModel)

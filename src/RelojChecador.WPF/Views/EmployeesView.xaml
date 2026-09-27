@@ -33,6 +33,9 @@
                  archivo como el catálogo COMPLETO (actualiza/crea/da de baja), pedido
                  explícito tras subir un catálogo más completo. -->
             <Button Content="🔁 Reemplazar catálogo" Click="OnReplaceCatalogClick" Margin="0,0,8,0" />
+            <!-- v1.70.0, pedido explícito del usuario: "un botón que busque los nombres y apellidos
+                 repetidos y con un click eliminarlos" — ver DuplicateEmployeesDialog. -->
+            <Button Content="🔍 Buscar repetidos" Click="OnFindDuplicatesClick" Margin="0,0,8,0" />
             <!-- El atajo de "Exportar plantilla" que vivía aquí se quitó a pedido explícito
                  del usuario (quedaba redundante junto a "Exportar catálogo") — el original
                  sigue disponible dentro de "Reemplazar catálogo". Exporta los datos REALES

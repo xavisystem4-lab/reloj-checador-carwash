@@ -652,6 +652,24 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   (`CloseApplications=force` como respaldo) y (2) `App.OnExit` termina con `Environment.Exit` para que
   el proceso no quede colgado. Importante: el arreglo del instalador aplica desde el instalador 1.69.1,
   así que actualizar desde 1.69.0 ya funciona sin pasos manuales.
+- **v1.70.0 — "Reemplazar catálogo" reconoce cualquier lista de empleados, y "🔍 Buscar repetidos".**
+  (1) Un CSV o Excel con otro formato ya no se rechaza: `EmployeeCatalogGenericConverter` reconoce
+  las columnas por su nombre (lista cerrada de sinónimos en español/inglés, sin distinguir
+  mayúsculas ni acentos: "No. Empleado", "Nombre(s)" + "Apellido Paterno/Materno", "Puesto",
+  "Sueldo semanal", "Fecha de ingreso", "Estatus", ...) y lo adapta al catálogo; lo que no reconoce
+  se ignora y se avisa en la vista previa (nunca se adivina por parecido). Nombres en MAYÚSCULAS se
+  pasan a "Nombre Propio", "APELLIDOS, NOMBRE" se voltea, fechas DD/MM/AAAA y sueldos con "$" y
+  comas se limpian; sexo/nacimiento/teléfono/RFC/CURP/NSS van a Notas. Si el archivo no trae número,
+  se conserva el de quien ya existe (o se asigna el siguiente EMP-### libre). El encabezado se busca
+  también en CSV con título arriba, y un CSV guardado en ANSI por Excel se lee con sus acentos.
+  (2) Al reemplazar, quien no coincide exacto pero se parece a UN solo empleado vigente
+  ("Adrian Uribe Garcia" ↔ "Adrian Uribe") se toma como él en vez de crear un repetido; la
+  comparación de nombres ya no distingue acentos. (3) 🔍 Buscar repetidos (Empleados): agrupa
+  registros con el mismo nombre o donde uno es la versión corta del otro, sugiere cuál se queda
+  (vigente, con más marcaciones, con PIN) y "Eliminar repetidos" lo aplica de un clic: marcaciones,
+  PIN y datos faltantes pasan al que se queda, se le deja el nombre más completo y los repetidos se
+  borran — también de Supabase (`TryDeleteEmployeesRemoteAsync`, después de sincronizar). Grupos
+  donde podría haber dos personas distintas se muestran como "⚠ Revisar" y no se marcan solos.
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Navegación completa de la UI (Fase 3 del diseño visual — Sucursales, Empleados,

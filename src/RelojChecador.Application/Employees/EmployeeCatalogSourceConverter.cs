@@ -70,7 +70,8 @@ public static class EmployeeCatalogSourceConverter
     /// busca la fila de encabezado dentro de un archivo (p. ej. ExcelCatalogReader, que tiene
     /// que saltarse título/instrucciones antes de llegar a la fila real de encabezados).</summary>
     public static bool IsRecognizedHeader(IReadOnlyList<string> header) =>
-        IsCanonicalHeader(header) || IsRegistroEmpleadosHeader(header) || IsPinListHeader(header);
+        IsCanonicalHeader(header) || IsRegistroEmpleadosHeader(header) || IsPinListHeader(header)
+        || EmployeeCatalogGenericConverter.IsRecognizableHeader(header);
 
     /// <summary>Lista corta "ID Empleado, Nombre completo" — pedido explícito del usuario
     /// ("tengo un archivo CSV, quiero reemplazar ... pero el sistema dice que no es compatible").
@@ -108,11 +109,21 @@ public static class EmployeeCatalogSourceConverter
     /// responsabilidad de quien arma <paramref name="rows"/>, no de esta clase.</summary>
     public static bool TryConvert(
         IReadOnlyList<string> header, IReadOnlyList<IReadOnlyList<string?>> rows,
-        out IReadOnlyList<string> csvLines, out string? error)
+        out IReadOnlyList<string> csvLines, out string? error) =>
+        TryConvert(header, rows, out csvLines, out _, out error);
+
+    /// <summary>Igual que la otra sobrecarga, más <paramref name="description"/>: qué formato se
+    /// reconoció (y, en el formato libre, qué columna fue a dónde y cuáles se ignoraron) — para
+    /// mostrarlo en la vista previa y que no sea una caja negra.</summary>
+    public static bool TryConvert(
+        IReadOnlyList<string> header, IReadOnlyList<IReadOnlyList<string?>> rows,
+        out IReadOnlyList<string> csvLines, out string? description, out string? error)
     {
+        description = null;
         if (IsRegistroEmpleadosHeader(header))
         {
             csvLines = ConvertFromRegistroEmpleados(rows);
+            description = "Formato reconocido: hoja \"Registro Empleados\" del Excel maestro.";
             error = null;
             return true;
         }
@@ -120,12 +131,19 @@ public static class EmployeeCatalogSourceConverter
         if (IsPinListHeader(header))
         {
             csvLines = FromPinList(rows.Select(r => (Cell(r, 0), Cell(r, 1))));
+            description = "Formato reconocido: lista de usuarios del reloj (PIN + nombre).";
             error = null;
             return true;
         }
 
+        // Cualquier otra lista de empleados: se reconocen sus columnas por nombre (v1.70.0).
+        if (EmployeeCatalogGenericConverter.TryConvert(header, rows, out csvLines, out description, out error))
+        {
+            return true;
+        }
+
         csvLines = [];
-        error = $"El archivo no coincide con ningún formato reconocido (su encabezado es: {string.Join(", ", header)}). " +
+        error = error ?? $"El archivo no coincide con ningún formato reconocido (su encabezado es: {string.Join(", ", header)}). " +
             "Formatos aceptados: el catálogo de reemplazo (Number,FullName,Area,...), la hoja \"Registro Empleados\" " +
             "del Excel maestro, o una lista de dos columnas \"ID Empleado, Nombre completo\".";
         return false;
