@@ -644,6 +644,14 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   de la lista, rechaza destinos duplicados, quita un vínculo viejo antes de mover la huella y sube
   cada vínculo en el momento. `IUnitOfWork.DiscardPendingChanges` deshace un guardado fallido.
   `Directory.Build.props` excluye los `._*` de macOS para compilar en Windows.
+- **v1.69.1 — "Actualizar versión" ya no se atora en "no pudo cerrar las aplicaciones".**
+  El instalador se quedaba en "Preparándose para instalar → RelojChecador.WPF" y luego "no pudo cerrar
+  de forma automática todas las aplicaciones": la app llamaba `Shutdown()` pero el proceso podía seguir
+  vivo sin ventana, y el Restart Manager de Windows no puede cerrar un proceso sin ventana. Ahora (1) el
+  instalador termina el proceso con `taskkill` en `PrepareToInstall` antes de revisar archivos en uso
+  (`CloseApplications=force` como respaldo) y (2) `App.OnExit` termina con `Environment.Exit` para que
+  el proceso no quede colgado. Importante: el arreglo del instalador aplica desde el instalador 1.69.1,
+  así que actualizar desde 1.69.0 ya funciona sin pasos manuales.
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Navegación completa de la UI (Fase 3 del diseño visual — Sucursales, Empleados,

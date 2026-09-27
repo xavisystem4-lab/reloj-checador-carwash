@@ -240,5 +240,12 @@ public partial class App : System.Windows.Application
 
         _host?.Dispose();
         base.OnExit(e);
+
+        // Garantiza que el PROCESO termine al cerrar la app (v1.69.1). Sin esto, algún hilo en
+        // primer plano (p. ej. el COM de 32 bits de zkemkeeper o un ciclo de sincronización) podía
+        // dejar RelojChecador.WPF.exe vivo sin ventana — invisible para el usuario, pero con el .exe
+        // bloqueado, y el instalador de "Actualizar versión" fallaba con "no pudo cerrar de forma
+        // automática todas las aplicaciones". Todo lo importante ya se cerró arriba.
+        Environment.Exit(e.ApplicationExitCode);
     }
 }

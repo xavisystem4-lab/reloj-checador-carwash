@@ -19,7 +19,7 @@
 ; propio Assembly.GetEntryAssembly().Version contra la última versión en GitHub Releases,
 ; así que si estos dos números se desincronizan, el auto-actualizador queda mostrando
 ; una versión incorrecta aunque el instalador esté bien.
-#define MyAppVersion "1.69.0"
+#define MyAppVersion "1.69.1"
 #define MyAppPublisher "Carwash Mexicali"
 #define MyAppExeName "RelojChecador.WPF.exe"
 #define MyPublishDir "publish"
@@ -60,6 +60,15 @@ SetupIconFile=..\src\RelojChecador.WPF\Assets\AppIcon.ico
 ; Setup exige BMP para estos dos, no acepta PNG directo.
 WizardImageFile=assets\WizardImage.bmp
 WizardSmallImageFile=assets\WizardSmallImage.bmp
+
+; Actualizar con la app abierta (v1.69.1): el botón "Actualizar versión" lanza este instalador y
+; llama Application.Shutdown(), pero el proceso RelojChecador.WPF.exe podía quedar vivo unos
+; segundos (o indefinidamente) SIN ventana — el Restart Manager de Windows solo sabe cerrar apps
+; enviándoles un mensaje a su ventana, así que el instalador se quedaba en "no pudo cerrar de forma
+; automática todas las aplicaciones". Ahora PrepareToInstall ([Code] abajo) termina el proceso a la
+; fuerza ANTES de que Setup revise archivos en uso; CloseApplications=force queda como respaldo.
+CloseApplications=force
+RestartApplications=no
 
 [Languages]
 Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
@@ -112,3 +121,22 @@ Filename: "{sys}\regsvr32.exe"; Parameters: "/s /u ""{app}\zkemkeeper.dll"""; Fl
 ; configuración) al desinstalar — es información del negocio, no basura de la app.
 ; Si algún día se necesita una desinstalación completa, agregar aquí un paso explícito
 ; y confirmado por el usuario, nunca por defecto.
+
+[Code]
+// Termina cualquier instancia de la app (incluida una que quedó "colgada" sin ventana tras
+// Application.Shutdown()) para que Setup pueda reemplazar el .exe. Corre ya elevado
+// (PrivilegesRequired=admin), así que taskkill /F puede terminar el proceso aunque sea de otro
+// usuario de la sesión. Se reintenta unas veces porque Windows tarda en liberar el archivo.
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  ResultCode, I: Integer;
+begin
+  Result := '';
+  for I := 1 to 3 do
+  begin
+    Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /T /IM {#MyAppExeName}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    // 128 = no había ningún proceso con ese nombre: ya no hay nada que cerrar.
+    if ResultCode = 128 then Break;
+    Sleep(1000);
+  end;
+end;
