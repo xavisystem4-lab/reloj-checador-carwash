@@ -14,6 +14,7 @@ using RelojChecador.Domain.Common;
 using RelojChecador.Domain.Devices;
 using RelojChecador.Domain.EmployeeDeviceMappings;
 using RelojChecador.Domain.Employees;
+using RelojChecador.Infrastructure.Cloud;
 using Serilog;
 
 namespace RelojChecador.WPF.ViewModels;
@@ -92,6 +93,7 @@ public sealed partial class EmployeesViewModel : ObservableObject
     private readonly IAttendanceRepository _attendanceRepository;
     private readonly IPayrollDeductionRepository _payrollDeductionRepository;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly SupabaseSyncBackgroundService _syncService;
 
     private IReadOnlyList<EmployeeRow> _allRows = [];
 
@@ -135,7 +137,8 @@ public sealed partial class EmployeesViewModel : ObservableObject
     public EmployeesViewModel(
         IEmployeeRepository employeeRepository, IBranchRepository branchRepository, IDeviceRepository deviceRepository,
         IEmployeeDeviceMappingRepository mappingRepository, IAttendanceRepository attendanceRepository,
-        IPayrollDeductionRepository payrollDeductionRepository, IUnitOfWork unitOfWork)
+        IPayrollDeductionRepository payrollDeductionRepository, IUnitOfWork unitOfWork,
+        SupabaseSyncBackgroundService syncService)
     {
         _employeeRepository = employeeRepository;
         _branchRepository = branchRepository;
@@ -144,6 +147,7 @@ public sealed partial class EmployeesViewModel : ObservableObject
         _attendanceRepository = attendanceRepository;
         _payrollDeductionRepository = payrollDeductionRepository;
         _unitOfWork = unitOfWork;
+        _syncService = syncService;
     }
 
     /// <summary>Carga inicial de la pantalla, y también lo que llama el botón "🔄
@@ -974,14 +978,30 @@ public sealed partial class EmployeesViewModel : ObservableObject
     // registro que quiero actualmente". Ver EmployeeCatalogReplaceParser para el formato.
     // ─────────────────────────────────────────────────────────────────────────
 
-    public sealed record EmployeeCatalogPreviewRow(EmployeeCatalogRow Row, Employee? ExistingMatch, bool BranchExists)
+    /// <param name="Absorbed">Registros viejos dados de baja de esta misma persona que se unen a
+    /// ella (ver EmployeeCatalogPinPlanner).</param>
+    /// <param name="SkipReason">No null = la fila no se aplica (es la misma persona que otra fila).</param>
+    /// <param name="DeviceId">Reloj donde se vincula el PIN de la fila, si se pudo resolver.</param>
+    public sealed record EmployeeCatalogPreviewRow(
+        EmployeeCatalogRow Row, Employee? ExistingMatch, bool BranchExists,
+        IReadOnlyList<Employee>? Absorbed = null, string? SkipReason = null, Guid? DeviceId = null)
     {
-        public bool WillCreate => ExistingMatch is null;
-        public string Action => WillCreate ? "Crear" : "Actualizar";
+        public IReadOnlyList<Employee> AbsorbedEmployees => Absorbed ?? [];
+        public bool Skip => SkipReason is not null;
+        public bool WillCreate => ExistingMatch is null && !Skip;
+        public bool WillReactivate => ExistingMatch is { Status: EmploymentStatus.Terminated } && !Skip;
+
+        public string Action => Skip ? "Omitir" : WillCreate ? "Crear" : WillReactivate ? "Reactivar" : "Actualizar";
+
+        /// <summary>A quién del sistema corresponde la fila — para revisar la vista previa.</summary>
+        public string MatchText => ExistingMatch is { } e ? $"{e.Number.Value} · {e.FullName}" : "";
 
         public IReadOnlyList<string> AllAlerts =>
         [
+            .. SkipReason is null ? [] : (string[]) [SkipReason],
             .. Row.Alerts,
+            .. AbsorbedEmployees.Select(a =>
+                $"Se une con {a.Number.Value} · {a.FullName} (baja): sus marcaciones y los datos que falten pasan aquí."),
             .. BranchExists ? [] : (string[]) [$"Se creará la sucursal \"{Row.Area}\"."],
         ];
 
@@ -1004,57 +1024,97 @@ public sealed partial class EmployeesViewModel : ObservableObject
     {
         public int TotalRows => Rows.Count;
         public int ToCreate => Rows.Count(r => r.WillCreate);
-        public int ToUpdate => Rows.Count(r => !r.WillCreate);
+        public int ToUpdate => Rows.Count(r => !r.WillCreate && !r.Skip);
+        public int ToReactivate => Rows.Count(r => r.WillReactivate);
+        public int ToSkip => Rows.Count(r => r.Skip);
+        public int ToMerge => Rows.Sum(r => r.AbsorbedEmployees.Count);
     }
 
-    /// <summary>Arma la vista previa completa: parsea el archivo, cruza cada fila contra la
-    /// base local por NOMBRE COMPLETO (no por número — el catálogo nuevo trae su propia
-    /// numeración, que puede no coincidir con la que ya está en uso), y calcula quién NO
-    /// aparece en el archivo y por lo tanto se daría de baja. La coincidencia es por nombre
-    /// EXACTO (normalizado: espacios colapsados, sin distinguir mayúsculas) a propósito —
-    /// nunca intenta adivinar con coincidencia parcial (dos personas distintas podrían
-    /// compartir un nombre de pila) — por eso la vista previa existe: revisa "Se dará de
-    /// baja" con cuidado antes de aplicar, sobre todo si un nombre en la base es más corto
-    /// que el del archivo nuevo (p. ej. "Nathalia" vs "Nathalia Trujillo Figueroa" NO
-    /// coinciden solos, hay que protegerlo a mano si no se quiere dar de baja el registro
-    /// viejo).
+    /// <summary>Arma la vista previa completa: parsea el archivo, decide a qué empleado
+    /// corresponde cada fila, y calcula quién NO aparece en el archivo y por lo tanto se daría
+    /// de baja. No toca la base de datos, solo la consulta.
+    ///
+    /// Filas CON PIN (y un solo reloj habilitado en su sucursal): se resuelven por PIN y luego por
+    /// nombre (EmployeeCatalogPinPlanner) — el reloj es la fuente de verdad y cada persona tenía
+    /// dos registros (el vigente con el PIN y las checadas, y uno viejo dado de baja con el
+    /// nombre completo); el viejo se une al vigente en vez de reactivarse aparte. Filas SIN PIN:
+    /// por nombre EXACTO (normalizado: espacios colapsados, sin distinguir mayúsculas),
+    /// prefiriendo al vigente — nunca adivina con coincidencia parcial, por eso existe la vista
+    /// previa.
     ///
     /// <paramref name="protectedNames"/>: nombres que deben conservarse tal cual aunque no
     /// estén en el archivo — p. ej. alguien dado de alta directo en el reloj que nunca pasó
-    /// por ningún catálogo. No toca la base de datos, solo la consulta.</summary>
+    /// por ningún catálogo.</summary>
     public async Task<EmployeeCatalogReplacePreview> PrepareCatalogReplacePreviewAsync(
         IReadOnlyList<string> csvLines, IReadOnlyList<string> protectedNames)
     {
         var parseResult = EmployeeCatalogReplaceParser.Parse(csvLines);
 
-        var existingBranchNames = (await _branchRepository.ListAsync())
-            .Select(b => b.Name)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var branches = await _branchRepository.ListAsync();
+        var existingBranchNames = branches.Select(b => b.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var employees = await _employeeRepository.ListAsync();
+        var mappings = await _mappingRepository.ListAsync();
+        var devices = await _deviceRepository.ListAsync();
 
-        var existingByName = new Dictionary<string, Employee>(StringComparer.OrdinalIgnoreCase);
-        foreach (var row in _allRows)
+        // 1) Filas con PIN, por reloj.
+        var planByIndex = new Dictionary<int, (CatalogPinPlan Plan, Guid DeviceId)>();
+        var pinRowsByDevice = parseResult.Rows
+            .Select((row, index) => (Row: row, Index: index, Device: ResolveCatalogDevice(row.Area, branches, devices)))
+            .Where(x => !string.IsNullOrWhiteSpace(x.Row.Pin) && x.Device is not null)
+            .GroupBy(x => x.Device!.Id);
+        foreach (var group in pinRowsByDevice)
         {
-            existingByName.TryAdd(NormalizeName(row.Employee.FullName), row.Employee);
+            var ownerByPin = mappings.Where(m => m.DeviceId == group.Key).ToDictionary(m => m.DeviceUserPin, m => m.EmployeeId);
+            var pinsWithPunches = await _attendanceRepository.ListPinsWithAttendancesAsync(group.Key);
+            var plans = EmployeeCatalogPinPlanner.Plan(
+                [.. group.Select(x => new CatalogPinRow(x.Index, x.Row.Number, x.Row.FullName, x.Row.Pin!))],
+                employees, ownerByPin, pinsWithPunches);
+            foreach (var plan in plans)
+            {
+                planByIndex[plan.Row.Index] = (plan, group.Key);
+            }
         }
 
-        var matchedEmployeeIds = new HashSet<Guid>();
+        var matchedEmployeeIds = planByIndex.Values
+            .SelectMany(p => p.Plan.Absorbed.Select(a => a.Id).Append(p.Plan.Survivor?.Id ?? Guid.Empty))
+            .Where(id => id != Guid.Empty)
+            .ToHashSet();
+
+        // 2) Filas sin PIN: por nombre exacto, el vigente primero.
+        var existingByName = new Dictionary<string, Employee>(StringComparer.OrdinalIgnoreCase);
+        foreach (var employee in employees.OrderBy(e => e.Status == EmploymentStatus.Terminated))
+        {
+            existingByName.TryAdd(NormalizeName(employee.FullName), employee);
+        }
+
         var previewRows = new List<EmployeeCatalogPreviewRow>();
         var branchesToCreate = new List<string>();
-
-        foreach (var row in parseResult.Rows)
+        for (var index = 0; index < parseResult.Rows.Count; index++)
         {
-            existingByName.TryGetValue(NormalizeName(row.FullName), out var match);
-            if (match is not null)
-            {
-                matchedEmployeeIds.Add(match.Id);
-            }
-
+            var row = parseResult.Rows[index];
             var branchExists = existingBranchNames.Contains(row.Area);
             if (!branchExists && !branchesToCreate.Contains(row.Area, StringComparer.OrdinalIgnoreCase))
             {
                 branchesToCreate.Add(row.Area);
             }
 
+            if (planByIndex.TryGetValue(index, out var planned))
+            {
+                var plan = planned.Plan;
+                var skipReason = plan.Resolution == CatalogPinResolution.SkipDuplicate
+                    ? $"Es la misma persona que el PIN {parseResult.Rows[plan.DuplicateOfIndex!.Value].Pin}: esta fila se omite " +
+                      "(si es un PIN de relleno, bórralo desde Dispositivos → Usuarios del reloj)."
+                    : null;
+                previewRows.Add(new EmployeeCatalogPreviewRow(
+                    row, plan.Survivor, branchExists, plan.Absorbed, skipReason, planned.DeviceId));
+                continue;
+            }
+
+            existingByName.TryGetValue(NormalizeName(row.FullName), out var match);
+            if (match is not null && !matchedEmployeeIds.Add(match.Id))
+            {
+                match = null; // ya lo tomó otra fila
+            }
             previewRows.Add(new EmployeeCatalogPreviewRow(row, match, branchExists));
         }
 
@@ -1073,35 +1133,95 @@ public sealed partial class EmployeesViewModel : ObservableObject
         return new EmployeeCatalogReplacePreview(previewRows, toRemove, parseResult.Errors, branchesToCreate);
     }
 
+    /// <summary>El reloj donde vincular el PIN de una fila: el ÚNICO reloj habilitado de su
+    /// sucursal. Antes se contaban también los deshabilitados — CAR-WASH tiene "Checador" más 5
+    /// relojes de prueba deshabilitados, así que ningún PIN de ningún catálogo se vinculaba.</summary>
+    private static Device? ResolveCatalogDevice(string area, IReadOnlyList<Branch> branches, IReadOnlyList<Device> devices)
+    {
+        var branch = branches.FirstOrDefault(b => string.Equals(b.Name, area, StringComparison.OrdinalIgnoreCase));
+        if (branch is null)
+        {
+            return null;
+        }
+
+        var enabled = devices.Where(d => d.BranchId == branch.Id && d.Status != DeviceStatus.Disabled).ToList();
+        return enabled.Count == 1 ? enabled[0] : null;
+    }
+
     private static string NormalizeName(string name) =>
         string.Join(' ', name.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries));
 
     public sealed record EmployeeCatalogReplaceOutcome(
         int Created, int Updated, int Removed, int Linked, IReadOnlyList<string> BranchesCreated,
-        IReadOnlyList<string> PinWarnings, string? Error)
+        IReadOnlyList<string> PinWarnings, string? Error, int Merged = 0, int PunchesRecovered = 0)
     {
         public bool Success => Error is null;
     }
 
     /// <summary>Ejecuta el reemplazo real: crea sucursales que hagan falta, luego
-    /// actualiza/crea cada fila del catálogo (vinculando su PIN al reloj de su sucursal si
-    /// la fila trae uno — ver más abajo), y por último da de baja a quien no apareció —
-    /// todo en un solo SaveChangesAsync, así que si algo falla a mitad de camino no queda
-    /// nada a medias. Actualizar NUNCA borra un sueldo/tarifa ya capturado solo porque el
-    /// archivo nuevo no lo trae (se conserva el valor existente en ese caso) — mismo
-    /// criterio de "null nunca sobreescribe un dato real" que el resto del proyecto.
+    /// actualiza/crea cada fila del catálogo (uniendo los registros viejos de la misma persona y
+    /// vinculando su PIN al reloj — ver más abajo), y por último da de baja a quien no apareció.
+    /// Actualizar NUNCA borra un dato ya capturado solo porque el archivo nuevo no lo trae
+    /// (sueldo, puesto, departamento, horario…) — mismo criterio de "null nunca sobreescribe un
+    /// dato real" que el resto del proyecto; así una lista corta de solo número y nombre no borra
+    /// nada.
+    ///
+    /// Se guarda en DOS pasos: primero se liberan los números que el archivo le da a otra persona
+    /// (el registro viejo "1 · Adrian Uribe Garcia" pasa a "1-baja" para que el vigente pueda
+    /// tomar el "1") y se sube a la nube, y luego todo lo demás. En Supabase Employee.Number es
+    /// único y cada tabla se sube en UN solo lote: con ambos cambios en el mismo lote, el
+    /// resultado dependería del orden de las filas y podría fallar en cada ciclo para siempre.
     ///
     /// El PIN de la fila solo crea/corrige el vínculo LOCAL (EmployeeDeviceMapping) — nunca
-    /// se conecta a ningún dispositivo físico aquí (este flujo no tiene por qué depender de
-    /// tener el reloj conectado). Para que el PIN llegue de verdad al reloj, "Enviar
-    /// empleados al reloj" (Empleados) ahora revisa TODOS los vínculos existentes de esa
-    /// sucursal — no solo a quien nunca tuvo vínculo — y sube al dispositivo a cualquiera
-    /// que el reloj real todavía no tenga, sin importar si el vínculo vino de aquí, de
-    /// "Vincular a dispositivo" a mano, o de un envío automático anterior.</summary>
+    /// se conecta a ningún dispositivo físico aquí. Para que el PIN llegue de verdad al reloj,
+    /// "Enviar empleados al reloj" sube a cualquiera que el reloj real todavía no tenga.</summary>
     public async Task<EmployeeCatalogReplaceOutcome> ApplyCatalogReplaceAsync(EmployeeCatalogReplacePreview preview)
     {
+        var rows = preview.Rows.Where(r => !r.Skip).ToList();
+        var renamed = new List<(Employee Employee, EmployeeNumber Original)>();
         try
         {
+            // ── Paso 1: liberar los números que el archivo le asigna a otra persona. ──
+            var allEmployees = await _employeeRepository.ListAsync();
+            var intendedOwnerByNumber = new Dictionary<string, Guid?>(StringComparer.OrdinalIgnoreCase);
+            foreach (var row in rows)
+            {
+                intendedOwnerByNumber.TryAdd(row.Row.Number, row.ExistingMatch?.Id);
+            }
+            var survivorIds = rows.Where(r => r.ExistingMatch is not null).Select(r => r.ExistingMatch!.Id).ToHashSet();
+            var goingAwayIds = rows.SelectMany(r => r.AbsorbedEmployees).Select(a => a.Id)
+                .Concat(preview.ToRemove.Select(r => r.Employee.Id))
+                .ToHashSet();
+            var usedNumbers = allEmployees.Select(e => e.Number.Value).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var employee in allEmployees)
+            {
+                if (!intendedOwnerByNumber.TryGetValue(employee.Number.Value, out var intendedOwner) || intendedOwner == employee.Id)
+                {
+                    continue;
+                }
+
+                var suffix = survivorIds.Contains(employee.Id) ? "-tmp"
+                    : employee.Status == EmploymentStatus.Terminated || goingAwayIds.Contains(employee.Id) ? "-baja"
+                    : "-anterior";
+                var freed = UniqueEmployeeNumber(employee.Number.Value, suffix, usedNumbers);
+                renamed.Add((employee, employee.Number));
+                employee.ChangeNumber(EmployeeNumber.Create(freed));
+            }
+
+            if (renamed.Count > 0)
+            {
+                await _unitOfWork.SaveChangesAsync();
+                if (_syncService.IsCloudConfigured && !await _syncService.TriggerSyncNowAsync())
+                {
+                    await RevertRenamedNumbersAsync(renamed);
+                    return new EmployeeCatalogReplaceOutcome(0, 0, 0, 0, [], [],
+                        "No se pudo sincronizar con la nube (¿sin internet?) antes de cambiar los números de empleado. " +
+                        "No se cambió nada — revisa la conexión y vuelve a aplicar.");
+                }
+            }
+
+            // ── Paso 2: todo lo demás, en un solo guardado. ──
             var branchIdsByName = BuildBranchIdsByName(await _branchRepository.ListAsync());
 
             var branchesCreated = new List<string>();
@@ -1119,32 +1239,37 @@ public sealed partial class EmployeesViewModel : ObservableObject
                 branchesCreated.Add(areaName);
             }
 
-            // Devices por sucursal — para resolver "a cuál reloj vincular el PIN de esta
-            // fila" cuando la trae. Solo se resuelve sin ambigüedad si la sucursal tiene
-            // EXACTAMENTE un dispositivo; si tiene 0 o 2+, se reporta como advertencia (no
-            // como error que aborte todo el reemplazo) y esa fila en particular se queda
-            // sin vincular — el resto del archivo sigue su curso normal.
+            // Solo relojes habilitados — ver ResolveCatalogDevice.
             var devicesByBranch = (await _deviceRepository.ListAsync())
+                .Where(d => d.Status != DeviceStatus.Disabled)
                 .GroupBy(d => d.BranchId)
                 .ToDictionary(g => g.Key, g => g.ToList());
 
-            // Estado de vínculos ya existentes, mutable a lo largo de todo el reemplazo —
-            // varias filas del mismo archivo pueden interactuar entre sí (p. ej. dos
-            // personas que "intercambian" PIN), así que se actualiza en memoria en cada
-            // vuelta, no solo se lee una vez al principio.
+            // Estado de vínculos, mutable a lo largo de todo el reemplazo — varias filas del mismo
+            // archivo pueden interactuar entre sí, así que se actualiza en memoria en cada vuelta.
             var existingMappings = (await _mappingRepository.ListAsync()).ToList();
-            var mappingByDeviceAndEmployee = existingMappings
-                .ToDictionary(m => (m.DeviceId, m.EmployeeId), m => m);
-            var pinOwnerByDeviceAndPin = existingMappings
-                .ToDictionary(m => (m.DeviceId, m.DeviceUserPin), m => m.EmployeeId);
+            var mappingByDeviceAndEmployee = existingMappings.ToDictionary(m => (m.DeviceId, m.EmployeeId), m => m);
+            var mappingByDeviceAndPin = existingMappings.ToDictionary(m => (m.DeviceId, m.DeviceUserPin), m => m);
+            var removedMappingIds = new List<Guid>();
+            var employeesById = allEmployees.ToDictionary(e => e.Id);
+
+            async Task RemoveMappingAsync(EmployeeDeviceMapping mapping)
+            {
+                mappingByDeviceAndEmployee.Remove((mapping.DeviceId, mapping.EmployeeId));
+                mappingByDeviceAndPin.Remove((mapping.DeviceId, mapping.DeviceUserPin));
+                await _mappingRepository.RemoveAsync(mapping);
+                removedMappingIds.Add(mapping.Id);
+            }
 
             var today = DateOnly.FromDateTime(DateTime.Now);
             var created = 0;
             var updated = 0;
             var linked = 0;
+            var merged = 0;
+            var punchesRecovered = 0;
             var pinWarnings = new List<string>();
 
-            foreach (var previewRow in preview.Rows)
+            foreach (var previewRow in rows)
             {
                 var row = previewRow.Row;
                 var branchId = branchIdsByName[row.Area];
@@ -1169,6 +1294,7 @@ public sealed partial class EmployeesViewModel : ObservableObject
                         employee.UpdateSchedule(row.ScheduledStartTime, row.ScheduledEndTime);
                     }
                     await _employeeRepository.AddAsync(employee);
+                    employeesById[employee.Id] = employee;
                     created++;
                 }
                 else
@@ -1177,9 +1303,8 @@ public sealed partial class EmployeesViewModel : ObservableObject
                         ?? throw new InvalidOperationException(
                             $"No se encontró a \"{row.FullName}\" — la lista pudo haber cambiado. Cierra este diálogo y vuelve a intentar.");
 
-                    // Department vacío en el archivo NO borra uno ya capturado — mismo
-                    // criterio "null nunca sobreescribe un dato real" que WeeklySalary/HireDate.
-                    employee.UpdatePersonalInfo(row.FullName, row.Department ?? employee.Department, row.Position);
+                    // Puesto/Departamento vacíos en el archivo NO borran lo ya capturado.
+                    employee.UpdatePersonalInfo(row.FullName, row.Department ?? employee.Department, row.Position ?? employee.Position);
                     if (row.HireDate is { } hireDate)
                     {
                         employee.UpdateHireDate(hireDate);
@@ -1203,16 +1328,10 @@ public sealed partial class EmployeesViewModel : ObservableObject
                     {
                         employee.UpdateNotes(row.Notes);
                     }
-                    // Igual que Department: un archivo que no trae horario para esta fila
-                    // NUNCA borra uno ya capturado a mano en Empleados — "null nunca
-                    // sobreescribe un dato real".
                     if (row.ScheduledStartTime is not null && row.ScheduledEndTime is not null)
                     {
                         employee.UpdateSchedule(row.ScheduledStartTime, row.ScheduledEndTime);
                     }
-                    // Igual que arriba: si el archivo no dice nada de horario especial
-                    // (null), se deja tal cual estaba — nunca se borra un "Sí" ya capturado
-                    // a mano solo por reimportar un catálogo con un formato más viejo.
                     if (row.HasSpecialSchedule is { } hasSpecialSchedule)
                     {
                         employee.SetSpecialSchedule(hasSpecialSchedule);
@@ -1220,47 +1339,116 @@ public sealed partial class EmployeesViewModel : ObservableObject
                     updated++;
                 }
 
+                // Registros viejos de la misma persona: completan lo que le falte y le pasan sus
+                // marcaciones; ellos se quedan dados de baja, con una nota de a quién se unieron.
+                foreach (var absorbedPreview in previewRow.AbsorbedEmployees)
+                {
+                    var absorbed = await _employeeRepository.GetByIdAsync(absorbedPreview.Id);
+                    if (absorbed is null)
+                    {
+                        continue;
+                    }
+
+                    MergeMissingData(employee, absorbed);
+                    foreach (var attendance in await _attendanceRepository.ListByEmployeeAsync(absorbed.Id))
+                    {
+                        attendance.ReconcileEmployee(employee.Id, employee.BranchId);
+                        punchesRecovered++;
+                    }
+                    if (absorbed.Status != EmploymentStatus.Terminated)
+                    {
+                        absorbed.ChangeStatus(EmploymentStatus.Terminated);
+                    }
+                    absorbed.UpdateNotes(string.Join(" | ", new[] { absorbed.Notes,
+                        $"Unido a {employee.Number.Value} · {employee.FullName} al reemplazar el catálogo ({today:dd/MM/yyyy})." }
+                        .Where(n => !string.IsNullOrWhiteSpace(n))));
+                    merged++;
+                }
+
                 if (string.IsNullOrWhiteSpace(row.Pin))
                 {
                     continue;
                 }
 
-                if (!devicesByBranch.TryGetValue(branchId, out var branchDevices) || branchDevices.Count != 1)
+                Guid deviceId;
+                if (previewRow.DeviceId is { } plannedDeviceId)
                 {
-                    pinWarnings.Add(branchDevices is null or { Count: 0 }
-                        ? $"\"{row.FullName}\": PIN {row.Pin} no se vinculó — su sucursal (\"{row.Area}\") no tiene ningún reloj registrado."
-                        : $"\"{row.FullName}\": PIN {row.Pin} no se vinculó — su sucursal (\"{row.Area}\") tiene varios relojes, vincúlalo a mano desde Empleados.");
-                    continue;
+                    deviceId = plannedDeviceId;
                 }
-
-                var deviceId = branchDevices[0].Id;
-
-                if (pinOwnerByDeviceAndPin.TryGetValue((deviceId, row.Pin), out var pinOwnerId) && pinOwnerId != employee.Id)
+                else if (devicesByBranch.TryGetValue(branchId, out var branchDevices) && branchDevices.Count == 1)
                 {
-                    pinWarnings.Add($"\"{row.FullName}\": PIN {row.Pin} ya lo usa otro empleado en ese reloj — no se vinculó, elige un PIN distinto.");
-                    continue;
-                }
-
-                if (mappingByDeviceAndEmployee.TryGetValue((deviceId, employee.Id), out var existingMapping))
-                {
-                    if (existingMapping.DeviceUserPin != row.Pin)
-                    {
-                        var trackedMapping = await _mappingRepository.GetByIdAsync(existingMapping.Id)
-                            ?? throw new InvalidOperationException(
-                                $"No se encontró el vínculo de \"{row.FullName}\" — la lista pudo haber cambiado. Cierra este diálogo y vuelve a intentar.");
-                        pinOwnerByDeviceAndPin.Remove((deviceId, existingMapping.DeviceUserPin));
-                        trackedMapping.UpdatePin(row.Pin);
-                        pinOwnerByDeviceAndPin[(deviceId, row.Pin)] = employee.Id;
-                        linked++;
-                    }
+                    deviceId = branchDevices[0].Id;
                 }
                 else
                 {
-                    var newMapping = EmployeeDeviceMapping.Create(employee.Id, deviceId, row.Pin);
-                    await _mappingRepository.AddAsync(newMapping);
-                    mappingByDeviceAndEmployee[(deviceId, employee.Id)] = newMapping;
-                    pinOwnerByDeviceAndPin[(deviceId, row.Pin)] = employee.Id;
+                    pinWarnings.Add(branchDevices is null or { Count: 0 }
+                        ? $"\"{row.FullName}\": PIN {row.Pin} no se vinculó — su sucursal (\"{row.Area}\") no tiene ningún reloj habilitado."
+                        : $"\"{row.FullName}\": PIN {row.Pin} no se vinculó — su sucursal (\"{row.Area}\") tiene varios relojes habilitados, vincúlalo a mano desde Empleados.");
+                    continue;
+                }
+
+                // El PIN: si lo tiene alguien que se va (dado de baja, unido o que no está en el
+                // archivo) se le pasa a esta persona; si lo tiene otra persona del archivo, no.
+                if (mappingByDeviceAndPin.TryGetValue((deviceId, row.Pin), out var pinMapping) && pinMapping.EmployeeId != employee.Id)
+                {
+                    var ownerStays = survivorIds.Contains(pinMapping.EmployeeId) && !goingAwayIds.Contains(pinMapping.EmployeeId);
+                    if (ownerStays)
+                    {
+                        pinWarnings.Add($"\"{row.FullName}\": PIN {row.Pin} ya lo usa otro empleado del archivo en ese reloj — no se vinculó, elige un PIN distinto.");
+                        continue;
+                    }
+
+                    if (mappingByDeviceAndEmployee.TryGetValue((deviceId, employee.Id), out var ownOtherMapping))
+                    {
+                        await RemoveMappingAsync(ownOtherMapping); // su PIN "de relleno"
+                    }
+
+                    var tracked = await _mappingRepository.GetByIdAsync(pinMapping.Id)
+                        ?? throw new InvalidOperationException($"No se encontró el vínculo del PIN {row.Pin}. Vuelve a intentar.");
+                    mappingByDeviceAndEmployee.Remove((deviceId, tracked.EmployeeId));
+                    tracked.ReassignEmployee(employee.Id);
+                    mappingByDeviceAndEmployee[(deviceId, employee.Id)] = tracked;
                     linked++;
+                }
+                else if (pinMapping is null)
+                {
+                    if (mappingByDeviceAndEmployee.TryGetValue((deviceId, employee.Id), out var existingMapping))
+                    {
+                        var tracked = await _mappingRepository.GetByIdAsync(existingMapping.Id)
+                            ?? throw new InvalidOperationException($"No se encontró el vínculo de \"{row.FullName}\". Vuelve a intentar.");
+                        mappingByDeviceAndPin.Remove((deviceId, tracked.DeviceUserPin));
+                        tracked.UpdatePin(row.Pin);
+                        mappingByDeviceAndPin[(deviceId, row.Pin)] = tracked;
+                    }
+                    else
+                    {
+                        var newMapping = EmployeeDeviceMapping.Create(employee.Id, deviceId, row.Pin);
+                        await _mappingRepository.AddAsync(newMapping);
+                        mappingByDeviceAndEmployee[(deviceId, employee.Id)] = newMapping;
+                        mappingByDeviceAndPin[(deviceId, row.Pin)] = newMapping;
+                    }
+                    linked++;
+                }
+
+                // Marcaciones de ese PIN que no son de nadie vigente (sin dueño, o de alguien dado
+                // de baja) — las que "checaron en el reloj pero no aparecían en el sistema".
+                foreach (var attendance in await _attendanceRepository.ListByDeviceAndPinAsync(deviceId, row.Pin))
+                {
+                    if (attendance.EmployeeId == employee.Id)
+                    {
+                        continue;
+                    }
+
+                    var ownerStays = attendance.EmployeeId is { } ownerId && survivorIds.Contains(ownerId) && !goingAwayIds.Contains(ownerId);
+                    var ownerActive = attendance.EmployeeId is { } id && employeesById.TryGetValue(id, out var owner)
+                        && owner.Status != EmploymentStatus.Terminated && !goingAwayIds.Contains(id);
+                    if (ownerStays || ownerActive)
+                    {
+                        continue;
+                    }
+
+                    attendance.ReconcileEmployee(employee.Id, employee.BranchId);
+                    punchesRecovered++;
                 }
             }
 
@@ -1277,23 +1465,112 @@ public sealed partial class EmployeesViewModel : ObservableObject
             }
 
             await _unitOfWork.SaveChangesAsync();
+
+            // Los vínculos quitados se borran también de la nube (la sincronización solo sube, nunca
+            // borra); si falla, allá queda una fila huérfana que no afecta a la app.
+            if (removedMappingIds.Count > 0 && _syncService.IsCloudConfigured &&
+                !await _syncService.TryDeleteMappingsRemoteAsync(removedMappingIds))
+            {
+                Log.Warning("No se pudieron borrar en Supabase {Count} vínculo(s) quitados al reemplazar el catálogo.", removedMappingIds.Count);
+            }
+            _ = _syncService.TriggerSyncNowAsync();
+
             await ReloadAsync();
-            return new EmployeeCatalogReplaceOutcome(created, updated, removed, linked, branchesCreated, pinWarnings, Error: null);
-        }
-        catch (DomainException ex)
-        {
-            return new EmployeeCatalogReplaceOutcome(0, 0, 0, 0, [], [], ex.Message);
-        }
-        catch (DbUpdateException ex)
-        {
-            Log.Warning(ex, "No se pudo aplicar el reemplazo de catálogo de empleados.");
-            return new EmployeeCatalogReplaceOutcome(0, 0, 0, 0, [], [],
-                "No se pudo guardar — revisa que no haya números de empleado duplicados dentro del archivo ni contra alguien que ya existe.");
+            return new EmployeeCatalogReplaceOutcome(
+                created, updated, removed, linked, branchesCreated, pinWarnings, Error: null, merged, punchesRecovered);
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "Error inesperado al reemplazar el catálogo de empleados.");
-            return new EmployeeCatalogReplaceOutcome(0, 0, 0, 0, [], [], "Ocurrió un error inesperado al guardar. Revisa el registro de errores.");
+            _unitOfWork.DiscardPendingChanges();
+            await RevertRenamedNumbersAsync(renamed);
+
+            return ex switch
+            {
+                DomainException domainException => new EmployeeCatalogReplaceOutcome(0, 0, 0, 0, [], [], domainException.Message),
+                DbUpdateException => LogAndFail(ex, Serilog.Events.LogEventLevel.Warning,
+                    "No se pudo guardar — revisa que no haya números de empleado duplicados dentro del archivo ni contra alguien que ya existe."),
+                _ => LogAndFail(ex, Serilog.Events.LogEventLevel.Error, "Ocurrió un error inesperado al guardar. Revisa el registro de errores."),
+            };
+        }
+
+        static EmployeeCatalogReplaceOutcome LogAndFail(Exception ex, Serilog.Events.LogEventLevel level, string message)
+        {
+            Log.Write(level, ex, "No se pudo aplicar el reemplazo de catálogo de empleados.");
+            return new EmployeeCatalogReplaceOutcome(0, 0, 0, 0, [], [], message);
+        }
+    }
+
+    /// <summary>Deshace el paso 1 de <see cref="ApplyCatalogReplaceAsync"/> si el paso 2 no se pudo
+    /// completar — cada quien recupera su número original.</summary>
+    private async Task RevertRenamedNumbersAsync(IReadOnlyList<(Employee Employee, EmployeeNumber Original)> renamed)
+    {
+        if (renamed.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            foreach (var (employee, original) in renamed)
+            {
+                employee.ChangeNumber(original);
+            }
+            await _unitOfWork.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            _unitOfWork.DiscardPendingChanges();
+            Log.Error(ex, "No se pudieron restaurar los números de empleado tras un reemplazo de catálogo fallido.");
+        }
+    }
+
+    /// <summary>"1" + "-baja" → "1-baja" (o "1-baja2", … si ya existe), dentro del máximo de 20
+    /// caracteres de EmployeeNumber.</summary>
+    private static string UniqueEmployeeNumber(string number, string suffix, HashSet<string> usedNumbers)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            var tail = attempt == 1 ? suffix : $"{suffix}{attempt}";
+            var candidate = (number.Length + tail.Length > 20 ? number[..(20 - tail.Length)] : number) + tail;
+            if (usedNumbers.Add(candidate))
+            {
+                return candidate;
+            }
+        }
+    }
+
+    /// <summary>Completa en <paramref name="target"/> solo lo que no tiene, con lo del registro
+    /// viejo de la misma persona — nunca pisa un dato ya capturado.</summary>
+    private static void MergeMissingData(Employee target, Employee source)
+    {
+        if (target.ScheduledStartTime is null && source.ScheduledStartTime is not null && source.ScheduledEndTime is not null)
+        {
+            target.UpdateSchedule(source.ScheduledStartTime, source.ScheduledEndTime);
+        }
+        if (source.HasSpecialSchedule && !target.HasSpecialSchedule)
+        {
+            target.SetSpecialSchedule(true);
+        }
+        if ((target.WeeklySalary is null && source.WeeklySalary is not null) ||
+            (target.OvertimeHourlyRate is null && source.OvertimeHourlyRate is not null))
+        {
+            target.UpdateCompensation(target.WeeklySalary ?? source.WeeklySalary, target.OvertimeHourlyRate ?? source.OvertimeHourlyRate);
+        }
+        if (target.Department is null && source.Department is not null || target.Position is null && source.Position is not null)
+        {
+            target.UpdatePersonalInfo(target.FullName, target.Department ?? source.Department, target.Position ?? source.Position);
+        }
+        if (target.Phone is null && source.Phone is not null || target.Email is null && source.Email is not null)
+        {
+            target.UpdateContact(target.Phone ?? source.Phone, target.Email ?? source.Email);
+        }
+        if (target.Rfc is null && source.Rfc is not null || target.Curp is null && source.Curp is not null || target.Nss is null && source.Nss is not null)
+        {
+            target.UpdateFiscalInfo(target.Rfc ?? source.Rfc, target.Curp ?? source.Curp, target.Nss ?? source.Nss);
+        }
+        if (string.IsNullOrWhiteSpace(target.Notes) && !string.IsNullOrWhiteSpace(source.Notes))
+        {
+            target.UpdateNotes(source.Notes);
         }
     }
 }

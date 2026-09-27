@@ -4,6 +4,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using Microsoft.Win32;
+using RelojChecador.Application.Employees;
 using RelojChecador.Domain.Devices;
 using RelojChecador.WPF.Services;
 using RelojChecador.WPF.ViewModels;
@@ -198,6 +199,151 @@ public partial class EmployeesView : UserControl
         dialog.ShowDialog();
     }
 
+    /// <summary>El reloj al que se conectan los botones de esta pantalla: el único registrado,
+    /// o el que elija la persona si hay varios. Null si no hay ninguno o se canceló.</summary>
+    private Device? PickTargetDevice(DevicesViewModel devicesViewModel)
+    {
+        if (devicesViewModel.Devices.Count == 0)
+        {
+            MessageBox.Show(
+                Window.GetWindow(this),
+                "Primero registra al menos un dispositivo en la pestaña Dispositivos.",
+                "Sin dispositivos", MessageBoxButton.OK, MessageBoxImage.Information);
+            return null;
+        }
+
+        if (devicesViewModel.Devices.Count == 1)
+        {
+            return devicesViewModel.Devices[0];
+        }
+
+        var pickDialog = new SelectDeviceDialog(devicesViewModel.Devices) { Owner = Window.GetWindow(this) };
+        return pickDialog.ShowDialog() == true ? pickDialog.SelectedDevice : null;
+    }
+
+    /// <summary>"📋 Traer registros del reloj al sistema" — pedido explícito del usuario: "un botón
+    /// que diga traer registros del reloj al sistema que me traiga en empleados toda la lista
+    /// actual". Conecta, baja las marcaciones nuevas, lee los usuarios del reloj (PIN + nombre) y
+    /// abre "Reemplazar catálogo" con esa lista: el reloj es el catálogo (número = PIN). Nada se
+    /// aplica hasta que la persona revisa la vista previa y confirma.</summary>
+    private async void OnImportFromClockClick(object sender, RoutedEventArgs e)
+    {
+        if (DevicesViewModel is not { } devicesViewModel || DataContext is not EmployeesViewModel viewModel)
+        {
+            return;
+        }
+
+        if (PickTargetDevice(devicesViewModel) is not { } targetDevice)
+        {
+            return;
+        }
+
+        var button = (Button)sender;
+        button.IsEnabled = false;
+        var previousStatus = viewModel.StatusMessage;
+        viewModel.StatusMessage = $"Leyendo la lista de \"{targetDevice.Name}\"...";
+        try
+        {
+            devicesViewModel.SelectedDevice = targetDevice;
+            var connectError = await devicesViewModel.EnsureConnectedAsync();
+            if (connectError is null)
+            {
+                // Primero las marcaciones que falten, para que al unir registros ya estén todas.
+                await devicesViewModel.DownloadAttendanceCommand.ExecuteAsync(null);
+                await devicesViewModel.LoadDeviceUsersAsync();
+            }
+            viewModel.StatusMessage = previousStatus;
+
+            if (connectError is not null || devicesViewModel.DeviceUsers.Count == 0)
+            {
+                MessageBox.Show(
+                    Window.GetWindow(this),
+                    "No se pudo leer la lista de usuarios del reloj: " + (connectError ?? devicesViewModel.DeviceUsersStatusMessage),
+                    "Traer registros del reloj", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            var users = devicesViewModel.DeviceUsers.Where(u => !string.IsNullOrWhiteSpace(u.Name)).ToList();
+            var withoutName = devicesViewModel.DeviceUsers.Count - users.Count;
+            var lines = EmployeeCatalogSourceConverter.FromPinList(users.Select(u => (u.DeviceUserPin, u.Name)));
+            var source = $"Reloj \"{targetDevice.Name}\": {users.Count} usuario(s)" +
+                         (withoutName > 0 ? $" ({withoutName} sin nombre se ignoraron)" : "") + ".";
+
+            var dialog = new ReplaceEmployeeCatalogDialog(viewModel, lines, source) { Owner = Window.GetWindow(this) };
+            if (dialog.ShowDialog() == true)
+            {
+                await viewModel.InitializeAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Error inesperado al traer los registros del reloj.");
+            viewModel.StatusMessage = previousStatus;
+            MessageBox.Show(Window.GetWindow(this), "Ocurrió un error inesperado. Revisa el registro de errores.",
+                "Traer registros del reloj", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            button.IsEnabled = true;
+        }
+    }
+
+    /// <summary>"🔢 Coincidir PIN con número": conecta, lee los usuarios del reloj y abre
+    /// BulkRenumberDevicePinsDialog con el PIN destino = Número de cada empleado vigente.</summary>
+    private async void OnMatchPinsToNumbersClick(object sender, RoutedEventArgs e)
+    {
+        if (DevicesViewModel is not { } devicesViewModel || DataContext is not EmployeesViewModel viewModel)
+        {
+            return;
+        }
+
+        if (PickTargetDevice(devicesViewModel) is not { } targetDevice)
+        {
+            return;
+        }
+
+        var button = (Button)sender;
+        button.IsEnabled = false;
+        var previousStatus = viewModel.StatusMessage;
+        viewModel.StatusMessage = $"Leyendo los usuarios de \"{targetDevice.Name}\"...";
+        try
+        {
+            devicesViewModel.SelectedDevice = targetDevice;
+            var connectError = await devicesViewModel.EnsureConnectedAsync();
+            if (connectError is null)
+            {
+                await devicesViewModel.LoadDeviceUsersAsync();
+            }
+            viewModel.StatusMessage = previousStatus;
+
+            if (connectError is not null || devicesViewModel.DeviceUsers.Count == 0)
+            {
+                MessageBox.Show(
+                    Window.GetWindow(this),
+                    "No se pudo leer la lista de usuarios del reloj: " +
+                    (connectError ?? devicesViewModel.DeviceUsersStatusMessage) +
+                    "\n\nMover un PIN requiere el reloj conectado.",
+                    "Coincidir PIN con número", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            var dialog = new BulkRenumberDevicePinsDialog(devicesViewModel, devicesViewModel.DeviceUsers) { Owner = Window.GetWindow(this) };
+            dialog.ShowDialog();
+            await viewModel.InitializeAsync();
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Error inesperado al coincidir PINs con números de empleado.");
+            viewModel.StatusMessage = previousStatus;
+            MessageBox.Show(Window.GetWindow(this), "Ocurrió un error inesperado. Revisa el registro de errores.",
+                "Coincidir PIN con número", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            button.IsEnabled = true;
+        }
+    }
+
     private void OnDeleteEmployeesClick(object sender, RoutedEventArgs e)
     {
         if (DataContext is not EmployeesViewModel viewModel)
@@ -295,28 +441,9 @@ public partial class EmployeesView : UserControl
             return;
         }
 
-        if (devicesViewModel.Devices.Count == 0)
+        if (PickTargetDevice(devicesViewModel) is not { } targetDevice)
         {
-            MessageBox.Show(
-                Window.GetWindow(this),
-                "Primero registra al menos un dispositivo en la pestaña Dispositivos.",
-                "Sin dispositivos", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
-        }
-
-        Device targetDevice;
-        if (devicesViewModel.Devices.Count == 1)
-        {
-            targetDevice = devicesViewModel.Devices[0];
-        }
-        else
-        {
-            var pickDialog = new SelectDeviceDialog(devicesViewModel.Devices) { Owner = Window.GetWindow(this) };
-            if (pickDialog.ShowDialog() != true || pickDialog.SelectedDevice is null)
-            {
-                return;
-            }
-            targetDevice = pickDialog.SelectedDevice;
         }
 
         var confirmed = MessageBox.Show(

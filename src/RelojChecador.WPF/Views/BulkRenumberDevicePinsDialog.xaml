@@ -16,7 +16,7 @@
 
         <TextBlock Grid.Row="0" Text="🔢 Renumerar PINs del reloj" FontSize="18" FontWeight="Bold" Margin="0,0,0,4" />
         <TextBlock Grid.Row="1" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource BrushDanger}" Margin="0,0,0,10">
-            Mueve la huella YA enrolada de cada persona al PIN igual a su Número de empleado — pedido explícito.
+            Mueve la huella YA enrolada de cada persona al PIN igual a su Número de empleado (EMP-012 → PIN 12).
             Esta operación NUNCA se había probado contra este reloj real; hazla con calma, no cierres la app ni
             desconectes el dispositivo mientras corre (puede tardar varios minutos con muchas personas). Si algo
             falla a medias en una persona, esa persona en particular queda exactamente como estaba — nunca se

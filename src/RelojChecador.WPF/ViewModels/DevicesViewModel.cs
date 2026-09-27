@@ -47,6 +47,11 @@ public sealed partial class DeviceUserRow : ObservableObject
     [ObservableProperty]
     private string? _linkedEmployeeNumber;
 
+    /// <summary>False si el empleado vinculado está dado de baja — "Coincidir PIN con número"
+    /// no le sugiere PIN destino: ya no está en el catálogo vigente.</summary>
+    [ObservableProperty]
+    private bool _linkedEmployeeIsActive;
+
     public string DeviceUserPin { get; }
     public string Name { get; }
     public int PrivilegeLevel { get; }
@@ -2175,7 +2180,10 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
                 var row = new DeviceUserRow(record);
                 if (employeeByPin.TryGetValue(record.DeviceUserPin, out var employee))
                 {
-                    row.LinkedEmployeeDisplay = $"{employee.Number.Value} · {employee.FullName}";
+                    row.LinkedEmployeeIsActive = employee.Status != EmploymentStatus.Terminated;
+                    row.LinkedEmployeeDisplay = row.LinkedEmployeeIsActive
+                        ? $"{employee.Number.Value} · {employee.FullName}"
+                        : $"{employee.Number.Value} · {employee.FullName} (dado de baja)";
                     row.LinkedEmployeeNumber = employee.Number.Value;
                 }
                 else
@@ -2269,6 +2277,16 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
 
         try
         {
+            // 0) Un vínculo del sistema que todavía apunte al PIN nuevo (su usuario ya no existe en
+            // el reloj — se acaba de comprobar arriba) haría fallar el paso final por el índice
+            // único (dispositivo, PIN), DESPUÉS de haber movido la huella. Se quita antes de tocar
+            // el reloj; las marcaciones ya guardadas de ese PIN conservan su dueño.
+            var staleMappingError = await RemoveStaleMappingForPinAsync(trimmedNewPin, cancellationToken);
+            if (staleMappingError is not null)
+            {
+                return staleMappingError;
+            }
+
             // 1) Descargar las huellas del PIN viejo — si esto falla, no se tocó nada todavía.
             var templatesResult = await _deviceAdapter.DownloadUserTemplatesAsync(oldPin, cancellationToken);
             if (templatesResult.IsFailure)
@@ -2334,6 +2352,12 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
                     {
                         tracked.UpdatePin(trimmedNewPin);
                         await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+                        // Se sube en el momento, uno por uno: los vínculos van a Supabase en UN
+                        // solo lote con índice único (dispositivo, PIN), y en una renumeración en
+                        // cadena (A toma el PIN que B acaba de dejar) ese lote llevaría a la vez
+                        // el PIN nuevo de A y el viejo de B, y fallaría completo en cada ciclo.
+                        await _syncService.TriggerSyncNowAsync(cancellationToken);
                     }
                 }
             }
@@ -2345,9 +2369,42 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         catch (Exception ex)
         {
             Log.Error(ex, "Error inesperado al cambiar el PIN del dispositivo ({OldPin} -> {NewPin})", oldPin, trimmedNewPin);
+            _unitOfWork.DiscardPendingChanges();
             return "Ocurrió un error inesperado al cambiar el PIN. Revisa el registro de errores y el estado real en " +
                    "\"Usuarios del reloj\" antes de reintentar — no está garantizado qué tanto del cambio alcanzó a aplicarse.";
         }
+    }
+
+    /// <summary>Quita el vínculo que todavía tenga <paramref name="pin"/> en el reloj
+    /// seleccionado — ver el paso 0 de <see cref="ChangeDeviceUserPinAsync"/>. Primero en la
+    /// nube (mismo motivo que en <see cref="AutoLinkDeviceUsersAsync"/>: el índice único
+    /// rechazaría el PIN nuevo en el lote de vínculos).</summary>
+    /// <returns>null si ya no hay vínculo en ese PIN; si no, por qué no se pudo quitar.</returns>
+    private async Task<string?> RemoveStaleMappingForPinAsync(string pin, CancellationToken cancellationToken)
+    {
+        if (SelectedDevice is not { } device)
+        {
+            return null;
+        }
+
+        var stale = (await _mappingRepository.ListAsync(cancellationToken))
+            .FirstOrDefault(m => m.DeviceId == device.Id && m.DeviceUserPin == pin);
+        if (stale is null)
+        {
+            return null;
+        }
+
+        if (_syncService.IsCloudConfigured && !await _syncService.TryDeleteMappingsRemoteAsync([stale.Id], cancellationToken))
+        {
+            return $"El PIN {pin} sigue vinculado en el sistema a otro empleado y no se pudo quitar ese vínculo en la nube " +
+                   "(¿sin internet?). No se cambió nada.";
+        }
+
+        var owner = await _employeeRepository.GetByIdAsync(stale.EmployeeId, cancellationToken);
+        await _mappingRepository.RemoveAsync(stale, cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        AppendLog($"🧹 Se quitó el vínculo viejo del PIN {pin} ({owner?.FullName ?? "empleado desconocido"}) — ese usuario ya no existe en el reloj.");
+        return null;
     }
 
     /// <summary>Elimina uno o varios usuarios del dispositivo (mismo método tanto para

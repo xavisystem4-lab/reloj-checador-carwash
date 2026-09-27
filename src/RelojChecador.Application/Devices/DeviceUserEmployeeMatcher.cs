@@ -219,6 +219,20 @@ public static class DeviceUserEmployeeMatcher
     }
 
     /// <summary>¿Alguno de los nombres contiene TODAS las palabras del empleado, en el mismo orden?</summary>
+    /// <summary>¿Pueden ser la misma persona? Todas las palabras del nombre más corto aparecen,
+    /// en orden, en el más largo ("Edgar Ramirez" ↔ "Edgar Giovanny Ramirez Gutierrez").</summary>
+    public static bool NamesLookAlike(string? a, string? b)
+    {
+        var tokensA = Tokenize(a);
+        var tokensB = Tokenize(b);
+        if (tokensA.Count == 0 || tokensB.Count == 0)
+        {
+            return false;
+        }
+
+        return tokensA.Count <= tokensB.Count ? IsSubsequence(tokensA, tokensB) : IsSubsequence(tokensB, tokensA);
+    }
+
     private static bool ContainsTokens(List<IReadOnlyList<string>> names, IReadOnlyList<string> employeeTokens) =>
         names.Any(name => IsSubsequence(employeeTokens, name));
 
@@ -256,7 +270,7 @@ public static class DeviceUserEmployeeMatcher
 
     /// <summary>Minúsculas, sin acentos, solo letras/dígitos y espacios simples — así "José
     /// Pérez", "JOSE  PEREZ" y "jose perez" son el mismo nombre.</summary>
-    internal static string NormalizeName(string? name)
+    public static string NormalizeName(string? name)
     {
         if (string.IsNullOrWhiteSpace(name))
         {
