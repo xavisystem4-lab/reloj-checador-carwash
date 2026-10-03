@@ -9,6 +9,20 @@ public class SimulatorDeviceAdapterTests
     private static DeviceConnectionInfo SampleConnection() => new("192.168.1.201", 4370);
 
     [Fact]
+    public async Task GetAttendanceLogCountAsync_ImplementacionPorDefecto_DevuelveDesconocido()
+    {
+        // Un adaptador que no sobreescribe el método (aquí, el simulador) debe reportar el
+        // conteo como "desconocido" (null) sin fallar — DevicesViewModel.TryAutoDownloadAsync
+        // interpreta eso como "descargar igual", el mismo comportamiento de antes de v1.70.1.
+        IAttendanceDeviceAdapter adapter = new SimulatorDeviceAdapter();
+
+        var result = await adapter.GetAttendanceLogCountAsync();
+
+        Assert.True(result.IsSuccess);
+        Assert.Null(result.Value);
+    }
+
+    [Fact]
     public async Task TestNetworkAsync_ConIpInvalida_DevuelveFallo()
     {
         var adapter = new SimulatorDeviceAdapter();

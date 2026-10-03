@@ -215,7 +215,16 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
     private bool _showDisabledDevices;
 
     public ObservableCollection<Device> Devices { get; } = [];
-    public ObservableCollection<RawAttendanceRow> AttendanceRecords { get; } = [];
+    // Settable (v1.70.1): una descarga completa reemplaza la colección entera de un solo golpe
+    // (UNA notificación a la UI) en vez de Clear() + un Add() por registro — antes eran más de
+    // 1,200 avisos de cambio al DataGrid cada 10 s, con el reloj lleno.
+    private ObservableCollection<RawAttendanceRow> _attendanceRecords = [];
+    public ObservableCollection<RawAttendanceRow> AttendanceRecords
+    {
+        get => _attendanceRecords;
+        private set => SetProperty(ref _attendanceRecords, value);
+    }
+
     public ObservableCollection<string> LogEntries { get; } = [];
 
     public DevicesViewModel(
@@ -339,6 +348,11 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         await ConnectAsync();
     }
 
+    // Conteo de marcaciones del reloj en la última descarga automática completa — ver
+    // TryAutoDownloadAsync. null = forzar descarga completa en el siguiente ciclo.
+    private (Guid DeviceId, int LogCount, DateTime AtUtc)? _lastAutoDownload;
+    private static readonly TimeSpan AutoDownloadFullReadMaxInterval = TimeSpan.FromMinutes(5);
+
     /// <summary>Se ejecuta cada 10s (ver _autoDownloadTimer) mientras haya un dispositivo
     /// conectado — descarga del reloj y sube a la nube exactamente igual que el botón
     /// "Descargar asistencias", sin que nadie tenga que presionarlo. Deliberadamente
@@ -362,12 +376,38 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
     /// inmediato (TryPersistCommunicationResultAsync ya hace ambas cosas).</summary>
     private async Task TryAutoDownloadAsync()
     {
-        if (!IsConnected)
+        if (!IsConnected || _isDownloading)
         {
             return;
         }
 
+        // v1.70.1 (OutOfMemoryException en campo): antes se descargaba la bitácora COMPLETA del
+        // reloj cada 10 s aunque no hubiera nada nuevo, y se revisaba registro por registro contra
+        // SQLite. Ahora se pregunta primero cuántas marcaciones tiene el reloj (consulta barata);
+        // si el número no cambió desde la última descarga, se omite la descarga — se registra
+        // igual el latido, porque el reloj sí respondió. Respaldo: descarga completa al menos
+        // cada AutoDownloadFullReadMaxInterval aunque el conteo no cambie.
+        var device = SelectedDevice;
+        var countResult = await _deviceAdapter.GetAttendanceLogCountAsync();
+        int? deviceLogCount = countResult.IsSuccess ? countResult.Value : null;
+        if (device is not null
+            && deviceLogCount is not null
+            && _lastAutoDownload is { } last
+            && last.DeviceId == device.Id
+            && last.LogCount == deviceLogCount
+            && DateTime.UtcNow - last.AtUtc < AutoDownloadFullReadMaxInterval)
+        {
+            _consecutiveDownloadFailures = 0;
+            await TryPersistCommunicationResultAsync(succeeded: true);
+            return;
+        }
+
         var (success, _, totalRead, savedCount) = await DownloadAttendanceCoreAsync();
+        if (success && device is not null && deviceLogCount is not null)
+        {
+            _lastAutoDownload = (device.Id, deviceLogCount.Value, DateTime.UtcNow);
+        }
+
         if (!success)
         {
             // Sin log a propósito: un fallo puntual de una descarga automática cada 10s no
@@ -993,6 +1033,7 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         InfoUserCount = null;
         InfoAttendanceLogCount = null;
         AttendanceRecords.Clear();
+        _lastAutoDownload = null;
 
         // El dispositivo recién seleccionado empieza sin suspensión — así que si el usuario
         // presiona "Conectar" sobre él, el auto-reconnect seguirá intentando por su cuenta
@@ -1102,6 +1143,7 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
             // — ver el comentario de DownloadAttendanceCoreAsync sobre por qué se exige
             // más de un fallo seguido antes de dar por muerta la conexión.
             _consecutiveDownloadFailures = 0;
+            _lastAutoDownload = null; // la primera descarga automática tras conectar siempre es completa
             AppendLog("Comunicación completa establecida con el dispositivo.");
             await TryPersistCommunicationResultAsync(succeeded: true);
 
@@ -1627,7 +1669,6 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
             }
 
             _consecutiveDownloadFailures = 0;
-            AttendanceRecords.Clear();
             var savedCount = 0;
             // Precomputado UNA sola vez para todo el lote (puede haber cientos de
             // registros) — ver BuildEmployeeBranchLookupByPinAsync.
@@ -1636,14 +1677,23 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
             // los tiene almacenados internamente (normalmente de llegada), no por fecha; se
             // ordena explícitamente antes de mostrarlos para que la marcación más nueva quede
             // primera sin depender de esa suposición.
-            foreach (var record in result.Value.OrderByDescending(r => r.TimestampUtc))
+            var ordered = result.Value.OrderByDescending(r => r.TimestampUtc).ToList();
+            var rows = new List<RawAttendanceRow>(ordered.Count);
+            foreach (var record in ordered)
             {
                 var employeeName = employeeByPin.TryGetValue(record.DeviceUserPin, out var employee) ? employee.FullName : null;
                 var color = employee is null
                     ? AttendanceColor.Neutral
                     : PunctualityClassifier.Classify(
                         DayAttendanceStatus.Worked, employee.HasSpecialSchedule, employee.ScheduledStartTime, record.TimestampUtc);
-                AttendanceRecords.Add(new RawAttendanceRow(record, employeeName, color));
+                rows.Add(new RawAttendanceRow(record, employeeName, color));
+            }
+
+            // Un solo reemplazo de la colección (ver comentario de AttendanceRecords).
+            AttendanceRecords = new ObservableCollection<RawAttendanceRow>(rows);
+
+            foreach (var record in ordered)
+            {
                 if (await PersistAttendanceAsync(record, source: "descarga", employeeByPin))
                 {
                     savedCount++;
@@ -2449,8 +2499,18 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         return (deleted, failed);
     }
 
-    private void AppendLog(string message) =>
+    // Tope de la bitácora en pantalla (v1.70.1): antes crecía sin límite mientras la app
+    // siguiera abierta — con la app días encendida, miles de líneas que nunca se liberaban.
+    private const int MaxLogEntries = 500;
+
+    private void AppendLog(string message)
+    {
         LogEntries.Insert(0, $"{DateTime.Now:HH:mm:ss} — {message}");
+        while (LogEntries.Count > MaxLogEntries)
+        {
+            LogEntries.RemoveAt(LogEntries.Count - 1);
+        }
+    }
 
     private void RefreshStatusMessage()
     {
