@@ -53,6 +53,14 @@ public interface IAttendanceDeviceAdapter
     Task<Result<IReadOnlyList<RawAttendanceRecord>>> DownloadAttendanceLogsAsync(
         CancellationToken cancellationToken = default);
 
+    /// <summary>Número de marcaciones guardadas en el dispositivo, sin descargarlas — consulta
+    /// barata para saber si vale la pena llamar <see cref="DownloadAttendanceLogsAsync"/> (que
+    /// recorre la bitácora completa). <c>null</c> = el dispositivo/adaptador no reporta el dato;
+    /// quien llama debe tratarlo como "desconocido" y descargar igual. Implementación por
+    /// defecto: <c>null</c> siempre (mismo comportamiento que antes de existir este método).</summary>
+    Task<Result<int?>> GetAttendanceLogCountAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult(Result.Success<int?>(null));
+
     Task<Result<IReadOnlyList<DeviceUserRecord>>> DownloadUsersAsync(CancellationToken cancellationToken = default);
 
     Task<Result> CreateOrUpdateUserAsync(DeviceUserRecord user, CancellationToken cancellationToken = default);

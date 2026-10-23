@@ -670,6 +670,19 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   PIN y datos faltantes pasan al que se queda, se le deja el nombre más completo y los repetidos se
   borran — también de Supabase (`TryDeleteEmployeesRemoteAsync`, después de sincronizar). Grupos
   donde podría haber dos personas distintas se muestran como "⚠ Revisar" y no se marcan solos.
+- **v1.70.1 — Corrección del "OutOfMemoryException" (decenas de ventanas de error apiladas).**
+  Con la app abierta horas/días en la PC de Recursos Humanos, el proceso (win-x86, ~2 GB de espacio
+  de direcciones) se quedaba sin memoria. (1) El sondeo en vivo (cada 3 s) releía la bitácora
+  COMPLETA del reloj aunque no hubiera nada nuevo y sus ticks podían encolarse sin límite: ahora
+  nunca corre dos veces a la vez, no espera si hay una descarga en curso y solo relee todo si cambió
+  el número de marcaciones del reloj (`GetDeviceStatus`, dwStatus=6; respaldo: lectura completa cada
+  5 min). (2) La descarga automática (cada 10 s) hace la misma revisión barata
+  (`IAttendanceDeviceAdapter.GetAttendanceLogCountAsync`) y, si no hay cambios, solo registra el
+  latido. (3) La tabla "Últimas marcaciones" se reemplaza de un golpe en vez de Clear + un Add por
+  registro, y la bitácora en pantalla se limita a 500 líneas. (4) `App.ReportFatal`: un solo aviso
+  aunque lleguen más errores mientras está abierto (antes cada redibujado fallido abría otro
+  MessageBox), ya no apaga Serilog en el primer error, y ante falta de memoria guarda el log, avisa,
+  se reinicia sola (si llevaba ≥10 min abierta) y termina el proceso en vez de seguir rota.
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Navegación completa de la UI (Fase 3 del diseño visual — Sucursales, Empleados,

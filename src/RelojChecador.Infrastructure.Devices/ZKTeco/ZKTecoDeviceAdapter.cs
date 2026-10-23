@@ -84,6 +84,25 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
     private DateTime _realTimeSinceDeviceLocal;
     private readonly SemaphoreSlim _logAccessLock = new(1, 1);
 
+    // v1.70.1 — corrección del OutOfMemoryException reportado en campo (cascada de ventanas
+    // "RelojChecador — Error" tras horas/días abierta). El sondeo cada 3 s releía la bitácora
+    // COMPLETA del reloj (más de 1,200 registros por InvokeMember/reflexión) aunque no hubiera
+    // ninguna marcación nueva — ~20 lecturas completas por minuto solo de este Timer, en un
+    // proceso de 32 bits (win-x86, ~2 GB de espacio de direcciones). Peor aún: el Timer no
+    // esperaba a que terminara el sondeo anterior, así que si una lectura tardaba más de 3 s
+    // los callbacks se iban encolando en _logAccessLock sin límite. Ahora:
+    //  (1) _pollInProgress: si el sondeo anterior sigue corriendo, el tick se descarta.
+    //  (2) GetDeviceStatus(…, 6) —número de marcaciones guardadas, consulta barata— y solo se
+    //      relee la bitácora completa si ese número cambió, o como respaldo cada
+    //      PollFullReadMaxInterval por si el equipo no reporta bien el conteo.
+    private int _pollInProgress;
+    private int? _lastPolledLogCount;
+    private DateTime _lastPollFullReadUtc = DateTime.MinValue;
+    private static readonly TimeSpan PollFullReadMaxInterval = TimeSpan.FromMinutes(5);
+
+    // GetDeviceStatus: dwStatus = 6 → "número de registros de asistencia" (convención del SDK).
+    private const int DeviceStatusAttendanceLogCount = 6;
+
     // Tiempos de espera para Connect_Net/Disconnect (reportado por el usuario: la app se
     // congelaba mostrando "No responde" al abrir o al editar un dispositivo). Connect_Net
     // no tiene límite de tiempo propio — si el reloj está apagado o inalcanzable puede
@@ -544,6 +563,62 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
         }
     }
 
+    /// <summary>Número de marcaciones guardadas en el reloj (GetDeviceStatus, dwStatus=6) — una
+    /// consulta barata, a diferencia de <see cref="DownloadAttendanceLogsAsync"/>, que recorre la
+    /// bitácora completa. Devuelve <c>null</c> (no error) si el equipo no reporta el dato; error
+    /// solo si la llamada COM falla de verdad. No toma <see cref="_logAccessLock"/>: no toca el
+    /// buffer de la bitácora, y ZKComWorker ya serializa todas las llamadas al SDK.</summary>
+    public async Task<Result<int?>> GetAttendanceLogCountAsync(CancellationToken cancellationToken = default)
+    {
+        if (!_isConnected)
+        {
+            return Result.Failure<int?>(DeviceErrors.NotConnected());
+        }
+
+        return await RunOnComThreadAsync(() =>
+        {
+            try
+            {
+                return Result.Success(ReadAttendanceLogCount());
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                return Result.Failure<int?>(Error.Unexpected($"GetDeviceStatus falló: {DescribeException(ex)}"));
+            }
+        }, QuickOperationTimeout, cancellationToken);
+    }
+
+    // GetDeviceStatus(int dwMachineNumber, int dwStatus, ref int dwValue) — el tercero byref.
+    // Mismo patrón Type.InvokeMember + "int" normal que GetDeviceTime/SSR_GetGeneralLogData
+    // (ver ReadAllGeneralLogEntries): "dynamic" con parámetros "ref" numéricos falla de formas
+    // impredecibles contra este SDK.
+    private static readonly ParameterModifier[] DeviceStatusParameterModifiers = CreateDeviceStatusParameterModifiers();
+
+    private static ParameterModifier[] CreateDeviceStatusParameterModifiers()
+    {
+        var modifier = new ParameterModifier(3);
+        modifier[2] = true;
+        return new[] { modifier };
+    }
+
+    /// <summary>Debe correr en el hilo del SDK (dentro de RunOnComThreadAsync). <c>null</c> si
+    /// GetDeviceStatus devuelve falso o un valor sin sentido.</summary>
+    private int? ReadAttendanceLogCount()
+    {
+        object comObject = _zk!;
+        object?[] args = { MachineNumber, DeviceStatusAttendanceLogCount, 0 };
+        var ok = (bool)comObject.GetType().InvokeMember(
+            "GetDeviceStatus", BindingFlags.InvokeMethod, binder: null, target: comObject,
+            args: args, modifiers: DeviceStatusParameterModifiers, culture: null, namedParameters: null)!;
+        if (!ok)
+        {
+            return null;
+        }
+
+        var count = Convert.ToInt32(args[2]);
+        return count >= 0 ? count : null;
+    }
+
     /// <summary>Formatea una excepción con todo el detalle disponible (tipo, HRESULT si es
     /// COMException, y la cadena completa de InnerException) — el mensaje corto por
     /// defecto de "Error while invoking X" ya demostró no bastar para diagnosticar un
@@ -978,6 +1053,8 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
         // DateTime.Now (hora LOCAL), no UtcNow — ver el comentario del campo, comparar
         // contra la hora cruda del dispositivo exige el mismo tipo de valor en ambos lados.
         _realTimeSinceDeviceLocal = DateTime.Now;
+        _lastPolledLogCount = null;
+        _lastPollFullReadUtc = DateTime.MinValue;
         _realTimeTimer = new Timer(_ => _ = PollForNewPunchesAsync(), null, TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(3));
         return Task.FromResult(Result.Success());
     }
@@ -1009,7 +1086,21 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
             return;
         }
 
-        await _logAccessLock.WaitAsync();
+        // (1) Nunca dos sondeos a la vez: si el anterior sigue corriendo, este tick se descarta
+        // en vez de quedar encolado (ver comentario de _pollInProgress).
+        if (Interlocked.Exchange(ref _pollInProgress, 1) == 1)
+        {
+            return;
+        }
+
+        // Si una descarga (manual/automática) tiene la bitácora en este momento, tampoco se
+        // espera: esa descarga ya está leyendo todo, y el siguiente tick (3 s) revisa de nuevo.
+        if (!await _logAccessLock.WaitAsync(0))
+        {
+            Volatile.Write(ref _pollInProgress, 0);
+            return;
+        }
+
         try
         {
             var result = await RunOnComThreadAsync(
@@ -1017,7 +1108,32 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
                 {
                     try
                     {
-                        return Result.Success<IReadOnlyList<RawAttendanceRecord>>(ReadAllGeneralLogEntries());
+                        // (2) Consulta barata primero: si el número de marcaciones del reloj no
+                        // cambió, no hay nada nuevo que leer (respaldo: lectura completa al
+                        // menos cada PollFullReadMaxInterval).
+                        // Si este modelo no soporta GetDeviceStatus, count queda en null y se
+                        // lee todo como antes — nunca debe romper el monitoreo en vivo.
+                        int? count;
+                        try
+                        {
+                            count = ReadAttendanceLogCount();
+                        }
+                        catch (Exception countEx) when (countEx is not OutOfMemoryException)
+                        {
+                            count = null;
+                        }
+
+                        var now = DateTime.UtcNow;
+                        if (count is not null && count == _lastPolledLogCount
+                            && now - _lastPollFullReadUtc < PollFullReadMaxInterval)
+                        {
+                            return Result.Success<IReadOnlyList<RawAttendanceRecord>>(Array.Empty<RawAttendanceRecord>());
+                        }
+
+                        var records = ReadAllGeneralLogEntries();
+                        _lastPolledLogCount = count;
+                        _lastPollFullReadUtc = now;
+                        return Result.Success<IReadOnlyList<RawAttendanceRecord>>(records);
                     }
                     catch (Exception ex) when (ex is not OutOfMemoryException)
                     {
@@ -1054,6 +1170,7 @@ public sealed class ZKTecoDeviceAdapter : IAttendanceDeviceAdapter, IDisposable
         finally
         {
             _logAccessLock.Release();
+            Volatile.Write(ref _pollInProgress, 0);
         }
     }
 

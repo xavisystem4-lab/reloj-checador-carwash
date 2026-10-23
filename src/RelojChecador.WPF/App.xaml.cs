@@ -172,23 +172,62 @@ public partial class App : System.Windows.Application
         }
     }
 
+    // 0 = libre, 1 = ya se está mostrando/atendiendo un error fatal. Ver ReportFatal.
+    private int _reportingFatal;
+
     /// <summary>
     /// Último recurso ante un error que de otro modo cerraría la app sin explicación:
-    /// intenta dejar constancia en el log de Serilog (puede no estar listo si el crash
-    /// ocurrió antes de configurarlo, de ahí el respaldo en texto plano) y, sobre todo,
-    /// SIEMPRE muestra un cuadro de diálogo visible — para no repetir un cierre mudo.
+    /// deja constancia en el log de Serilog y en un crash-*.log de respaldo, y muestra UN
+    /// cuadro de diálogo visible — para no repetir un cierre mudo.
     /// </summary>
+    /// <remarks>
+    /// v1.70.1 — corrección de la cascada de decenas de ventanas "RelojChecador — Error"
+    /// reportada en campo con un OutOfMemoryException:
+    /// <list type="number">
+    /// <item>MessageBox.Show bombea mensajes mientras está abierto; WPF seguía intentando
+    /// dibujar la ventana principal, volvía a fallar (sin memoria) y entraba OTRA VEZ aquí,
+    /// abriendo un MessageBox encima de otro sin fin. Ahora solo el primer error muestra el
+    /// aviso; los que lleguen mientras tanto solo se registran en el log.</item>
+    /// <item>Antes se llamaba Log.CloseAndFlush() en cada error, lo que APAGABA Serilog desde
+    /// el primero — todo lo posterior se perdía. Ahora solo se vacía el buffer (el logger
+    /// sigue vivo) y se cierra únicamente si el proceso va a terminar.</item>
+    /// <item>Un OutOfMemoryException deja la app en un estado del que no se recupera (cada
+    /// redibujado vuelve a fallar): se trata como fatal — se avisa, se reinicia la app sola
+    /// (si llevaba al menos unos minutos abierta, para no entrar en un ciclo de reinicios) y
+    /// se termina el proceso, en vez de seguir "corriendo" rota.</item>
+    /// </list>
+    /// </remarks>
     private void ReportFatal(Exception? ex, string source, bool isTerminating)
     {
-        var text = ex?.ToString() ?? "(excepción nula)";
+        var isOutOfMemory = IsOutOfMemory(ex);
+        var mustTerminate = isTerminating || isOutOfMemory;
+        var isFirst = Interlocked.Exchange(ref _reportingFatal, 1) == 0;
+
+        // Con poca memoria, ex.ToString() (pila completa) también puede fallar.
+        string text;
         try
         {
-            Log.Fatal(ex, "Error fatal no controlado en {Source} (isTerminating={IsTerminating})", source, isTerminating);
-            Log.CloseAndFlush();
+            text = ex?.ToString() ?? "(excepción nula)";
+        }
+        catch
+        {
+            text = ex?.GetType().FullName ?? "(excepción nula)";
+        }
+
+        try
+        {
+            Log.Fatal(ex, "Error fatal no controlado en {Source} (isTerminating={IsTerminating}, repetido={Repeated})",
+                source, mustTerminate, !isFirst);
         }
         catch
         {
             // Serilog podría no estar configurado todavía si el crash ocurrió muy temprano.
+        }
+
+        if (!isFirst)
+        {
+            // Ya hay un aviso en pantalla (o la app ya se está cerrando): no se abre otro.
+            return;
         }
 
         try
@@ -196,26 +235,134 @@ public partial class App : System.Windows.Application
             Directory.CreateDirectory(_appDataDirectory);
             var crashLogPath = Path.Combine(_appDataDirectory, $"crash-{DateTime.Now:yyyyMMdd-HHmmss}.log");
             File.WriteAllText(crashLogPath,
-                $"Fuente: {source}{Environment.NewLine}Terminando el proceso: {isTerminating}{Environment.NewLine}{Environment.NewLine}{text}");
+                $"Fuente: {source}{Environment.NewLine}Terminando el proceso: {mustTerminate}{Environment.NewLine}" +
+                $"Memoria administrada: {GC.GetTotalMemory(false) / (1024 * 1024)} MB · " +
+                $"Working set: {Environment.WorkingSet / (1024 * 1024)} MB · " +
+                $"Proceso de 64 bits: {Environment.Is64BitProcess}{Environment.NewLine}{Environment.NewLine}{text}");
         }
         catch
         {
             // Si ni siquiera se puede escribir el archivo de respaldo, al menos queda el MessageBox.
         }
 
+        var restart = isOutOfMemory && ShouldAutoRestart();
+
         try
         {
-            System.Windows.MessageBox.Show(
-                $"RelojChecador encontró un error inesperado y no puede continuar.\n\n" +
-                $"Origen: {source}\n\n{text}\n\n" +
-                $"Se guardó el detalle en:\n{_appDataDirectory}",
-                "RelojChecador — Error",
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
+            if (isOutOfMemory)
+            {
+                // Mensaje corto a propósito: sin la pila completa, que no le sirve al usuario
+                // y con poca memoria hasta armar ese texto puede fallar.
+                System.Windows.MessageBox.Show(
+                    "RelojChecador se quedó sin memoria y tiene que cerrarse.\n\n" +
+                    (restart
+                        ? "Se volverá a abrir automáticamente al presionar Aceptar. Las marcaciones ya guardadas no se pierden."
+                        : "Vuelve a abrirlo. Las marcaciones ya guardadas no se pierden.") +
+                    $"\n\nSe guardó el detalle en:\n{_appDataDirectory}",
+                    "RelojChecador — Error",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+            else
+            {
+                System.Windows.MessageBox.Show(
+                    $"RelojChecador encontró un error inesperado.\n\n" +
+                    $"Origen: {source}\n\n{text}\n\n" +
+                    $"Se guardó el detalle en:\n{_appDataDirectory}",
+                    "RelojChecador — Error",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
         }
         catch
         {
             // Si tampoco se puede mostrar el MessageBox, ya no queda nada más por intentar.
+        }
+
+        if (!mustTerminate)
+        {
+            // Error recuperable: la app sigue, y un error FUTURO (ya no simultáneo) vuelve a
+            // poder mostrar su propio aviso.
+            Volatile.Write(ref _reportingFatal, 0);
+            return;
+        }
+
+        if (restart)
+        {
+            TryRestartApplication();
+        }
+
+        try
+        {
+            Log.CloseAndFlush();
+        }
+        catch
+        {
+            // Nada más que hacer.
+        }
+
+        // Termina YA — ni OnExit ni el host: con la memoria agotada, un cierre "ordenado"
+        // puede volver a fallar y dejar el proceso colgado sin ventana (ver v1.69.1).
+        Environment.Exit(-1);
+    }
+
+    private static bool IsOutOfMemory(Exception? ex)
+    {
+        for (var current = ex; current is not null; current = current.InnerException)
+        {
+            if (current is OutOfMemoryException)
+            {
+                return true;
+            }
+
+            if (current is AggregateException aggregate && aggregate.InnerExceptions.Any(IsOutOfMemory))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // Reinicio automático solo si la app llevaba al menos este tiempo abierta: si se queda sin
+    // memoria al arrancar (o casi), reiniciarla sola entraría en un ciclo infinito.
+    private static readonly TimeSpan MinUptimeForAutoRestart = TimeSpan.FromMinutes(10);
+
+    private static bool ShouldAutoRestart()
+    {
+        try
+        {
+            using var process = System.Diagnostics.Process.GetCurrentProcess();
+            return DateTime.Now - process.StartTime >= MinUptimeForAutoRestart
+                && !string.IsNullOrEmpty(Environment.ProcessPath);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static void TryRestartApplication()
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = Environment.ProcessPath!,
+                UseShellExecute = true,
+                WorkingDirectory = AppContext.BaseDirectory,
+            });
+        }
+        catch (Exception restartEx)
+        {
+            try
+            {
+                Log.Error(restartEx, "No se pudo reiniciar RelojChecador después del error de memoria.");
+            }
+            catch
+            {
+                // Nada más que hacer.
+            }
         }
     }
 
