@@ -1,0 +1,190 @@
+<Window x:Class="RelojChecador.WPF.Views.SplashWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Reloj Checador" Width="580" Height="360"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        ResizeMode="NoResize" WindowStartupLocation="CenterScreen"
+        ShowInTaskbar="True">
+    <!-- Pantalla de bienvenida con el logotipo animado de Drive In Car Wash (v1.71.0) —
+         pedido explícito del usuario: "que haya una animación en el logotipo, utiliza el
+         logo del carwash". Colores FIJOS (nunca DynamicResource): se muestra antes de que
+         ThemeService aplique el tema guardado, y la tarjeta blanca es la misma que ya se
+         usa detrás del logo en la barra superior de MainWindow, así que se ve igual en
+         modo claro y oscuro. Paleta tomada del propio logo: azul #0B62A7 y naranja
+         #EC6224 (mismos que dashboard/styles.css).
+
+         Secuencia (IntroStoryboard, ~1.6 s): las "líneas de velocidad" del logo entran
+         desde la izquierda → el logo cae como una gota y rebota → una onda de agua se
+         expande debajo → un destello de brillo recorre el logo → aparece el título. Ver
+         SplashWindow.xaml.cs: App.OnStartup espera a que termine esta intro ANTES de hacer
+         el trabajo pesado del arranque (migraciones, host), porque ese trabajo corre en el
+         hilo de la UI y congelaría la animación a medias. -->
+    <Window.Resources>
+        <Storyboard x:Key="IntroStoryboard">
+            <!-- Tarjeta: aparece suave -->
+            <DoubleAnimation Storyboard.TargetName="Card" Storyboard.TargetProperty="Opacity"
+                             From="0" To="1" Duration="0:0:0.25" />
+
+            <!-- Líneas de velocidad (como las del logo) entrando desde la izquierda -->
+            <DoubleAnimation Storyboard.TargetName="SpeedLinesTranslate" Storyboard.TargetProperty="X"
+                             From="-260" To="0" Duration="0:0:0.55">
+                <DoubleAnimation.EasingFunction>
+                    <CubicEase EasingMode="EaseOut" />
+                </DoubleAnimation.EasingFunction>
+            </DoubleAnimation>
+            <DoubleAnimation Storyboard.TargetName="SpeedLines" Storyboard.TargetProperty="Opacity"
+                             From="0" To="1" Duration="0:0:0.3" />
+
+            <!-- Logo: cae como gota y rebota -->
+            <DoubleAnimation Storyboard.TargetName="LogoHost" Storyboard.TargetProperty="Opacity"
+                             BeginTime="0:0:0.1" From="0" To="1" Duration="0:0:0.25" />
+            <DoubleAnimation Storyboard.TargetName="LogoTranslate" Storyboard.TargetProperty="Y"
+                             BeginTime="0:0:0.1" From="-70" To="0" Duration="0:0:0.7">
+                <DoubleAnimation.EasingFunction>
+                    <BounceEase EasingMode="EaseOut" Bounces="2" Bounciness="3" />
+                </DoubleAnimation.EasingFunction>
+            </DoubleAnimation>
+            <DoubleAnimation Storyboard.TargetName="LogoScale" Storyboard.TargetProperty="ScaleX"
+                             BeginTime="0:0:0.1" From="0.75" To="1" Duration="0:0:0.6">
+                <DoubleAnimation.EasingFunction>
+                    <BackEase EasingMode="EaseOut" Amplitude="0.4" />
+                </DoubleAnimation.EasingFunction>
+            </DoubleAnimation>
+            <DoubleAnimation Storyboard.TargetName="LogoScale" Storyboard.TargetProperty="ScaleY"
+                             BeginTime="0:0:0.1" From="0.75" To="1" Duration="0:0:0.6">
+                <DoubleAnimation.EasingFunction>
+                    <BackEase EasingMode="EaseOut" Amplitude="0.4" />
+                </DoubleAnimation.EasingFunction>
+            </DoubleAnimation>
+
+            <!-- Onda de agua debajo del logo -->
+            <DoubleAnimation Storyboard.TargetName="RippleScale" Storyboard.TargetProperty="ScaleX"
+                             BeginTime="0:0:0.45" From="0.2" To="1.6" Duration="0:0:0.8">
+                <DoubleAnimation.EasingFunction>
+                    <QuadraticEase EasingMode="EaseOut" />
+                </DoubleAnimation.EasingFunction>
+            </DoubleAnimation>
+            <DoubleAnimation Storyboard.TargetName="RippleScale" Storyboard.TargetProperty="ScaleY"
+                             BeginTime="0:0:0.45" From="0.2" To="1.6" Duration="0:0:0.8">
+                <DoubleAnimation.EasingFunction>
+                    <QuadraticEase EasingMode="EaseOut" />
+                </DoubleAnimation.EasingFunction>
+            </DoubleAnimation>
+            <DoubleAnimation Storyboard.TargetName="Ripple" Storyboard.TargetProperty="Opacity"
+                             BeginTime="0:0:0.45" From="0.55" To="0" Duration="0:0:0.8" />
+
+            <!-- Destello de brillo recorriendo el logo -->
+            <DoubleAnimation Storyboard.TargetName="ShineTranslate" Storyboard.TargetProperty="X"
+                             BeginTime="0:0:0.8" From="-160" To="440" Duration="0:0:0.7">
+                <DoubleAnimation.EasingFunction>
+                    <SineEase EasingMode="EaseInOut" />
+                </DoubleAnimation.EasingFunction>
+            </DoubleAnimation>
+
+            <!-- Título y estado -->
+            <DoubleAnimation Storyboard.TargetName="TitlePanel" Storyboard.TargetProperty="Opacity"
+                             BeginTime="0:0:0.9" From="0" To="1" Duration="0:0:0.4" />
+            <DoubleAnimation Storyboard.TargetName="TitleTranslate" Storyboard.TargetProperty="Y"
+                             BeginTime="0:0:0.9" From="12" To="0" Duration="0:0:0.4">
+                <DoubleAnimation.EasingFunction>
+                    <CubicEase EasingMode="EaseOut" />
+                </DoubleAnimation.EasingFunction>
+            </DoubleAnimation>
+            <DoubleAnimation Storyboard.TargetName="ProgressFill" Storyboard.TargetProperty="Width"
+                             BeginTime="0:0:0.2" From="0" To="150" Duration="0:0:1.4">
+                <DoubleAnimation.EasingFunction>
+                    <CubicEase EasingMode="EaseOut" />
+                </DoubleAnimation.EasingFunction>
+            </DoubleAnimation>
+        </Storyboard>
+    </Window.Resources>
+
+    <Border x:Name="Card" Margin="22" CornerRadius="18" Background="White" Opacity="0"
+            BorderBrush="#1A0B62A7" BorderThickness="1">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="24" ShadowDepth="4" Opacity="0.28" Color="#0B3A66" />
+        </Border.Effect>
+        <Grid ClipToBounds="True">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <!-- Líneas de velocidad decorativas (eco de las del logo) -->
+            <Canvas x:Name="SpeedLines" Grid.RowSpan="2" Opacity="0" IsHitTestVisible="False">
+                <Canvas.RenderTransform>
+                    <TranslateTransform x:Name="SpeedLinesTranslate" />
+                </Canvas.RenderTransform>
+                <Rectangle Canvas.Left="26" Canvas.Top="42" Width="120" Height="5" RadiusX="2.5" RadiusY="2.5" Fill="#0B62A7" Opacity="0.18" />
+                <Rectangle Canvas.Left="60" Canvas.Top="56" Width="70" Height="5" RadiusX="2.5" RadiusY="2.5" Fill="#EC6224" Opacity="0.22" />
+                <Rectangle Canvas.Left="360" Canvas.Top="250" Width="140" Height="5" RadiusX="2.5" RadiusY="2.5" Fill="#0B62A7" Opacity="0.14" />
+                <Rectangle Canvas.Left="410" Canvas.Top="264" Width="80" Height="5" RadiusX="2.5" RadiusY="2.5" Fill="#EC6224" Opacity="0.18" />
+            </Canvas>
+
+            <!-- Onda de agua -->
+            <Ellipse x:Name="Ripple" Width="260" Height="56" Stroke="#0B62A7" StrokeThickness="3"
+                     Opacity="0" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="0,150,0,0"
+                     RenderTransformOrigin="0.5,0.5" IsHitTestVisible="False">
+                <Ellipse.RenderTransform>
+                    <ScaleTransform x:Name="RippleScale" ScaleX="0.2" ScaleY="0.2" />
+                </Ellipse.RenderTransform>
+            </Ellipse>
+
+            <!-- Logotipo + destello (el destello usa el propio logo como máscara, así solo
+                 brilla sobre las letras y la gota, nunca sobre el fondo) -->
+            <Grid x:Name="LogoHost" Width="380" Height="180" Opacity="0" Margin="0,18,0,0"
+                  VerticalAlignment="Center" HorizontalAlignment="Center" RenderTransformOrigin="0.5,0.5">
+                <Grid.RenderTransform>
+                    <TransformGroup>
+                        <ScaleTransform x:Name="LogoScale" />
+                        <TranslateTransform x:Name="LogoTranslate" />
+                    </TransformGroup>
+                </Grid.RenderTransform>
+                <Image Source="/Assets/DriveInLogoTransparente.png" Stretch="Uniform"
+                       RenderOptions.BitmapScalingMode="HighQuality" />
+                <Grid ClipToBounds="True" IsHitTestVisible="False">
+                    <Grid.OpacityMask>
+                        <ImageBrush ImageSource="/Assets/DriveInLogoTransparente.png" Stretch="Uniform" />
+                    </Grid.OpacityMask>
+                    <Rectangle Width="90" HorizontalAlignment="Left">
+                        <Rectangle.Fill>
+                            <LinearGradientBrush StartPoint="0,0.5" EndPoint="1,0.5">
+                                <GradientStop Color="#00FFFFFF" Offset="0" />
+                                <GradientStop Color="#D9FFFFFF" Offset="0.5" />
+                                <GradientStop Color="#00FFFFFF" Offset="1" />
+                            </LinearGradientBrush>
+                        </Rectangle.Fill>
+                        <Rectangle.RenderTransform>
+                            <TransformGroup>
+                                <SkewTransform AngleX="-20" />
+                                <TranslateTransform x:Name="ShineTranslate" X="-160" />
+                            </TransformGroup>
+                        </Rectangle.RenderTransform>
+                    </Rectangle>
+                </Grid>
+            </Grid>
+
+            <!-- Título + barra de progreso -->
+            <StackPanel x:Name="TitlePanel" Grid.Row="1" Opacity="0" Margin="0,0,0,24"
+                        HorizontalAlignment="Center">
+                <StackPanel.RenderTransform>
+                    <TranslateTransform x:Name="TitleTranslate" />
+                </StackPanel.RenderTransform>
+                <TextBlock Text="Reloj Checador" FontSize="20" FontWeight="Bold" Foreground="#095183"
+                           HorizontalAlignment="Center" />
+                <TextBlock x:Name="StatusText" Text="Iniciando…" FontSize="12.5" Foreground="#5B6B7C"
+                           HorizontalAlignment="Center" Margin="0,4,0,10" />
+                <Border Width="150" Height="4" CornerRadius="2" Background="#E3ECF5" HorizontalAlignment="Center">
+                    <Border x:Name="ProgressFill" Width="0" CornerRadius="2" HorizontalAlignment="Left">
+                        <Border.Background>
+                            <LinearGradientBrush StartPoint="0,0.5" EndPoint="1,0.5">
+                                <GradientStop Color="#0B62A7" Offset="0" />
+                                <GradientStop Color="#EC6224" Offset="1" />
+                            </LinearGradientBrush>
+                        </Border.Background>
+                    </Border>
+                </Border>
+            </StackPanel>
+        </Grid>
+    </Border>
+</Window>

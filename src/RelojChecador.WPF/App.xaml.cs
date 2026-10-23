@@ -14,6 +14,7 @@ using RelojChecador.Infrastructure.Security;
 using RelojChecador.Infrastructure.Updates;
 using RelojChecador.WPF.Services;
 using RelojChecador.WPF.ViewModels;
+using RelojChecador.WPF.Views;
 using Serilog;
 
 namespace RelojChecador.WPF;
@@ -41,7 +42,11 @@ public partial class App : System.Windows.Application
             ? dataDirOverride
             : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RelojChecador");
 
-    protected override void OnStartup(StartupEventArgs e)
+    // async void a propósito (v1.71.0): es el único punto donde WPF deja esperar algo antes
+    // de crear la ventana principal — aquí, a que termine la intro de la pantalla de
+    // bienvenida. Toda la lógica sigue dentro del mismo try/catch de siempre, así que
+    // ninguna excepción escapa del async void sin pasar por ReportFatal.
+    protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
 
@@ -64,8 +69,28 @@ public partial class App : System.Windows.Application
             args.SetObserved();
         };
 
+        SplashWindow? splash = null;
         try
         {
+            // Pantalla de bienvenida con el logo animado de Drive In Car Wash — pedido
+            // explícito del usuario: "que haya una animación en el logotipo, utiliza el logo
+            // del carwash". Se espera a que termine la intro ANTES del arranque pesado de
+            // abajo: ese trabajo corre en el hilo de la UI (igual que siempre — no se movió
+            // a otro hilo para no arriesgar el arranque) y congelaría la animación a medias.
+            // Puramente estética: si la ventana falla por cualquier motivo, se registra y
+            // la app arranca igual que antes, sin ella.
+            try
+            {
+                splash = new SplashWindow();
+                await splash.PlayIntroAsync();
+            }
+            catch (Exception splashEx)
+            {
+                Log.Warning(splashEx, "No se pudo mostrar la pantalla de bienvenida; se continúa sin ella.");
+                try { splash?.Close(); } catch { /* ignorado */ }
+                splash = null;
+            }
+
             Directory.CreateDirectory(_appDataDirectory);
             var databasePath = Path.Combine(_appDataDirectory, "relojchecador.db");
             var logDirectory = Path.Combine(_appDataDirectory, "logs");
@@ -100,14 +125,12 @@ public partial class App : System.Windows.Application
                     services.AddRelojChecadorCloudSync(supabaseOptions, localSettingsPath);
                     services.AddRelojChecadorUpdates();
 
-                    // Cierra solo los turnos que se quedaron abiertos (Entrada sin Salida)
-                    // ya pasada la hora de salida programada del empleado — pedido
-                    // explícito del usuario: "si el empleado no checa a su hora de salida
-                    // esta se marca automáticamente para que no sigan corriendo las
-                    // horas". Depende de SupabaseSyncBackgroundService (registrado arriba
-                    // por AddRelojChecadorCloudSync) para subir de inmediato cualquier
-                    // Salida que genere — ver AttendanceAutoCloseBackgroundService.
-                    services.AddHostedService<AttendanceAutoCloseBackgroundService>();
+                    // v1.71.0: ya NO se registra el auto-cierre de turnos (antes
+                    // AttendanceAutoCloseBackgroundService generaba una Salida "Automático"
+                    // cuando el empleado no checaba su salida) — retirado a pedido explícito
+                    // del usuario: "quita las autochecadas de salida". Un turno sin Salida se
+                    // queda abierto hasta que se corrija a mano; las Salidas automáticas que
+                    // ya existían se conservan tal cual (ver AttendanceVerifyMethod.Automatic).
 
                     // Singleton, no Scoped: el tema es un estado global de la app (una sola
                     // preferencia, compartida por todas las ventanas), no algo ligado a la
@@ -161,9 +184,18 @@ public partial class App : System.Windows.Application
             var mainWindow = _mainWindowScope.ServiceProvider.GetRequiredService<MainWindow>();
             mainWindow.Closed += (_, _) => _mainWindowScope?.Dispose();
             mainWindow.Show();
+            mainWindow.Activate();
+
+            // Se cierra DESPUÉS de mostrar MainWindow (ver comentario de clase de
+            // SplashWindow: cerrar la única ventana abierta terminaría la app).
+            if (splash is not null)
+            {
+                await splash.CloseWithFadeAsync();
+            }
         }
         catch (Exception ex)
         {
+            try { splash?.Close(); } catch { /* ignorado */ }
             // Cualquier falla durante el arranque (migración, construcción del host, creación
             // de la ventana) se reporta igual que un crash tardío, en vez de dejar que la
             // excepción suba sin capturar y cierre la app en silencio.
