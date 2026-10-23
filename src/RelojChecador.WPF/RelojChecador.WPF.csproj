@@ -43,6 +43,11 @@
        imagen embebida de WPF. -->
   <ItemGroup>
     <Resource Include="Assets\DriveInLogo.png" />
+    <!-- Mismo logotipo con fondo TRANSPARENTE (copia de dashboard/assets/logo.png) — lo usan
+         la pantalla de bienvenida (SplashWindow) y el brillo animado del logo de la barra
+         superior: el destello usa el canal alfa del logo como máscara (OpacityMask), así que
+         con el fondo blanco opaco de DriveInLogo.png barrería todo el rectángulo. -->
+    <Resource Include="Assets\DriveInLogoTransparente.png" />
   </ItemGroup>
 
   <PropertyGroup>

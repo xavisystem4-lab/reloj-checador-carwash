@@ -61,8 +61,86 @@
                      fuerte sin importar el tema activo. -->
                 <Border DockPanel.Dock="Left" Background="White" CornerRadius="6" Padding="8,4"
                         BorderBrush="{DynamicResource BrushBorder}" BorderThickness="1" Margin="0,0,12,0">
-                    <Image Source="Assets/DriveInLogo.png" Height="28" Stretch="Uniform"
-                           ToolTip="Drive In Car Wash" />
+                    <!-- Logo animado (v1.71.0 — pedido explícito: "que haya una animación en
+                         el logotipo"): al abrir, el logo entra con un pequeño rebote y un
+                         destello de brillo lo recorre; el destello se repite al pasar el
+                         mouse encima. A propósito NO hay animación en bucle: la app se queda
+                         abierta días enteros (ver v1.70.1) y una animación permanente
+                         mantendría a WPF redibujando sin parar. El destello usa el propio
+                         logo (versión con fondo transparente) como máscara, así solo brilla
+                         sobre las letras y la gota. -->
+                    <Grid x:Name="HeaderLogo" Height="28" ToolTip="Drive In Car Wash"
+                          Background="Transparent" RenderTransformOrigin="0.5,0.5">
+                        <Grid.RenderTransform>
+                            <ScaleTransform x:Name="HeaderLogoScale" />
+                        </Grid.RenderTransform>
+                        <Grid.Resources>
+                            <Storyboard x:Key="HeaderLogoShine">
+                                <DoubleAnimation Storyboard.TargetName="HeaderLogoShineTranslate"
+                                                 Storyboard.TargetProperty="X"
+                                                 From="-40" To="110" Duration="0:0:0.75">
+                                    <DoubleAnimation.EasingFunction>
+                                        <SineEase EasingMode="EaseInOut" />
+                                    </DoubleAnimation.EasingFunction>
+                                </DoubleAnimation>
+                            </Storyboard>
+                        </Grid.Resources>
+                        <Grid.Triggers>
+                            <EventTrigger RoutedEvent="FrameworkElement.Loaded">
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="HeaderLogoScale"
+                                                         Storyboard.TargetProperty="ScaleX"
+                                                         From="0.6" To="1" Duration="0:0:0.55">
+                                            <DoubleAnimation.EasingFunction>
+                                                <BackEase EasingMode="EaseOut" Amplitude="0.5" />
+                                            </DoubleAnimation.EasingFunction>
+                                        </DoubleAnimation>
+                                        <DoubleAnimation Storyboard.TargetName="HeaderLogoScale"
+                                                         Storyboard.TargetProperty="ScaleY"
+                                                         From="0.6" To="1" Duration="0:0:0.55">
+                                            <DoubleAnimation.EasingFunction>
+                                                <BackEase EasingMode="EaseOut" Amplitude="0.5" />
+                                            </DoubleAnimation.EasingFunction>
+                                        </DoubleAnimation>
+                                        <DoubleAnimation Storyboard.TargetName="HeaderLogoShineTranslate"
+                                                         Storyboard.TargetProperty="X"
+                                                         BeginTime="0:0:0.5"
+                                                         From="-40" To="110" Duration="0:0:0.75">
+                                            <DoubleAnimation.EasingFunction>
+                                                <SineEase EasingMode="EaseInOut" />
+                                            </DoubleAnimation.EasingFunction>
+                                        </DoubleAnimation>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </EventTrigger>
+                            <EventTrigger RoutedEvent="UIElement.MouseEnter">
+                                <BeginStoryboard Storyboard="{StaticResource HeaderLogoShine}" />
+                            </EventTrigger>
+                        </Grid.Triggers>
+                        <Image Source="Assets/DriveInLogoTransparente.png" Stretch="Uniform"
+                               RenderOptions.BitmapScalingMode="HighQuality" />
+                        <Grid ClipToBounds="True" IsHitTestVisible="False">
+                            <Grid.OpacityMask>
+                                <ImageBrush ImageSource="Assets/DriveInLogoTransparente.png" Stretch="Uniform" />
+                            </Grid.OpacityMask>
+                            <Rectangle Width="18" HorizontalAlignment="Left">
+                                <Rectangle.Fill>
+                                    <LinearGradientBrush StartPoint="0,0.5" EndPoint="1,0.5">
+                                        <GradientStop Color="#00FFFFFF" Offset="0" />
+                                        <GradientStop Color="#E6FFFFFF" Offset="0.5" />
+                                        <GradientStop Color="#00FFFFFF" Offset="1" />
+                                    </LinearGradientBrush>
+                                </Rectangle.Fill>
+                                <Rectangle.RenderTransform>
+                                    <TransformGroup>
+                                        <SkewTransform AngleX="-20" />
+                                        <TranslateTransform x:Name="HeaderLogoShineTranslate" X="-40" />
+                                    </TransformGroup>
+                                </Rectangle.RenderTransform>
+                            </Rectangle>
+                        </Grid>
+                    </Grid>
                 </Border>
                 <TextBlock DockPanel.Dock="Left" Text="Reloj Checador" FontWeight="Bold" FontSize="17"
                            VerticalAlignment="Center" Foreground="{DynamicResource BrushText}" />

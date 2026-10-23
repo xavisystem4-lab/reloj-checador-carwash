@@ -683,6 +683,18 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   aunque lleguen más errores mientras está abierto (antes cada redibujado fallido abría otro
   MessageBox), ya no apaga Serilog en el primer error, y ante falta de memoria guarda el log, avisa,
   se reinicia sola (si llevaba ≥10 min abierta) y termina el proceso en vez de seguir rota.
+- **v1.71.0 — Logotipo animado de Drive In Car Wash y sin salidas automáticas.**
+  (1) Pantalla de bienvenida nueva (`Views/SplashWindow`): al abrir la app, el logo del carwash cae
+  como gota con un rebote, una onda de agua se expande debajo y un destello de brillo lo recorre
+  (~1.6 s); después se hace el arranque normal y se desvanece al mostrarse la ventana principal. Si
+  la pantalla fallara por cualquier motivo, la app arranca igual que antes, sin ella. (2) El logo
+  de la barra superior entra con un pequeño rebote y un destello al abrir, y el destello se repite al
+  pasar el mouse encima — sin animaciones en bucle, para no redibujar sin parar con la app abierta
+  días enteros. Ambos usan `Assets/DriveInLogoTransparente.png` (el mismo logo con fondo
+  transparente del Dashboard) como máscara del brillo. (3) Retirado el auto-cierre de turnos
+  (`AttendanceAutoCloseBackgroundService` / `AttendanceAutoCloser`): la app ya no genera Salidas
+  "Automático" cuando un empleado no checa su salida — el turno se queda abierto hasta corregirlo a
+  mano. Las Salidas automáticas que ya existían se conservan y se siguen mostrando como "Automático".
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Navegación completa de la UI (Fase 3 del diseño visual — Sucursales, Empleados,
