@@ -387,6 +387,9 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
         // si el número no cambió desde la última descarga, se omite la descarga — se registra
         // igual el latido, porque el reloj sí respondió. Respaldo: descarga completa al menos
         // cada AutoDownloadFullReadMaxInterval aunque el conteo no cambie.
+        // v1.71.1: la hora del reloj sigue a la de la PC (cambio de horario de invierno/verano).
+        await TryAutoSyncDeviceTimeAsync(force: false);
+
         var device = SelectedDevice;
         var countResult = await _deviceAdapter.GetAttendanceLogCountAsync();
         int? deviceLogCount = countResult.IsSuccess ? countResult.Value : null;
@@ -1147,6 +1150,9 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
             AppendLog("Comunicación completa establecida con el dispositivo.");
             await TryPersistCommunicationResultAsync(succeeded: true);
 
+            // Antes de leer o recibir marcaciones nuevas, el reloj queda con la hora de la PC.
+            await TryAutoSyncDeviceTimeAsync(force: true);
+
             // Al conectar, arranca solo el monitoreo en vivo — no hay que presionar nada
             // aparte para que una marcación aparezca en la lista casi al instante.
             var monitorResult = await _deviceAdapter.StartRealTimeMonitoringAsync(token);
@@ -1857,6 +1863,65 @@ public sealed partial class DevicesViewModel : ObservableObject, IDisposable
                 // seguirá mostrando "Sincronizando…" hasta que expire por su cuenta.
                 Log.Warning(completeEx, "No se pudo reportar el fallo de la solicitud remota {RequestId} de vuelta a Supabase", request.Id);
             }
+        }
+    }
+
+    /// <summary>Diferencia máxima tolerada entre el reloj checador y la PC antes de corregirlo.</summary>
+    private static readonly TimeSpan DeviceClockTolerance = TimeSpan.FromSeconds(60);
+
+    /// <summary>Cada cuánto se revisa la hora del reloj mientras sigue conectado — así un cambio
+    /// de horario a las 2:00 a. m. se corrige solo aunque nadie vuelva a "Conectar".</summary>
+    private static readonly TimeSpan DeviceClockCheckInterval = TimeSpan.FromMinutes(10);
+
+    private DateTime _lastDeviceClockCheckUtc = DateTime.MinValue;
+
+    /// <summary>v1.71.1, pedido explícito del usuario tras el cambio a horario de invierno en
+    /// Mexicali ("que el sistema se acople al horario de la PC"): los relojes ZKTeco no cambian
+    /// de horario solos, y como la app guarda la hora TAL CUAL la sella el reloj (ver
+    /// SyncDeviceTimeAsync), todas las checadas quedaban una hora corridas. Ahora, al conectar
+    /// y luego cada <see cref="DeviceClockCheckInterval"/>, se compara la hora del reloj con la
+    /// de la PC (que Windows ya ajusta sola) y si difieren más de
+    /// <see cref="DeviceClockTolerance"/> se escribe la de la PC. Nunca lanza ni tumba la
+    /// conexión: si el reloj no responde a la consulta de hora, se intenta en la siguiente vuelta.</summary>
+    private async Task TryAutoSyncDeviceTimeAsync(bool force)
+    {
+        if (!IsConnected || (!force && DateTime.UtcNow - _lastDeviceClockCheckUtc < DeviceClockCheckInterval))
+        {
+            return;
+        }
+        _lastDeviceClockCheckUtc = DateTime.UtcNow;
+
+        try
+        {
+            var deviceTimeResult = await _deviceAdapter.GetDeviceTimeAsync();
+            if (deviceTimeResult.IsFailure)
+            {
+                Log.Warning("No se pudo leer la hora del reloj para compararla con la PC: {Error}", deviceTimeResult.Error.Message);
+                return;
+            }
+
+            var pcNow = DateTime.Now;
+            var difference = deviceTimeResult.Value - pcNow;
+            if (difference.Duration() <= DeviceClockTolerance)
+            {
+                return;
+            }
+
+            var setResult = await _deviceAdapter.SetDeviceTimeAsync(DateTime.Now);
+            if (setResult.IsFailure)
+            {
+                AppendLog($"⚠️ El reloj tiene otra hora que la PC ({deviceTimeResult.Value:dd/MM/yyyy HH:mm}) y no se pudo corregir: {setResult.Error.Message}");
+                return;
+            }
+
+            var minutes = (int)Math.Round(difference.TotalMinutes);
+            AppendLog($"🕒 Hora del reloj ajustada a la de la PC: {deviceTimeResult.Value:dd/MM/yyyy HH:mm} → {DateTime.Now:dd/MM/yyyy HH:mm} " +
+                $"(iba {(minutes > 0 ? "adelantado" : "atrasado")} {Math.Abs(minutes)} min).");
+            Log.Information("Hora del reloj ajustada automáticamente: diferencia {Minutes} min.", minutes);
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Error al sincronizar automáticamente la hora del reloj.");
         }
     }
 

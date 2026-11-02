@@ -695,6 +695,12 @@ Inno Setup instalado — no es posible compilarlo desde macOS/Linux.
   (`AttendanceAutoCloseBackgroundService` / `AttendanceAutoCloser`): la app ya no genera Salidas
   "Automático" cuando un empleado no checa su salida — el turno se queda abierto hasta corregirlo a
   mano. Las Salidas automáticas que ya existían se conservan y se siguen mostrando como "Automático".
+- **v1.71.1 — La hora del reloj checador sigue a la de la PC (cambio de horario).** Tras el cambio a
+  horario de invierno en Mexicali, el reloj ZKTeco seguía con la hora de verano y, como las checadas
+  se guardan con la hora que sella el reloj, quedaban una hora corridas. Ahora `DevicesViewModel`
+  compara la hora del reloj con la de Windows al conectar y luego cada 10 minutos
+  (`TryAutoSyncDeviceTimeAsync`); si difieren más de 60 s, escribe la hora de la PC y lo deja en la
+  bitácora ("🕒 Hora del reloj ajustada..."). El botón "Sincronizar hora" sigue disponible.
 
 **Pendiente (bloqueado por decisiones o datos externos):**
 - Navegación completa de la UI (Fase 3 del diseño visual — Sucursales, Empleados,
